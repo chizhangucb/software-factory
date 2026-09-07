@@ -91,6 +91,7 @@ export type CommitStatus = {
 };
 
 const STATUS_DESCRIPTION_LIMIT = 140;
+const CARRIED_SUFFIX = / \(carried from [0-9a-f]+ by update-branch\)$/;
 
 /**
  * The verdict to post on the new head after an update, or undefined. The
@@ -107,6 +108,7 @@ export const carriedVerdict = (
   if (!verdict || verdict.state !== "success") return undefined;
   const suffix = ` (carried from ${oldHeadSha.slice(0, 7)} by update-branch)`;
   const room = STATUS_DESCRIPTION_LIMIT - suffix.length;
-  const base = (verdict.description ?? "").slice(0, room);
+  // A verdict carried twice keeps one note, not a chain of them.
+  const base = (verdict.description ?? "").replace(CARRIED_SUFFIX, "").slice(0, room);
   return { ...verdict, description: `${base}${suffix}` };
 };

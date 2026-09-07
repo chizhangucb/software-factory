@@ -64,6 +64,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
+      issues: read # the linked ticket, its retry marker, and its labels
       pull-requests: write
       actions: read # the retry handler links the uploaded run log (#16)
 

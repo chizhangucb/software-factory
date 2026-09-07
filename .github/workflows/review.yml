@@ -14,12 +14,18 @@ on:
         description: Repo holding the factory scripts (this repo).
         type: string
         default: chizhangucb/software-factory
+      factory_ref:
+        description: Ref of the factory scripts to run. Keep it equal to the ref in the caller's `uses:`; GitHub does not expose that ref to the called workflow.
+        type: string
+        default: main
     secrets:
       FACTORY_PAT:
         required: true
 
 jobs:
   review:
+    # pull_request_target runs with secrets: never on a fork's code.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
@@ -70,20 +76,23 @@ jobs:
           fetch-depth: 0
           path: target
           token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
 
       - name: Checkout factory
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.factory_repo }}
-          ref: ${{ github.job_workflow_sha }}
+          ref: ${{ inputs.factory_ref }}
           path: factory
           token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
 
       - name: Prepare branch
         working-directory: target
         run: |
-          git fetch origin main:main || git fetch origin main
-          git checkout "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH"
+          # fetch-depth 0 already brought origin/main; no credentials remain for a network fetch
+          git branch -f main origin/main
+          git checkout -B "$BRANCH" "$BRANCH_HEAD_SHA"
           git config user.name "factory-agent[bot]"
           git config user.email "factory-agent[bot]@users.noreply.github.com"
 
@@ -118,9 +127,11 @@ jobs:
       - name: Push branch
         if: success()
         working-directory: target
+        env:
+          FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
         run: |
           set +e
-          git push --force-with-lease="refs/heads/$BRANCH:$BRANCH_HEAD_SHA" origin "$BRANCH" 2> push_err.txt
+          git push --force-with-lease="refs/heads/$BRANCH:$BRANCH_HEAD_SHA" "https://x-access-token:${FACTORY_PAT}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$BRANCH" 2> push_err.txt
           status=$?
           set -e
           if [ $status -ne 0 ]; then

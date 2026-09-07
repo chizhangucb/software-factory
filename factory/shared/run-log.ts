@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentStreamEvent, LoggingOption, RunResult } from "@ai-hero/sandcastle";
-import { outputDir } from "./common";
+import { fail, outputDir } from "./common";
 
 /**
  * Claude's final `result` event from stream-json, kept raw.
@@ -110,4 +110,29 @@ export const createRunLog = (name: string): RunLog => {
       return failure;
     },
   };
+};
+
+/**
+ * Run the agent and always settle the log, whether the library returned or
+ * threw. A result event carrying `is_error` is the reason that gets reported,
+ * since the library's own error (a missing output tag, say) is usually the
+ * symptom of it.
+ */
+export const runOrFail = async <T>(
+  log: RunLog,
+  runAgent: () => Promise<T>,
+): Promise<T> => {
+  let result: T | undefined;
+  let thrown: unknown;
+  try {
+    result = await runAgent();
+  } catch (error) {
+    thrown = error;
+  }
+  const failure = log.finish();
+  if (failure) return fail(failure);
+  if (thrown !== undefined) {
+    return fail(thrown instanceof Error ? thrown.message : String(thrown));
+  }
+  return result as T;
 };

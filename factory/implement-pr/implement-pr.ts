@@ -11,7 +11,7 @@ import {
   writeText,
 } from "../shared/common";
 import { resolveModel } from "../shared/model";
-import { createRunLog } from "../shared/run-log";
+import { createRunLog, runOrFail } from "../shared/run-log";
 import { fetchPullRequestContext } from "../shared/review-context";
 import {
   filterInlineComments,
@@ -34,7 +34,7 @@ try {
   console.log(`Implementer model: ${model} (from ${source}).`);
 
   const log = createRunLog(`implement-pr-${PR_NUMBER}`);
-  const result = await runWithExtraction({
+  const result = await runOrFail(log, () => runWithExtraction({
     name: `implement-pr-${PR_NUMBER}`,
     agent: claudeAgent(model),
     sandbox: noSandbox(),
@@ -58,9 +58,7 @@ try {
       path.join(import.meta.dirname, "extraction.md"),
       "utf8",
     ),
-  });
-  const failure = log.finish(result);
-  if (failure) fail(failure);
+  }));
 
   const threadReplies = filterReplies(
     result.output.threadReplies,

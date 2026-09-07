@@ -14,6 +14,10 @@ on:
         description: Repo holding the factory scripts (this repo).
         type: string
         default: chizhangucb/software-factory
+      factory_ref:
+        description: Ref of the factory scripts to run. Keep it equal to the ref in the caller's `uses:`; GitHub does not expose that ref to the called workflow.
+        type: string
+        default: main
     secrets:
       FACTORY_PAT:
         description: Personal access token used for pushes and PR creation so the target repo's CI fires.
@@ -147,15 +151,17 @@ jobs:
           fetch-depth: 0
           path: target
           token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
 
       - name: Checkout factory
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.factory_repo }}
-          ref: ${{ github.job_workflow_sha }}
+          ref: ${{ inputs.factory_ref }}
           path: factory
           token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
 
       - name: Compute branch name
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
@@ -212,7 +218,8 @@ jobs:
         working-directory: target
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
-        run: git push --force origin "$BRANCH"
+          FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
+        run: git push --force "https://x-access-token:${FACTORY_PAT}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$BRANCH"
 
       - name: Open draft PR
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
@@ -223,6 +230,7 @@ jobs:
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
           title="Fix #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
           title="${title:0:256}"
           body_file="${RUNNER_TEMP}/pr-body.md"

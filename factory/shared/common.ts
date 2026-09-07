@@ -56,14 +56,24 @@ export const writeText = (filename: string, value: string): void => {
  * The factory's Claude provider. The model is a workflow input resolved by
  * the calling script (see `model.ts`); the token comes from the account the
  * workflow picked. Each run gets its own config dir so tokens never share
- * state. The runner carries no API-key env vars, so the token is the only auth.
+ * state, and sandcastle is told to look for sessions under that dir, since
+ * resume (used by review extraction) otherwise searches $HOME. The agent gets
+ * no GitHub credentials: the scripts fetch context before the run, and the
+ * workflow alone pushes, labels, and opens PRs.
  */
+export const claudeConfigDir = (): string =>
+  process.env.CLAUDE_CONFIG_DIR ?? path.join(outputDir(), "claude-config");
+
 export const claudeAgent = (model: string) =>
   sandcastle.claudeCode(model, {
     env: {
       CLAUDE_CODE_OAUTH_TOKEN: required("CLAUDE_CODE_OAUTH_TOKEN"),
-      CLAUDE_CONFIG_DIR:
-        process.env.CLAUDE_CONFIG_DIR ?? path.join(outputDir(), "claude-config"),
+      CLAUDE_CONFIG_DIR: claudeConfigDir(),
+      GH_TOKEN: "",
+      GITHUB_TOKEN: "",
+    },
+    sessionStorage: {
+      hostProjectsDir: path.join(claudeConfigDir(), "projects"),
     },
   });
 

@@ -11,6 +11,11 @@ export const parseDiffLines = (diff: string): Map<string, Set<number>> => {
       }
       continue;
     }
+    if (line.startsWith("+++ /dev/null")) {
+      currentFile = undefined;
+      continue;
+    }
+    if (line.startsWith("--- ")) continue;
 
     if (!currentFile) continue;
 
@@ -20,13 +25,13 @@ export const parseDiffLines = (diff: string): Map<string, Set<number>> => {
       continue;
     }
 
-    if (line.startsWith("+") && !line.startsWith("+++")) {
+    if (line.startsWith("+")) {
       files.get(currentFile)?.add(newLine);
       newLine++;
       continue;
     }
 
-    if (line.startsWith(" ") || line === "") {
+    if (line.startsWith(" ")) {
       files.get(currentFile)?.add(newLine);
       newLine++;
     }

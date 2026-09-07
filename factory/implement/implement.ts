@@ -3,7 +3,7 @@ import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 import { claudeAgent, fail, gh, required, safeSh, sh } from "../shared/common";
 import { resolveModel } from "../shared/model";
-import { createRunLog } from "../shared/run-log";
+import { createRunLog, runOrFail } from "../shared/run-log";
 
 const ISSUE_NUMBER = required("ISSUE_NUMBER");
 const ISSUE_TITLE = required("ISSUE_TITLE");
@@ -22,7 +22,7 @@ try {
   console.log(`Implementer model: ${model} (from ${source}).`);
 
   const log = createRunLog(`implement-${ISSUE_NUMBER}`);
-  const result = await sandcastle.run({
+  const result = await runOrFail(log, () => sandcastle.run({
     name: `implement-#${ISSUE_NUMBER}`,
     agent: claudeAgent(model),
     sandbox: noSandbox(),
@@ -34,9 +34,7 @@ try {
       BRANCH,
       ISSUE_CONTEXT: issueContext,
     },
-  });
-  const failure = log.finish(result);
-  if (failure) fail(failure);
+  }));
 
   const commitsAhead = Number(sh("git rev-list --count main..HEAD").trim());
   if (!Number.isFinite(commitsAhead) || commitsAhead === 0) {

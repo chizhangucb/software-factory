@@ -17,7 +17,7 @@ import {
   reviewOutputSchema,
 } from "../shared/review-output";
 import { runWithExtraction } from "../shared/run-with-extraction";
-import { createRunLog } from "../shared/run-log";
+import { createRunLog, runOrFail } from "../shared/run-log";
 
 const PR_NUMBER = required("PR_NUMBER");
 const BRANCH = required("BRANCH");
@@ -28,7 +28,7 @@ try {
   console.log(`Reviewer model: ${REVIEWER_MODEL}.`);
 
   const log = createRunLog(`review-${PR_NUMBER}`);
-  const result = await runWithExtraction({
+  const result = await runOrFail(log, () => runWithExtraction({
     name: `review-pr-${PR_NUMBER}`,
     agent: claudeAgent(REVIEWER_MODEL),
     sandbox: noSandbox(),
@@ -52,9 +52,7 @@ try {
       path.join(import.meta.dirname, "extraction.md"),
       "utf8",
     ),
-  });
-  const failure = log.finish(result);
-  if (failure) fail(failure);
+  }));
 
   const validInlineComments = filterInlineComments(
     result.output.inlineComments,

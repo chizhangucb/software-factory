@@ -36,11 +36,13 @@ export const safeSh = (cmd: string): string => {
   }
 };
 
+/** 64 MB: a busy repo's paginated listing passed Node's 1 MB default (ENOBUFS in the reconciler, #19). */
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
 export const gh = (args: string[]): string =>
   execFileSync("gh", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: GH_MAX_BUFFER,
   });
 
 export const writeJson = (filename: string, value: unknown): void => {

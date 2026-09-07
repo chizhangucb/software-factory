@@ -58,6 +58,41 @@ export const fetchParentIssue = (
   }
 };
 
+export interface IssueView {
+  readonly number: number;
+  readonly title: string;
+  readonly body?: string | null;
+  readonly comments?: readonly {
+    readonly author?: { readonly login: string } | null;
+    readonly body: string;
+  }[];
+}
+
+/**
+ * The ticket as text. Rendered from `--json` rather than gh's own text view:
+ * gh 2.95 prints only the comments under `--comments`, so a ticket with no
+ * comments would arrive empty.
+ */
+export const renderIssue = (issue: IssueView): string => {
+  const parts = [`Issue #${issue.number}: ${issue.title}`, (issue.body ?? "").trim()];
+  const comments = issue.comments ?? [];
+  if (comments.length > 0) {
+    parts.push("## Comments");
+    for (const comment of comments) {
+      parts.push(`### ${comment.author?.login ?? "unknown"}\n\n${comment.body.trim()}`);
+    }
+  }
+  return parts.join("\n\n");
+};
+
+/** Fetch and render the ticket with the job's gh token. Throws on an API error. */
+export const fetchIssue = (issueNumber: string): string =>
+  renderIssue(
+    JSON.parse(
+      gh(["issue", "view", issueNumber, "--json", "number,title,body,comments"]),
+    ) as IssueView,
+  );
+
 export const ticketDocument = (input: {
   readonly number: number | string;
   readonly issueContext: string;

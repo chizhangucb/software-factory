@@ -2,10 +2,10 @@ import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 import { runWithRotation } from "../shared/accounts";
-import { fail, gh, outputDir, required, safeSh, sh, writeText } from "../shared/common";
+import { fail, gh, outputDir, required, sh, writeText } from "../shared/common";
 import { resolveModel } from "../shared/model";
 import { installFactoryPlugins } from "../shared/plugins";
-import { fetchParentIssue, ticketDocument } from "../shared/ticket-context";
+import { fetchIssue, fetchParentIssue, ticketDocument } from "../shared/ticket-context";
 import { withMaxTurns } from "../shared/turn-cap";
 
 const ISSUE_NUMBER = required("ISSUE_NUMBER");
@@ -21,9 +21,8 @@ try {
   const repo =
     process.env.GH_REPO ??
     gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).trim();
-  const issueContext =
-    safeSh(`gh issue view ${ISSUE_NUMBER} --comments`) ||
-    `Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}`;
+  // Throws on an API error: a missing body must never read as an empty ticket.
+  const issueContext = fetchIssue(ISSUE_NUMBER);
   const parent = fetchParentIssue(repo, ISSUE_NUMBER);
   console.log(
     parent

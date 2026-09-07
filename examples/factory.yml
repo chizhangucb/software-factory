@@ -6,12 +6,13 @@ on:
     types: [labeled]
   pull_request_target:
     types: [labeled]
+  pull_request:
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
-  statuses: write # the reviewer's factory/verdict commit status
+  statuses: write # factory/verdict, factory/red-green, factory/test-integrity
 
 jobs:
   implement:
@@ -25,4 +26,8 @@ jobs:
   implement-pr:
     if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/implement-pr.yml@main
+    secrets: inherit
+  gate:
+    if: github.event_name == 'pull_request'
+    uses: chizhangucb/software-factory/.github/workflows/gate.yml@main
     secrets: inherit

@@ -5,6 +5,7 @@ import {
   asString,
   standardSchema,
 } from "./common";
+import type { CriterionJudgement } from "./verdict";
 
 export interface InlineComment {
   readonly path: string;
@@ -19,6 +20,10 @@ export interface ThreadReply {
 
 export interface ReviewOutput {
   readonly summary: string;
+  /** The reviewer's overall word; `resolveVerdict` has the final say. */
+  readonly verdict: "pass" | "fail";
+  /** One entry per acceptance criterion, ticked or not, with evidence. */
+  readonly criteria: CriterionJudgement[];
   readonly inlineComments: InlineComment[];
   readonly replies: ThreadReply[];
 }
@@ -60,10 +65,39 @@ const parseReply = (value: unknown): ThreadReply => {
   };
 };
 
+const asBoolean = (value: unknown, label: string): boolean => {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${label} must be true or false`);
+};
+
+const asVerdict = (value: unknown): "pass" | "fail" => {
+  const word = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (word === "pass" || word === "fail") return word;
+  throw new Error('verdict must be "pass" or "fail"');
+};
+
+const parseCriterion = (value: unknown): CriterionJudgement => {
+  const record = asRecord(value, "criterion");
+  const index =
+    typeof record.index === "number" && Number.isInteger(record.index)
+      ? record.index
+      : undefined;
+  return {
+    index,
+    criterion: asOptionalString(record.criterion),
+    met: asBoolean(record.met, "criterion met"),
+    evidence: asString(record.evidence, "criterion evidence"),
+  };
+};
+
 export const reviewOutputSchema = standardSchema<ReviewOutput>((value) => {
   const record = asRecord(value, "review output");
   return {
     summary: asString(record.summary, "summary"),
+    verdict: asVerdict(record.verdict),
+    criteria: asArray(record.criteria ?? [], "criteria").map(parseCriterion),
     inlineComments: asArray(record.inlineComments ?? [], "inlineComments").map(
       parseInlineComment,
     ),

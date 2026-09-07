@@ -15,6 +15,8 @@ export interface PullRequestContext {
   readonly prBody: string;
   readonly issueNumber: string;
   readonly issueTitle: string;
+  /** The linked issue's body alone, for parsing its acceptance criteria. */
+  readonly issueBody: string;
   readonly linkedIssue: string;
   readonly diff: string;
   readonly prCommentsJson: string;
@@ -43,6 +45,9 @@ export const fetchPullRequestContext = (
   const issueNumber = issueMatch?.[1] ?? "";
   const issueTitle = issueNumber
     ? safeSh(`gh issue view ${issueNumber} --json title --jq .title`).trim()
+    : "";
+  const issueBody = issueNumber
+    ? safeSh(`gh issue view ${issueNumber} --json body --jq .body`)
     : "";
   const linkedIssue = issueNumber
     ? safeSh(`gh issue view ${issueNumber} --comments`)
@@ -162,6 +167,7 @@ query($owner:String!,$repo:String!,$number:Int!) {
     prBody: prView.body ?? "",
     issueNumber,
     issueTitle,
+    issueBody,
     linkedIssue,
     diff,
     prCommentsJson: JSON.stringify(prComments, null, 2),

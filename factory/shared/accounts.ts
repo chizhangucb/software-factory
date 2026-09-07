@@ -168,6 +168,12 @@ export const runOnAccounts = async <A, T>(
     `[${name}] ${accounts.length} account(s) configured: ` +
       accounts.map((a) => `${a.index} (${a.label})`).join(", "),
   );
+  const unknownForced = [...forced].filter((i) => !accounts.some((a) => a.index === i));
+  if (unknownForced.length > 0) {
+    log(
+      `[${name}] ${FORCE_RATE_LIMIT_VAR} names account ${unknownForced.join(", ")} but no configured account has that index; nothing forced for it`,
+    );
+  }
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const account = pickToken(accounts, undefined, rateLimited);

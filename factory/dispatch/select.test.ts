@@ -6,6 +6,7 @@ import {
   fromGitHub,
   issuesClosedByPrs,
   selectForDispatch,
+  whyNotDispatchableNow,
   whySkipped,
 } from "./select.ts";
 
@@ -142,4 +143,25 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
       hasOpenPr: false,
     },
   ]);
+});
+
+test("re-reading an issue before labeling catches a close or a new blocker since the snapshot", () => {
+  // The issues list is eventually consistent: #65 and #67 were labeled seconds after closing (#19).
+  const raw = (over: Record<string, unknown>) => ({
+    number: 67,
+    state: "open",
+    labels: [{ name: "ready-for-agent" }],
+    assignees: [],
+    issue_dependencies_summary: { blocked_by: 0 },
+    ...over,
+  });
+  const none = new Set<number>();
+  assert.equal(whyNotDispatchableNow(raw({}), none), undefined);
+  assert.equal(whyNotDispatchableNow(raw({ state: "closed" }), none), "closed since the snapshot");
+  assert.equal(whyNotDispatchableNow(raw({ issue_dependencies_summary: { blocked_by: 1 } }), none), "1 open blocker");
+  assert.equal(whyNotDispatchableNow(raw({}), new Set([67])), "an open PR already closes it");
+  assert.equal(
+    whyNotDispatchableNow(raw({ labels: [{ name: "ready-for-agent" }, { name: "agent:in-progress" }] }), none),
+    "already in the factory: agent:in-progress",
+  );
 });

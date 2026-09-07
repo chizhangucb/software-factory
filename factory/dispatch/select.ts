@@ -101,3 +101,20 @@ export const fromGitHub = (
   }
   return issues;
 };
+
+/**
+ * The listing the snapshot came from is eventually consistent: a ticket
+ * closed, re-blocked, or picked up seconds earlier can still be listed as
+ * dispatchable (#19: two closed tickets were labeled and implemented). Given
+ * the issue re-read on its own (`GET /repos/{o}/{r}/issues/{n}`), the reason
+ * not to label it now, or undefined when it is still dispatchable.
+ */
+export const whyNotDispatchableNow = (
+  raw: unknown,
+  closedByOpenPr: ReadonlySet<number>,
+): string | undefined => {
+  const r = raw as Record<string, any>;
+  if (r.state !== "open") return "closed since the snapshot";
+  const [issue] = fromGitHub([raw], closedByOpenPr);
+  return issue ? whySkipped(issue) : "not an issue";
+};

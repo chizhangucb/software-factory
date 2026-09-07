@@ -7,6 +7,7 @@ import { resolveModel } from "../shared/model";
 import { installFactoryPlugins } from "../shared/plugins";
 import { fetchIssue, fetchParentIssue, ticketDocument } from "../shared/ticket-context";
 import { withMaxTurns } from "../shared/turn-cap";
+import { retrySectionForRun } from "../retry/context";
 
 const ISSUE_NUMBER = required("ISSUE_NUMBER");
 const ISSUE_TITLE = required("ISSUE_TITLE");
@@ -31,6 +32,9 @@ try {
   );
   const ticketFile = `ticket-${ISSUE_NUMBER}.md`;
   writeText(ticketFile, ticketDocument({ number: ISSUE_NUMBER, issueContext, parent }));
+  // A retry (#16) runs on the same branch with the previous failure in its prompt.
+  const retrySection = retrySectionForRun(ISSUE_NUMBER);
+  const startSha = sh("git rev-parse HEAD").trim();
 
   const labels = JSON.parse(
     gh(["issue", "view", ISSUE_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),
@@ -62,16 +66,18 @@ try {
         BRANCH,
         ISSUE_CONTEXT: issueContext,
         TICKET_FILE: path.join(outputDir(), ticketFile),
+        RETRY_SECTION: retrySection,
       },
     });
   });
 
-  const commitsAhead = Number(sh("git rev-list --count main..HEAD").trim());
+  // Counted from where this run started: a retry begins on the previous attempt's commits.
+  const commitsAhead = Number(sh(`git rev-list --count ${startSha}..HEAD`).trim());
   if (!Number.isFinite(commitsAhead) || commitsAhead === 0) {
     fail("Agent finished but no commits were made on the branch.");
   }
 
-  console.log(`Implementation produced ${commitsAhead} commit(s).`);
+  console.log(`Implementation produced ${commitsAhead} commit(s), ${sh("git rev-list --count main..HEAD").trim()} ahead of main.`);
   console.log(`Commits this run: ${result.commits.length}.`);
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));

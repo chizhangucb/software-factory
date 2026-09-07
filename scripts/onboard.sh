@@ -15,6 +15,7 @@ label "agent:in-progress" "fbca04" "Factory: a run is active"
 label "agent:review"      "5319e7" "Factory: run the reviewer on this PR"
 label "agent:blocked"     "b60205" "Factory: last run failed, see the comment"
 label "needs-human"       "d93f0b" "Factory: escalated, a human must read this"
+label "factory:retry-1"   "c5def5" "Factory: retries used on this ticket"
 
 # Auto-merge is enabled per PR by the implementer; the repo must allow it. Merged branches go.
 gh repo edit "$repo" --enable-auto-merge --delete-branch-on-merge >/dev/null

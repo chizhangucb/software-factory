@@ -1,0 +1,114 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { evaluateChecks, runIdFromUrl, summariseFailures } from "./checks";
+
+const own = { workflowName: "factory", runId: "500" };
+
+const status = (context: string, state: string, description = "") => ({
+  context,
+  state,
+  description,
+  target_url: `https://github.com/o/r/actions/runs/${context.length}`,
+});
+
+const checkRun = (
+  name: string,
+  status: string,
+  conclusion: string | null,
+  workflowName: string | undefined,
+  runId = "77",
+) => ({
+  name,
+  status,
+  conclusion,
+  html_url: `https://github.com/o/r/actions/runs/${runId}/job/9`,
+  workflowName,
+});
+
+test("evaluateChecks: all green means nothing pending and nothing failing", () => {
+  const result = evaluateChecks({
+    statuses: [
+      status("factory/verdict", "success"),
+      status("factory/red-green", "success"),
+      status("factory/test-integrity", "success"),
+    ],
+    checkRuns: [checkRun("check", "completed", "success", "check")],
+    own,
+  });
+  assert.deepEqual(result, { pending: [], failures: [] });
+});
+
+test("evaluateChecks: a pending status or check run is reported as pending", () => {
+  const result = evaluateChecks({
+    statuses: [status("factory/red-green", "pending", "running")],
+    checkRuns: [checkRun("check", "in_progress", null, "check")],
+    own,
+  });
+  assert.deepEqual(result.pending, ["factory/red-green", "check"]);
+  assert.deepEqual(result.failures, []);
+});
+
+test("evaluateChecks: factory gate contexts fail as gate, other statuses and check runs as ci, verdict as verdict", () => {
+  const result = evaluateChecks({
+    statuses: [
+      status("factory/verdict", "failure", "1/3 acceptance criteria met"),
+      status("factory/red-green", "failure", "no changed test failed on main"),
+      status("factory/test-integrity", "success"),
+      status("ci/other", "error", "boom"),
+    ],
+    checkRuns: [checkRun("check", "completed", "failure", "check")],
+    own,
+  });
+  assert.deepEqual(result.pending, []);
+  assert.deepEqual(
+    result.failures.map((f) => [f.name, f.kind]),
+    [
+      ["factory/red-green", "gate"],
+      ["ci/other", "ci"],
+      ["check", "ci"],
+      ["factory/verdict", "verdict"],
+    ],
+  );
+  const redGreen = result.failures[0];
+  assert.equal(redGreen?.description, "no changed test failed on main");
+  assert.equal(redGreen?.url, "https://github.com/o/r/actions/runs/17");
+});
+
+test("evaluateChecks: check runs of the factory workflow and of this run are ignored", () => {
+  const result = evaluateChecks({
+    statuses: [],
+    checkRuns: [
+      checkRun("review / review", "in_progress", null, "factory", "500"),
+      checkRun("gate / gate", "completed", "failure", "factory", "400"),
+      checkRun("implement / implement", "completed", "failure", undefined, "500"),
+      checkRun("check", "completed", "timed_out", "check"),
+      checkRun("lint", "completed", "cancelled", "lint"),
+      checkRun("optional", "completed", "neutral", "optional"),
+    ],
+    own,
+  });
+  assert.deepEqual(result.pending, []);
+  assert.deepEqual(
+    result.failures.map((f) => [f.name, f.kind]),
+    [["check", "ci"]],
+  );
+});
+
+test("runIdFromUrl reads the run id out of run and job urls", () => {
+  assert.equal(runIdFromUrl("https://github.com/o/r/actions/runs/123"), "123");
+  assert.equal(runIdFromUrl("https://github.com/o/r/actions/runs/123/job/456"), "123");
+  assert.equal(runIdFromUrl("https://github.com/o/r/actions/runs/123/attempts/2"), "123");
+  assert.equal(runIdFromUrl("https://example.com/ci/9"), undefined);
+  assert.equal(runIdFromUrl(null), undefined);
+});
+
+test("summariseFailures is one line naming each failure and its description", () => {
+  assert.equal(
+    summariseFailures([
+      { name: "factory/red-green", kind: "gate", description: "no test failed on main", url: null },
+      { name: "factory/verdict", kind: "verdict", description: "1/3 acceptance criteria met", url: null },
+    ]),
+    "gate factory/red-green (no test failed on main); verdict factory/verdict (1/3 acceptance criteria met)",
+  );
+});

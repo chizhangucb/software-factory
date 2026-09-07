@@ -7,6 +7,7 @@ Linked issue: #{{ISSUE_NUMBER}} {{ISSUE_TITLE}}
 
 This is not a fresh review. Focus on the PR conversation and unresolved feedback.
 
+{{RETRY_SECTION}}
 # LINKED ISSUE
 
 {{LINKED_ISSUE}}
@@ -32,7 +33,7 @@ For each actionable comment or unresolved thread:
 - Decline clearly when the requested change is wrong or out of scope.
 - Ignore stale/context-only comments.
 
-Run `npm run typecheck` before committing. Run focused tests where relevant.
+Run the repo's typecheck and its full test suite before committing, using the repo's own commands. On a retry (see the RETRY section, when present) the gate around this PR re-runs on your push: a new test must fail on `main` and pass here, and no test may be deleted, skipped, or narrowed.
 
 If you change code, commit with a conventional commit message.
 

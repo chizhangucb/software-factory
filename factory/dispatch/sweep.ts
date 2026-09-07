@@ -13,8 +13,8 @@
  * STUCK_MINUTES, VERDICT_MINUTES, UPDATE_MINUTES (see DEFAULT_DEADLINES),
  * RUN_URL, OUTPUT_DIR for sweep.json, DRY_RUN=1 to decide without writing.
  *
- * Every list read (issues, timelines, runs, jobs) is one page per `gh api`
- * call, projected with `--jq` to the fields the reconciler maps
+ * Every list read (issues, timelines, runs, jobs) is `gh api --paginate`
+ * with a `--jq` projection to the fields the reconciler maps
  * (`gh-read.ts`): a full run payload is 10 KB and a page of them
  * overflowed the spawn buffer on the fixture. A failed read aborts the
  * sweep with one `::error::` line naming the command and the cause,
@@ -29,7 +29,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { GH_MAX_BUFFER, PROJECTIONS, type Projection, describeGhFailure, nextPage, pageUrl } from "./gh-read.ts";
+import { GH_MAX_BUFFER, PROJECTIONS, type Projection, STATUSES_PROJECTION, describeGhFailure, parseItems } from "./gh-read.ts";
 import {
   DEFAULT_DEADLINES,
   type Deadlines,
@@ -78,18 +78,14 @@ const ghJson = (args: string[], env?: NodeJS.ProcessEnv): any => {
     throw new GhError(describeGhFailure(args, new Error(`printed something other than JSON: ${out.slice(0, 200)}`)));
   }
 };
-/** Walks `endpoint` page by page, each projected to the fields the reconciler maps. */
+/** All pages of `endpoint`, each projected by gh to the fields the reconciler maps, one item per line. */
 const paginate = (endpoint: string, projection: Projection, env?: NodeJS.ProcessEnv): any[] => {
-  const items: any[] = [];
-  for (let page = 1; ; ) {
-    const received: any[] = ghJson(["api", pageUrl(endpoint, page), "--jq", PROJECTIONS[projection]], env);
-    items.push(...received);
-    const decision = nextPage({ page, received: received.length });
-    if ("done" in decision) {
-      if (decision.done === "page cap") console.log(`::warning::${endpoint}: stopped after ${page} pages, ${items.length} items; later ones are not in the snapshot.`);
-      return items;
-    }
-    page = decision.next;
+  const args = ["api", "--paginate", endpoint, "--jq", PROJECTIONS[projection]];
+  try {
+    return parseItems(gh(args, env));
+  } catch (error) {
+    if (error instanceof GhError) throw error;
+    throw new GhError(describeGhFailure(args, error));
   }
 };
 
@@ -113,7 +109,7 @@ const parked = (labels: readonly string[]): boolean => PARKED_LABELS.some((l) =>
 
 /* Snapshot: issues and PRs with their label times and sweep marks. */
 
-const timeline = (number: number): any[] => paginate(`repos/${repo}/issues/${number}/timeline`, "timeline");
+const timeline = (number: number): any[] => paginate(`repos/${repo}/issues/${number}/timeline?per_page=100`, "timeline");
 
 const withLabelState = <T extends TicketState | PrState>(subject: T, stateLabels: readonly string[]): T => {
   const state = stateLabels.find((l) => subject.labels.includes(l));
@@ -123,13 +119,13 @@ const withLabelState = <T extends TicketState | PrState>(subject: T, stateLabels
 };
 
 const readIssues = (): TicketState[] =>
-  paginate(`repos/${repo}/issues?state=open`, "issues")
+  paginate(`repos/${repo}/issues?state=open&per_page=100`, "issues")
     .filter((raw: any) => !raw.pull_request)
     .map(ticketFromGitHub)
     .map((t) => withLabelState(t, ["agent:in-progress", "agent:implement"]));
 
 const verdictOn = (sha: string): VerdictState => {
-  const statuses: { context: string; state: string }[] = ghJson(["api", `repos/${repo}/commits/${sha}/status`, "--jq", PROJECTIONS.statuses], readEnv);
+  const statuses: { context: string; state: string }[] = ghJson(["api", `repos/${repo}/commits/${sha}/status`, "--jq", STATUSES_PROJECTION], readEnv);
   const state = statuses.find((s) => s.context === "factory/verdict")?.state;
   return state === "pending" || state === "success" || state === "failure" || state === "error" ? state : "none";
 };
@@ -169,7 +165,7 @@ const readRuns = (issues: readonly TicketState[], prs: readonly PrState[]): Run[
   const since = new Date(now.getTime() - lookbackMinutes * 60_000).toISOString();
   const runsById = new Map<number, Run>();
   for (const query of [`created=%3E%3D${since}`, "status=queued", "status=in_progress", "status=waiting"]) {
-    for (const raw of paginate(`repos/${repo}/actions/runs?${query}`, "runs", readEnv)) runsById.set(Number(raw.id), runFromGitHub(raw));
+    for (const raw of paginate(`repos/${repo}/actions/runs?${query}&per_page=100`, "runs", readEnv)) runsById.set(Number(raw.id), runFromGitHub(raw));
   }
   const subjects = [
     ...issues.filter((t) => labeled(t.labels)).map((t) => ({ kind: "issue" as const, title: t.title })),
@@ -179,7 +175,7 @@ const readRuns = (issues: readonly TicketState[], prs: readonly PrState[]): Run[
     for (const run of runsFor(subject, [...runsById.values()])) {
       if (run.role !== undefined) continue;
       try {
-        run.role = roleFromJobs(paginate(`repos/${repo}/actions/runs/${run.id}/jobs`, "jobs", readEnv));
+        run.role = roleFromJobs(paginate(`repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`, "jobs", readEnv));
       } catch (error) {
         console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live: ${error instanceof Error ? error.message : String(error)}`);
       }

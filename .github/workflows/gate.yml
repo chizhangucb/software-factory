@@ -48,11 +48,12 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      OUTPUT_DIR: ${{ runner.temp }}/factory-out
 
     steps:
       - name: Mark both checks pending
         run: |
+          # runner.temp is not available in job-level env
+          echo "OUTPUT_DIR=$RUNNER_TEMP/factory-out" >> "$GITHUB_ENV"
           for ctx in factory/red-green factory/test-integrity; do
             gh api --method POST "repos/{owner}/{repo}/statuses/$HEAD_SHA" \
               -f state=pending -f context="$ctx" -f target_url="$RUN_URL" -f description="running" >/dev/null

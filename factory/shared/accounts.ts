@@ -11,6 +11,7 @@ import {
   createRunLog,
   type ResultEvent,
   type RunLog,
+  type Settled,
   settleRun,
 } from "./run-log";
 import { type AccountToken, isRateLimited, pickToken } from "./rotation";
@@ -132,13 +133,13 @@ export const runOnAccounts = async <A, T>(
     log(`[${name}] attempt ${attempt} on ${describe(account)}`);
     const runLog = createLog(`${name}.account-${account.index}`);
 
-    let settled;
+    let settled: Settled<T>;
     if (forced.has(account.index)) {
       log(
         `[${name}] ${FORCE_RATE_LIMIT_VAR} includes ${account.index}: treating this attempt as rate limited without running the agent`,
       );
       runLog.resultEvents.push(forcedRateLimitEvent(account));
-      settled = { ok: false as const, failure: runLog.finish() ?? "forced" };
+      settled = { ok: false, failure: runLog.finish() ?? "forced rate limit" };
     } else {
       settled = await settleRun(runLog, () =>
         options.run(options.agentFor(account), runLog),

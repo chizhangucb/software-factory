@@ -42,6 +42,20 @@ test("an error flag on any result event fails the run, exit code aside", () => {
   assert.match(failure, /usage limit/);
 });
 
+test("a turn cap stop reports the message from errors, not the whole event", () => {
+  const capped: ResultEvent = {
+    type: "result",
+    subtype: "error_max_turns",
+    is_error: true,
+    errors: ["Reached maximum number of turns (5)"],
+    num_turns: 6,
+  };
+  assert.equal(
+    runFailure([capped]),
+    "Agent reported an error (error_max_turns): Reached maximum number of turns (5)",
+  );
+});
+
 test("a run that produced no result event is a failure", () => {
   assert.match(runFailure([]) ?? "", /No result event/);
 });

@@ -10,7 +10,7 @@ import {
   writeJson,
   writeText,
 } from "../shared/common";
-import { resolveModel } from "../shared/model";
+import { resolveRoleModel } from "../shared/model";
 import { fetchPullRequestContext } from "../shared/review-context";
 import {
   filterInlineComments,
@@ -30,7 +30,7 @@ try {
   const labels = JSON.parse(
     gh(["pr", "view", PR_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),
   ) as string[];
-  const { model, source } = resolveModel(IMPLEMENTER_MODEL, labels);
+  const { model, source } = resolveRoleModel("implementer", IMPLEMENTER_MODEL, labels);
   console.log(`Implementer model: ${model} (from ${source}).`);
   // A retry (#16) carries the failing verdict or check log on the linked ticket.
   const retrySection = retrySectionForRun(context.issueNumber || undefined);
@@ -60,7 +60,7 @@ try {
       path.join(import.meta.dirname, "extraction.md"),
       "utf8",
     ),
-  }));
+  }), { role: "implementer" });
 
   const threadReplies = filterReplies(
     result.output.threadReplies,

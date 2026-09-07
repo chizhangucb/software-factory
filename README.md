@@ -10,7 +10,7 @@ Reusable GitHub Actions workflows that turn a labeled ticket into a PR, review i
 4. Label a ticket `ready-for-agent`. The dispatcher adds `agent:implement` once every blocker is closed; a PR with `Closes #N` and auto-merge enabled appears on `agent/issue-N-<slug>`, then the reviewer runs. Labeling `agent:implement` by hand still works.
 5. Auto-merge squashes the PR once `factory/verdict` and the other required checks are green on the head. Nothing else touches the merge button.
 
-Models per role are inputs on each reusable workflow (`implementer_model`, `reviewer_model`, defaults `claude-opus-5`). A `model:<name>` label on a ticket overrides the implementer model for that run. `implementer_max_turns` (default 200) caps the implementer's turns on top of the 60 minute job timeout.
+Models per role are inputs on each reusable workflow (`implementer_model` on implement and implement-pr, `reviewer_model` on review, `audit_model` on audit, all default `claude-opus-5`), resolved by `factory/shared/model.ts`. A `model:<name>` label on a ticket overrides the implementer model for that run only; the reviewer and the audit always use the repo's configured model. `implementer_max_turns` (default 200) caps the implementer's turns on top of the 60 minute job timeout.
 
 ## Implementer run
 
@@ -31,6 +31,21 @@ No merge queue in v0 (unavailable on user-owned repos; #26, #27), so ADR 0003's 
 - The `factory` ruleset from `scripts/onboard.sh` requires a PR and the checks above on an up-to-date head, so a PR behind main cannot merge.
 - `update-branch.yml` runs on every `push` to main and on the `repository_dispatch` event `factory-update-branch`, which `review.yml` sends with `FACTORY_PAT` after a passing verdict. It calls GitHub's update-branch API for each open PR that has auto-merge enabled and is behind main, then carries the passing `factory/verdict` onto the merge commit GitHub made, with its provenance in the description. The verdict that governs a head is found by walking first parents through GitHub-made update merges only (two parents, committer `web-flow`), so a commit a person or an agent pushed never inherits one. A PR whose governing verdict is pending or failed is left alone until its re-review. The merge commit is made with `FACTORY_PAT`, so the target's CI and the gate run again on the new head and auto-merge lands the PR on the latest main. A conflict the API cannot resolve gets a comment and `agent:blocked` (escalation is #16). Decisions are pure functions in `factory/update-branch/plan.ts` with `node --test` coverage; no agent, no npm install, strip-types only like the dispatcher.
 
+## Audit
+
+Auto-merge from day one is survivable because the first 20 merges are each re-reviewed (ADR 0003). `audit.yml` is called on `pull_request: closed` (the example caller filters to merged PRs) and:
+
+- Decides, in a serialized `decide` job, whether this merge is one of the first 20: the PR must be merged and a factory PR (branch `agent/issue-*`, or the factory marker `implement.yml` writes in the body), and the counter must be under `audit_limit` (default 20). The counter is factory state in the target: the repo variable `FACTORY_AUDITED_MERGES`, read and written with `FACTORY_PAT`, absent meaning 0. It advances before the audit runs, so a crashed audit still counts. The decision is `factory/audit/plan.ts`, pure, `node --test` covered, no install. After 20 the job logs `audit limit reached` and exits.
+- Runs the reviewer prompt in audit mode (`factory/audit/prompt.md`) with `audit_model` on a checkout of the merge commit, read-only, against the merged diff (`merge^..merge`), the ticket's acceptance criteria, and the target's test output on the merge commit. The run log names the model. Same account rotation and `account-slot-<i>` cap as the other runs.
+- Comments the result on the merged PR (`<!-- factory:audit -->`, one comment, replaced on re-run): one ticked line per criterion with evidence, placeholders found, the audit's own usage.
+- A miss is any unmet criterion or any placeholder. It opens a revert PR (`git revert` of the merge commit on `factory/revert-pr-<n>`, pushed and opened with `FACTORY_PAT`, never auto-merged) and a `needs-human` issue linking the PR, the audit comment, and the revert PR. A revert that does not apply cleanly is reported in the issue instead.
+
+`audit_model` defaults to `claude-opus-5` like the other roles. Stronger aliases verified on the subscription (account 1, `claude -p --model <name>`, `is_error: false`, `modelUsage` naming the model, 2026-09-07): `claude-fable-5-1` and `claude-fable-5`. Set `audit_model: claude-fable-5-1` in the caller's `with:` to audit with a model stronger than the reviewer; the other accounts were not checked, so a rotation onto them with that alias is unverified.
+
+## Usage
+
+Every factory PR carries one usage comment per role (`<!-- factory:usage:implementer -->` from implement and implement-pr, `<!-- factory:usage:reviewer -->` from review; the audit's usage sits inside its own comment). Rows are attempts: model, account, wall time, `claude -p` calls, turns, input, cache write, cache read, output tokens, and Claude Code's list-price cost as a reference figure (the factory runs on subscription tokens). The source is the raw `result` event of every `claude -p` call, one per attempt, extraction run, or rotation re-run, summed in `factory/shared/usage.ts` (pure, tested) and recorded by `runWithRotation` after each attempt to `OUTPUT_DIR/usage.json` and `usage-<role>.md`, so a run that fails afterwards still reports. sandcastle's own `iterations[].usage` is the last message's context snapshot, not a total, so it is not used. The workflow posts the file with `factory/shared/upsert-comment.sh`, which edits the existing comment for the marker rather than adding one.
+
 ## Gate
 
 `gate.yml` runs no agent. It reads the PR diff and the linked ticket (`Closes #N` in the PR body) and posts two commit statuses on the PR head:
@@ -49,8 +64,8 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 
 ## Layout
 
-- `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow. `gate.yml`: the factory's own gate checks. `dispatch.yml`: the dispatcher. `update-branch.yml`: the merge-queue stand-in. All three factory-owned.
-- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `turn-cap.ts`, `ticket-context.ts`, `plugins.ts`, `gate/`, `dispatch/`, `update-branch/`, `retry/`). Treated as our code.
+- `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow. `gate.yml`: the factory's own gate checks. `dispatch.yml`: the dispatcher. `update-branch.yml`: the merge-queue stand-in. `audit.yml`: the first-20 audit. All four factory-owned.
+- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `turn-cap.ts`, `ticket-context.ts`, `plugins.ts`, `usage.ts`, `read-only.ts`, `gate/`, `dispatch/`, `update-branch/`, `retry/`, `audit/`). Treated as our code.
 - `factory/plugins/`: skills the prompts call by name, vendored and pinned (`mattpocock-skills:code-review` from mattpocock-skills 1.2.3). Copied into the account's `CLAUDE_CONFIG_DIR/skills/` before each attempt, where Claude Code loads them as plugins. Bump by hand.
 - `vendor/`: the `@ai-hero/sandcastle@0.12.0` tarball, integrity-checked against the lockfile in CI.
 - `.github/dependabot.yml`: opens a PR when a new sandcastle or Claude Code version ships. The pin only moves by hand.

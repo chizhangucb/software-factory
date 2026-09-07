@@ -24,6 +24,8 @@ import {
   settleRun,
 } from "./run-log";
 import { type AccountToken, isRateLimited, pickToken } from "./rotation";
+import { summarizeResultEvents } from "./usage";
+import { appendUsageRecord } from "./usage-record";
 
 /** Path of the JSON file the workflow writes: `[{ index, label, token }]`. */
 export const ACCOUNTS_FILE_VAR = "FACTORY_ACCOUNTS_FILE";
@@ -104,7 +106,7 @@ export interface RunOnAccountsOptions<A, T> {
   readonly forced?: ReadonlySet<number>;
   readonly agentFor: (account: AccountToken) => A;
   readonly run: (agent: A, log: RunLog) => Promise<T>;
-  readonly createLog?: (name: string) => RunLog;
+  readonly createLog?: (name: string, account: AccountToken, attempt: number) => RunLog;
   readonly log?: (line: string) => void;
   /** Called before the re-run: put the working tree back where the first attempt found it. */
   readonly restore?: () => void;
@@ -145,7 +147,7 @@ export const runOnAccounts = async <A, T>(
     if (!account) break;
     if (attempt > 1) restore();
     log(`[${name}] attempt ${attempt} on ${describe(account)}`);
-    const runLog = createLog(`${name}.account-${account.index}`);
+    const runLog = createLog(`${name}.account-${account.index}`, account, attempt);
 
     let settled: Settled<T>;
     if (forced.has(account.index)) {
@@ -198,6 +200,47 @@ const restoreWorkingTree = (startSha: string) => (): void => {
   console.log(`Working tree reset to ${startSha.slice(0, 12)} before the re-run.`);
 };
 
+export interface RunWithRotationOptions {
+  /** Names the usage comment: implementer, reviewer, audit. */
+  readonly role: string;
+}
+
+/**
+ * Every attempt's usage goes to OUTPUT_DIR the moment its log is settled
+ * (#18), so a run that fails afterwards still reports what it used. The
+ * finish() call is what the rotation loop makes after each attempt, so the
+ * record is taken there rather than after the whole run.
+ */
+const recordingLog = (
+  role: string,
+  model: string,
+): ((name: string, account: AccountToken, attempt: number) => RunLog) => {
+  const runUrl = process.env.RUN_URL ?? "";
+  return (logName, account, attempt) => {
+    const log = createRunLog(logName);
+    return {
+      ...log,
+      finish(result) {
+        const failure = log.finish(result);
+        appendUsageRecord(
+          {
+            role,
+            name: logName.replace(/\.account-\d+$/, ""),
+            model,
+            account: account.label,
+            attempt,
+            wallMs: log.wallMs(),
+            ...summarizeResultEvents(log.resultEvents),
+            ...(failure ? { failure } : {}),
+          },
+          { runUrl },
+        );
+        return failure;
+      },
+    };
+  };
+};
+
 /**
  * The scripts' entry point: accounts from the workflow's file, the forced
  * set from the repo variable, the factory's Claude provider per account.
@@ -207,6 +250,7 @@ export const runWithRotation = async <T>(
   name: string,
   model: string,
   run: (agent: AgentProvider, log: RunLog) => Promise<T>,
+  options: RunWithRotationOptions = { role: "agent" },
 ): Promise<T> => {
   const outcome = await runOnAccounts({
     name,
@@ -214,6 +258,7 @@ export const runWithRotation = async <T>(
     forced: parseForcedAccounts(process.env[FORCE_RATE_LIMIT_VAR]),
     agentFor: (account) => claudeAgent(model, account),
     run,
+    createLog: recordingLog(options.role, model),
     restore: restoreWorkingTree(sh("git rev-parse HEAD").trim()),
   });
   return outcome.ok ? outcome.value : fail(outcome.reason);

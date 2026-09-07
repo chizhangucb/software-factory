@@ -7,10 +7,11 @@ import {
   fail,
   gh,
   required,
-  sh,
   writeJson,
   writeText,
 } from "../shared/common";
+import { resolveRoleModel } from "../shared/model";
+import { assertReadOnly, worktreeState } from "../shared/read-only";
 import { fetchPullRequestContext } from "../shared/review-context";
 import {
   filterInlineComments,
@@ -39,32 +40,6 @@ const RUN_URL = required("RUN_URL");
 const TEST_OUTPUT_FILE = process.env.TEST_OUTPUT_FILE;
 
 const TEST_OUTPUT_LIMITS = { head: 4_000, tail: 12_000 };
-
-const worktreeState = (): string[] =>
-  sh("git status --porcelain")
-    .split("\n")
-    .filter((line) => line.trim().length > 0 && !line.includes(".sandcastle/"));
-
-/**
- * The reviewer is read-only. It judges the head sha the workflow labeled;
- * any commit, any file it dirtied, or any moved HEAD fails the run before a
- * verdict is written, so nothing the reviewer touched can reach the branch.
- * The baseline is taken after the workflow's own test run, whose byproducts
- * are not the reviewer's doing.
- */
-const assertBranchUntouched = (commits: number, baseline: string[]): void => {
-  const head = sh("git rev-parse HEAD").trim();
-  if (commits > 0 || head !== BRANCH_HEAD_SHA) {
-    fail(
-      `Reviewer must not commit: ${commits} commit(s) made, HEAD ${head.slice(0, 7)} vs reviewed ${BRANCH_HEAD_SHA.slice(0, 7)}.`,
-    );
-  }
-  const before = new Set(baseline);
-  const dirty = worktreeState().filter((line) => !before.has(line));
-  if (dirty.length > 0) {
-    fail(`Reviewer must not edit files: ${dirty.join("; ")}`);
-  }
-};
 
 interface ReviewFiles {
   readonly verdict: Verdict;
@@ -111,7 +86,8 @@ const writeReview = (review: ReviewFiles): void => {
 try {
   const context = fetchPullRequestContext(PR_NUMBER);
   const criteria = parseAcceptanceCriteria(context.issueBody);
-  console.log(`Reviewer model: ${REVIEWER_MODEL}.`);
+  const { model } = resolveRoleModel("reviewer", REVIEWER_MODEL);
+  console.log(`Reviewer model: ${model}.`);
   console.log(
     `Ticket #${context.issueNumber || "(none)"}: ${criteria.length} acceptance criteria.`,
   );
@@ -136,7 +112,7 @@ try {
         : "(no test output was captured)";
     const baseline = worktreeState();
 
-    const result = await runWithRotation(`review-${PR_NUMBER}`, REVIEWER_MODEL, (agent, log) =>
+    const result = await runWithRotation(`review-${PR_NUMBER}`, model, (agent, log) =>
       runWithExtraction({
         name: `review-pr-${PR_NUMBER}`,
         agent,
@@ -166,9 +142,10 @@ try {
           "utf8",
         ),
       }),
+      { role: "reviewer" },
     );
 
-    assertBranchUntouched(result.commits.length, baseline);
+    assertReadOnly("Reviewer", BRANCH_HEAD_SHA, result.commits.length, baseline);
 
     const inlineComments = filterInlineComments(
       result.output.inlineComments,

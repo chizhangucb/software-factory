@@ -205,6 +205,11 @@ jobs:
           path: ${{ runner.temp }}/factory-out/logs
           if-no-files-found: ignore
 
+      - name: Post usage comment
+        # Token usage and wall time of every attempt in this job, one comment per role (#18).
+        if: always()
+        run: bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-reviewer.md"
+
       - name: Write verdict into the PR body
         if: success()
         run: gh pr edit "$PR_NUMBER" --body-file "$RUNNER_TEMP/factory-out/pr_body.md"

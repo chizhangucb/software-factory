@@ -47,7 +47,7 @@ The reviewer's pass or fail, delivered as a required status check. Merge needs g
 The opening period when a human merges every PR to learn where the reviewer fails. Ends by decision, not by count.
 
 **Audit**:
-A periodic sampled re-review of merged PRs, run by an agent, reported in the digest.
+A re-review of a merged PR against its ticket, run by an agent on the strongest configured model, read-only. Every merged factory PR for the first 20; a sampled cadence after that (deferred). A miss reverts. Reported in the digest.
 
 **Digest**:
 The daily Telegram message listing merges, escalations, and audit findings. The human's inbox for the factory.

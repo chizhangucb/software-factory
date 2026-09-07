@@ -1,0 +1,323 @@
+# Reusable: the first-20 audit (#18, ADR 0003). Called from a target repo's thin
+# factory workflow on `pull_request: closed`. For each of the first 20 merged
+# factory PRs (counted in the repo variable FACTORY_AUDITED_MERGES) the reviewer
+# prompt runs in audit mode with the strongest configured model against the
+# merged diff and the ticket's acceptance criteria, read-only, and comments the
+# result on the PR. A miss opens a revert PR (not auto-merged) and a needs-human
+# issue. After 20 the job exits early with a log line.
+name: factory audit
+
+on:
+  workflow_call:
+    inputs:
+      audit_model:
+        description: Model for the audit. Should be the strongest one the subscription serves; the README names what was verified.
+        type: string
+        default: claude-opus-5
+      audit_limit:
+        description: How many merged factory PRs get audited. The spec says 20.
+        type: number
+        default: 20
+      test_command:
+        description: The target's test command, run on the merge commit before the audit; its output is evidence.
+        type: string
+        default: npm ci && npm run typecheck --if-present && npm test
+      per_account_slots:
+        description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
+        type: number
+        default: 3
+      factory_repo:
+        description: Repo holding the factory scripts (this repo).
+        type: string
+        default: chizhangucb/software-factory
+      factory_ref:
+        description: Ref of the factory scripts to run. Keep it equal to the ref in the caller's `uses:`; GitHub does not expose that ref to the called workflow.
+        type: string
+        default: main
+    secrets:
+      FACTORY_PAT:
+        description: Reads and writes the audit counter (repo variable), pushes the revert branch, opens the revert PR so the target's CI runs on it.
+        required: true
+
+jobs:
+  decide:
+    # Cheap and serialized: the counter is read, decided on, and written back under
+    # one concurrency group so two merges landing together cannot both read 19.
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: factory-audit-counter
+      cancel-in-progress: false
+    outputs:
+      audit: ${{ steps.plan.outputs.audit }}
+      ordinal: ${{ steps.plan.outputs.next }}
+      index: ${{ steps.slot.outputs.index }}
+    env:
+      GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Checkout factory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+          sparse-checkout: factory/audit
+
+      - name: Decide
+        # Factory state: the repo variable FACTORY_AUDITED_MERGES, absent means 0.
+        # The decision is plan.ts, pure and unit tested; no install, strip-types only.
+        id: plan
+        env:
+          MERGED: ${{ github.event.pull_request.merged }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          AUDIT_LIMIT: ${{ inputs.audit_limit }}
+        run: |
+          set -euo pipefail
+          audited=$(gh variable get FACTORY_AUDITED_MERGES 2>/dev/null || echo 0)
+          echo "FACTORY_AUDITED_MERGES=$audited"
+          gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
+          AUDITED="$audited" PR_BODY_FILE="$RUNNER_TEMP/pr-body.md" \
+            node --experimental-strip-types factory/factory/audit/decide.ts
+
+      - name: Advance the counter
+        # Written before the run, so a merge whose audit crashes still counts as one of the 20.
+        if: steps.plan.outputs.audit == 'true'
+        env:
+          NEXT: ${{ steps.plan.outputs.next }}
+        run: |
+          gh variable set FACTORY_AUDITED_MERGES --body "$NEXT"
+          echo "FACTORY_AUDITED_MERGES -> $NEXT"
+
+      - name: Pick the account slot
+        # Same per-account cap as implement, review, and implement-pr (#17).
+        id: slot
+        if: steps.plan.outputs.audit == 'true'
+        env:
+          SLOTS: ${{ inputs.per_account_slots }}
+        run: |
+          case "$SLOTS" in
+            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 3." >&2; SLOTS=3 ;;
+          esac
+          index=$(( PR_NUMBER % SLOTS ))
+          echo "index=$index" >> "$GITHUB_OUTPUT"
+          echo "Concurrency group account-slot-$index (number $PR_NUMBER, $SLOTS slots per account)."
+
+  audit:
+    needs: decide
+    if: needs.decide.outputs.audit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: account-slot-${{ needs.decide.outputs.index }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write # the needs-human issue, and the linked ticket
+      pull-requests: write # the audit comment
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Enumerate accounts
+        # One secret per account, CLAUDE_CODE_OAUTH_TOKEN_<n>, labeled by the CLAUDE_ACCOUNT_<n> variable.
+        # Every token is masked before anything else prints. The list goes to a file in RUNNER_TEMP for
+        # the run script, which picks the account, deletes the file, and rotates once on a rate limit
+        # (#17). Adding an account is adding one secret; nothing here changes.
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          set -euo pipefail
+          jq -r 'to_entries[] | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[1-9][0-9]*$")) | .value' <<<"$SECRETS_JSON" \
+            | while IFS= read -r token; do echo "::add-mask::$token"; done
+          file="${RUNNER_TEMP}/factory-accounts.json"
+          jq -n --argjson secrets "$SECRETS_JSON" --argjson vars "$VARS_JSON" '
+            [ $secrets | to_entries[]
+              | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[1-9][0-9]*$"))
+              | (.key | sub("^CLAUDE_CODE_OAUTH_TOKEN_"; "") | tonumber) as $n
+              | ($vars["CLAUDE_ACCOUNT_\($n)"] // "") as $label
+              | { index: $n, label: (if ($label | length) > 0 then $label else "account-\($n)" end), token: .value } ]
+            | sort_by(.index)' > "$file"
+          chmod 600 "$file"
+          count=$(jq 'length' "$file")
+          if [ "$count" = "0" ]; then
+            echo "No CLAUDE_CODE_OAUTH_TOKEN_<n> secret is available. Pass secrets: inherit from the caller." >&2
+            exit 1
+          fi
+          echo "FACTORY_ACCOUNTS_FILE=$file" >> "$GITHUB_ENV"
+          echo "$count account(s) configured: $(jq -r '[.[] | "\(.index) (\(.label))"] | join(", ")' "$file")"
+
+      - name: Checkout the merge commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          path: target
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+
+      - name: Checkout factory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+
+      - name: Prepare checkout
+        working-directory: target
+        run: |
+          git config user.name "factory-agent[bot]"
+          git config user.email "factory-agent[bot]@users.noreply.github.com"
+          echo "Auditing $(git rev-parse --short HEAD): $(git log -1 --format=%s)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run target tests
+        # Evidence for the audit, never a gate: the job goes on whatever the exit status.
+        working-directory: target
+        env:
+          TEST_COMMAND: ${{ inputs.test_command }}
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+          CLAUDE_CODE_OAUTH_TOKEN: ""
+        run: |
+          mkdir -p "$RUNNER_TEMP/factory-out"
+          set +e
+          timeout 20m bash -o pipefail -c "$TEST_COMMAND" > "$RUNNER_TEMP/factory-out/test-output.txt" 2>&1
+          status=$?
+          set -e
+          printf '\n[test command exited with status %s]\n' "$status" >> "$RUNNER_TEMP/factory-out/test-output.txt"
+          echo "Test command exited $status; $(wc -c < "$RUNNER_TEMP/factory-out/test-output.txt" | tr -d ' ') bytes captured."
+          tail -n 40 "$RUNNER_TEMP/factory-out/test-output.txt"
+
+      - name: Install factory (pinned sandcastle, tsx, Claude Code)
+        working-directory: factory
+        run: |
+          npm ci
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "Claude Code $(node_modules/.bin/claude --version)"
+
+      - name: Run audit
+        # Read-only: the script fails the run on any commit, dirty file, or moved HEAD.
+        working-directory: target
+        env:
+          AUDIT_MODEL: ${{ inputs.audit_model }}
+          AUDIT_ORDINAL: ${{ needs.decide.outputs.ordinal }}
+          AUDIT_LIMIT: ${{ inputs.audit_limit }}
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
+          TEST_OUTPUT_FILE: ${{ runner.temp }}/factory-out/test-output.txt
+          FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
+        run: tsx ../factory/factory/audit/audit.ts
+
+      - name: Upload run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-audit-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/factory-out/logs
+          if-no-files-found: ignore
+
+      - name: Read the audit result
+        # hashFiles cannot see runner.temp, so the miss flag becomes a step output here.
+        id: result
+        if: success()
+        run: |
+          if [ -f "$RUNNER_TEMP/factory-out/audit-miss.txt" ]; then
+            echo "miss=true" >> "$GITHUB_OUTPUT"
+            echo "Miss: $(cat "$RUNNER_TEMP/factory-out/audit-miss.txt")"
+          else
+            echo "miss=false" >> "$GITHUB_OUTPUT"
+            echo "Pass."
+          fi
+
+      - name: Comment the audit result on the PR
+        id: comment
+        if: success()
+        run: bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/audit-comment.md"
+
+      - name: Open a revert PR on a miss
+        # `git revert` of the merged commit on a branch from main, pushed and opened with
+        # FACTORY_PAT so the target's CI runs on it. Never auto-merged: a human decides.
+        id: revert
+        if: success() && steps.result.outputs.miss == 'true'
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          AUDIT_COMMENT_URL: ${{ steps.comment.outputs.comment_url }}
+        run: |
+          set -euo pipefail
+          branch="factory/revert-pr-${PR_NUMBER}"
+          git checkout -B "$branch" "origin/${BASE_BRANCH}"
+          parents=$(git rev-list --parents -n 1 "$MERGE_SHA" | wc -w | tr -d ' ')
+          mainline=(); if [ "$parents" -gt 2 ]; then mainline=(-m 1); fi
+          if ! out=$(git revert --no-edit "${mainline[@]}" "$MERGE_SHA" 2>&1); then
+            git revert --abort || true
+            echo "revert_failure=$(echo "$out" | tail -n 3 | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+            echo "::warning::git revert did not apply cleanly: $out"
+            exit 0
+          fi
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$branch"
+          body="$RUNNER_TEMP/factory-out/audit-revert-body.md"
+          sed -i "s#{{AUDIT_COMMENT_URL}}#${AUDIT_COMMENT_URL}#g" "$body"
+          url=$(gh pr list --head "$branch" --base "$BASE_BRANCH" --state open --json url --jq '.[0].url // empty')
+          if [ -z "$url" ]; then
+            url=$(gh pr create --base "$BASE_BRANCH" --head "$branch" \
+              --title "Revert #${PR_NUMBER}: ${PR_TITLE:0:200} (audit miss)" --body-file "$body" | tail -n1)
+          fi
+          echo "revert_pr_url=$url" >> "$GITHUB_OUTPUT"
+          echo "Revert PR: $url"
+
+      - name: Open a needs-human issue on a miss
+        if: success() && steps.result.outputs.miss == 'true'
+        env:
+          AUDIT_COMMENT_URL: ${{ steps.comment.outputs.comment_url }}
+          REVERT_PR_URL: ${{ steps.revert.outputs.revert_pr_url }}
+          REVERT_FAILURE: ${{ steps.revert.outputs.revert_failure }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/factory-out/audit-issue-body.md"
+          sed -i "s#{{AUDIT_COMMENT_URL}}#${AUDIT_COMMENT_URL}#g" "$body"
+          if [ -n "$REVERT_PR_URL" ]; then
+            sed -i "s#{{REVERT_PR_URL}}#${REVERT_PR_URL}#g" "$body"
+          else
+            sed -i "s#^- Revert PR: .*#- Revert PR: none, \`git revert\` did not apply cleanly: ${REVERT_FAILURE:-unknown}. Revert by hand or fix forward.#" "$body"
+          fi
+          url=$(gh issue create --title "$(cat "$RUNNER_TEMP/factory-out/audit-issue-title.txt")" \
+            --label needs-human --body-file "$body")
+          echo "needs-human issue: $url"
+
+      - name: Report a failed audit run on the PR
+        if: failure()
+        env:
+          AUDIT_ORDINAL: ${{ needs.decide.outputs.ordinal }}
+          AUDIT_LIMIT: ${{ inputs.audit_limit }}
+        run: |
+          reason="(no reason file written; check workflow logs)"
+          if [ -f "${RUNNER_TEMP}/factory-out/failure_reason.txt" ]; then
+            reason=$(cat "${RUNNER_TEMP}/factory-out/failure_reason.txt")
+          fi
+          body_file="${RUNNER_TEMP}/failure-comment.md"
+          printf '<!-- factory:audit -->\n## Audit: run failed\n\nMerged factory PR %s of the first %s was not audited. **Reason:** %s\n\n**Workflow run:** %s\n' \
+            "$AUDIT_ORDINAL" "$AUDIT_LIMIT" "$reason" "$RUN_URL" > "$body_file"
+          bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$body_file" || gh pr comment "$PR_NUMBER" --body-file "$body_file"
+
+      - name: Always remove the accounts file
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/factory-accounts.json"

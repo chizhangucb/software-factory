@@ -239,6 +239,7 @@ jobs:
           IMPLEMENTER_MAX_TURNS: ${{ inputs.implementer_max_turns }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: tsx ../factory/factory/implement/implement.ts
 
       - name: Upload run log
@@ -305,6 +306,13 @@ jobs:
           PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
         run: gh pr edit "$PR_NUMBER" --add-label "agent:review"
+
+      - name: Post usage comment
+        # Token usage and wall time of every attempt in this job, one comment per role (#18).
+        if: always() && steps.open_pr.outputs.pr_number != ''
+        env:
+          PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
+        run: bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-implementer.md"
 
       - name: Keep partial work on failure
         # The branch is what a retry continues on and what an escalation keeps for the human.

@@ -247,7 +247,9 @@ jobs:
           FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
         run: git push --force "https://x-access-token:${FACTORY_PAT}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$BRANCH"
 
-      - name: Open draft PR
+      - name: Open PR
+        # Not a draft: GitHub refuses auto-merge on drafts, and the required factory/verdict
+        # status (absent until the reviewer posts it, failure on a fail) is what holds the merge.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
         id: open_pr
         working-directory: target
@@ -265,22 +267,27 @@ jobs:
             echo
             echo "Implemented by the software factory. Run: ${RUN_URL}"
           } > "$body_file"
-          pr_url=$(gh pr create --draft --base main --head "$BRANCH" --title "$title" --body-file "$body_file" | tail -n1)
+          pr_url=$(gh pr create --base main --head "$BRANCH" --title "$title" --body-file "$body_file" | tail -n1)
           echo "pr_number=$(basename "$pr_url")" >> "$GITHUB_OUTPUT"
           echo "Opened $pr_url"
 
       - name: Enable auto-merge
         # No human in the merge path (ADR 0003). Squash, so update-branch's merge commits collapse.
-        # Fires once the reviewer marks the PR ready on a passing verdict and every check the
-        # target's main ruleset requires is green on the head. A target whose main requires
-        # nothing refuses this ("clean status"): run scripts/onboard.sh there first.
+        # Fires once every check the target's main ruleset requires, factory/verdict included, is
+        # green on the head. A target whose main requires nothing refuses this ("clean status"):
+        # run scripts/onboard.sh there. That refusal is reported on the PR, not fatal: the PR
+        # exists and the preflight would refuse a retry, so the review must still run.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
         env:
           PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
         run: |
-          gh pr merge "$PR_NUMBER" --auto --squash
-          gh pr view "$PR_NUMBER" --json autoMergeRequest --jq '"auto-merge: " + (.autoMergeRequest.mergeMethod // "not enabled") + " by " + (.autoMergeRequest.enabledBy.login // "nobody")'
+          if out=$(gh pr merge "$PR_NUMBER" --auto --squash 2>&1); then
+            gh pr view "$PR_NUMBER" --json autoMergeRequest --jq '"auto-merge: " + (.autoMergeRequest.mergeMethod // "not enabled") + " by " + (.autoMergeRequest.enabledBy.login // "nobody")'
+          else
+            echo "::error::Could not enable auto-merge on PR #$PR_NUMBER: $out"
+            gh pr comment "$PR_NUMBER" --body "Auto-merge could not be enabled: \`$out\`. Run \`scripts/onboard.sh\` on this repo, then \`gh pr merge $PR_NUMBER --auto --squash\`."
+          fi
 
       - name: Request review
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()

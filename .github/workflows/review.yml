@@ -1,9 +1,8 @@
 # Reusable: run the reviewer on a PR labeled agent:review.
 # Called from a target repo's thin factory workflow on `pull_request_target: labeled`.
 # Vendored from sandcastle's agent-review.yml (v0.12.0), edited for the factory:
-# the reviewer is read-only (no push), ticks the ticket's acceptance criteria into
-# the PR body, sets the factory/verdict commit status, and marks the PR ready only
-# on a passing verdict so the auto-merge set at creation can fire (#14).
+# the reviewer is read-only (no push, no mark-ready), ticks the ticket's acceptance
+# criteria into the PR body, and sets the factory/verdict commit status.
 name: factory review
 
 on:
@@ -237,9 +236,13 @@ jobs:
       - name: Set verdict status
         # Always lands: a reviewer that crashed, or a job that failed after the
         # verdict was written, is a failing verdict, never a green one.
+        # FACTORY_PAT, so the status fires a `status` event: the caller's update-branch
+        # job runs on a passing verdict and brings a head that fell behind main up to
+        # date (#14). A status set with GITHUB_TOKEN fires nothing.
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
         run: |
           if [ "$JOB_STATUS" = "success" ] && [ -f "$RUNNER_TEMP/factory-out/verdict.txt" ]; then
             state=$(cat "$RUNNER_TEMP/factory-out/verdict.txt")
@@ -252,23 +255,6 @@ jobs:
             -f state="$state" -f context=factory/verdict \
             -f description="$description" -f target_url="$RUN_URL" --silent
           echo "factory/verdict on ${BRANCH_HEAD_SHA}: $state ($description)"
-
-      - name: Mark ready on a passing verdict
-        # The draft is the "not yet judged" signal. A pass lifts it so the auto-merge the
-        # implementer enabled can fire once the required checks are green; a fail keeps the
-        # draft. FACTORY_PAT, so the ready_for_review event reaches the caller and
-        # update-branch brings a head that fell behind main up to date.
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
-        run: |
-          if [ "$(cat "$RUNNER_TEMP/factory-out/verdict.txt")" != "success" ]; then
-            echo "Verdict failed; PR #$PR_NUMBER stays a draft."
-          elif [ "$(gh pr view "$PR_NUMBER" --json isDraft --jq .isDraft)" = "true" ]; then
-            gh pr ready "$PR_NUMBER"
-          else
-            echo "PR #$PR_NUMBER was already ready."
-          fi
 
       - name: Mark blocked on failure
         if: failure()

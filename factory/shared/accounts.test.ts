@@ -38,6 +38,7 @@ const fakeLogs = (): { logs: string[]; createLog: (name: string) => RunLog } => 
         logging: { type: "file", path: `/dev/null/${name}.log` },
         logPath: `/dev/null/${name}.log`,
         resultEvents,
+        wallMs: () => 0,
         finish: () =>
           resultEvents.some((e) => e.is_error) ? "error" : undefined,
       };

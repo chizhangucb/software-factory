@@ -27,6 +27,10 @@ export interface PullRequestContext {
 
 export const fetchPullRequestContext = (
   prNumber: string,
+  options: {
+    /** The diff to judge; defaults to the branch's diff to main. The audit passes the merged commit's. */
+    readonly diff?: string;
+  } = {},
 ): PullRequestContext => {
   const prView = JSON.parse(
     gh(["pr", "view", prNumber, "--json", "title,body,comments"]),
@@ -166,7 +170,7 @@ query($owner:String!,$repo:String!,$number:Int!) {
     review_threads: reviewThreads,
   };
 
-  const diff = safeSh("git diff main...HEAD") || sh("git diff main..HEAD");
+  const diff = options.diff ?? (safeSh("git diff main...HEAD") || sh("git diff main..HEAD"));
 
   return {
     prTitle: prView.title,

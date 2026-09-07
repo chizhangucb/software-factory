@@ -111,6 +111,8 @@ export interface RunLog {
   readonly logging: LoggingOption;
   readonly logPath: string;
   readonly resultEvents: ResultEvent[];
+  /** Wall time of the attempt so far, or until finish() was called. Usage reporting (#18). */
+  wallMs(): number;
   /** Persist the result events next to the log and return the run failure, if any. */
   finish(result?: Pick<RunResult, "logFilePath">): string | undefined;
 }
@@ -125,6 +127,8 @@ export const createRunLog = (name: string): RunLog => {
   fs.mkdirSync(logsDir, { recursive: true });
   const logPath = path.join(logsDir, `${name}.log`);
   const resultEvents: ResultEvent[] = [];
+  const startedAt = Date.now();
+  let finishedAt: number | undefined;
 
   const onAgentStreamEvent = (event: AgentStreamEvent): void => {
     if (event.type === "raw") {
@@ -146,7 +150,9 @@ export const createRunLog = (name: string): RunLog => {
     logging: { type: "file", path: logPath, onAgentStreamEvent },
     logPath,
     resultEvents,
+    wallMs: () => (finishedAt ?? Date.now()) - startedAt,
     finish() {
+      finishedAt = Date.now();
       fs.writeFileSync(
         path.join(logsDir, `${name}.result-events.json`),
         JSON.stringify(resultEvents, null, 2),
@@ -155,7 +161,7 @@ export const createRunLog = (name: string): RunLog => {
       console.log(
         `[${name}] ${resultEvents.length} result event(s); ` +
           (failure ? `FAILED: ${failure}` : "all reported success") +
-          `; log at ${logPath}`,
+          `; ${Math.round((finishedAt - startedAt) / 1000)}s wall; log at ${logPath}`,
       );
       return failure;
     },

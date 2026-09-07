@@ -1,0 +1,24 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "api_error_status": null,
+  "duration_ms": 1465,
+  "duration_api_ms": 2271,
+  "num_turns": 1,
+  "stop_reason": "end_turn",
+  "result": "ok",
+  "session_id": "496d0cc7-5052-441b-ac1a-42f79229e864",
+  "total_cost_usd": 0.1665735,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 16046,
+    "cache_read_input_tokens": 10121,
+    "output_tokens": 4,
+    "service_tier": "standard"
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": { "inputTokens": 898, "outputTokens": 9, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0, "costUSD": 0.000943 },
+    "claude-opus-5": { "inputTokens": 2, "outputTokens": 4, "cacheReadInputTokens": 10121, "cacheCreationInputTokens": 16046, "costUSD": 0.1656305 }
+  }
+}

@@ -7,6 +7,7 @@ on:
   pull_request_target:
     types: [labeled]
   pull_request:
+    types: [opened, synchronize, reopened, closed] # closed: the first-20 audit on merged factory PRs
   push:
     branches: [main] # update-branch: bring stale auto-merge PRs up to date when main moves
   repository_dispatch:
@@ -49,9 +50,16 @@ jobs:
     uses: chizhangucb/software-factory/.github/workflows/implement-pr.yml@main
     secrets: inherit
   gate:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
     uses: chizhangucb/software-factory/.github/workflows/gate.yml@main
     secrets: inherit
+  audit:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged
+    uses: chizhangucb/software-factory/.github/workflows/audit.yml@main
+    secrets: inherit
+    # Optional: the strongest model the subscription serves (see README, Audit).
+    # with:
+    #   audit_model: claude-fable-5-1
   update-branch:
     if: >-
       github.event_name == 'push' ||

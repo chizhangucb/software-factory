@@ -26,3 +26,21 @@ export const resolveModel = (
     ? { model: fromLabel, source: "label" }
     : { model: defaultModel, source: "default" };
 };
+
+export type Role = "implementer" | "reviewer" | "audit";
+
+/**
+ * The model a role runs on. Each role's default is the workflow input of
+ * the same name (`implementer_model`, `reviewer_model`, `audit_model`, all
+ * `claude-opus-5` unless the caller sets them). A `model:<name>` label on
+ * the ticket moves the implementer only: the reviewer and the audit judge
+ * with the model the repo configured, never one the ticket chose.
+ */
+export const resolveRoleModel = (
+  role: Role,
+  configured: string,
+  labels: readonly string[] = [],
+): { model: string; source: "label" | "default" } =>
+  role === "implementer"
+    ? resolveModel(configured, labels)
+    : { model: configured, source: "default" };

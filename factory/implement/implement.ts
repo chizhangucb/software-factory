@@ -3,7 +3,7 @@ import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 import { runWithRotation } from "../shared/accounts";
 import { fail, gh, outputDir, required, sh, writeText } from "../shared/common";
-import { resolveModel } from "../shared/model";
+import { resolveRoleModel } from "../shared/model";
 import { installFactoryPlugins } from "../shared/plugins";
 import { fetchIssue, fetchParentIssue, ticketDocument } from "../shared/ticket-context";
 import { withMaxTurns } from "../shared/turn-cap";
@@ -38,7 +38,7 @@ try {
   const labels = JSON.parse(
     gh(["issue", "view", ISSUE_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),
   ) as string[];
-  const { model, source } = resolveModel(IMPLEMENTER_MODEL, labels);
+  const { model, source } = resolveRoleModel("implementer", IMPLEMENTER_MODEL, labels);
   console.log(`Implementer model: ${model} (from ${source}), turn cap ${IMPLEMENTER_MAX_TURNS}.`);
 
   const result = await runWithRotation(`implement-${ISSUE_NUMBER}`, model, (agent, log) => {
@@ -68,7 +68,7 @@ try {
         RETRY_SECTION: retrySection,
       },
     });
-  });
+  }, { role: "implementer" });
 
   // Against main, not this run's start: a retry that inherits the previous
   // attempt's commits and rightly changes nothing still has a branch to judge.

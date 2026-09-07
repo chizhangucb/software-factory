@@ -182,6 +182,16 @@ test("parseForcedAccounts reads a comma-separated list and is off by default", (
   assert.deepEqual([...parseForcedAccounts("x")], []);
 });
 
+test("parseForcedAccounts scopes an <index>@<run> entry to that run only", () => {
+  assert.deepEqual([...parseForcedAccounts("1@implement-65", "implement-65")], [1]);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65", "review-72")], []);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65", "implement-650")], []);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65")], [], "no run name, scoped entry is off");
+  assert.deepEqual([...parseForcedAccounts(" 1 @ implement-65 , 2", "implement-65")], [1, 2]);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65,2", "audit-73")], [2], "unscoped entries still apply everywhere");
+  assert.deepEqual([...parseForcedAccounts("@implement-65", "implement-65")], []);
+});
+
 test("parseAccounts validates the workflow's file and sorts by index", () => {
   assert.deepEqual(
     parseAccounts([

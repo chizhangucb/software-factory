@@ -45,7 +45,10 @@ jobs:
         env:
           NUMBER: ${{ github.event.pull_request.number }}
           SLOTS: ${{ inputs.per_account_slots }}
-        run: echo "index=$(( NUMBER % SLOTS ))" >> "$GITHUB_OUTPUT"
+        run: |
+          index=$(( NUMBER % SLOTS ))
+          echo "index=$index" >> "$GITHUB_OUTPUT"
+          echo "Concurrency group account-slot-$index (number $NUMBER, $SLOTS slots per account)."
 
   implement-pr:
     # pull_request_target runs with secrets: never on a fork's code.

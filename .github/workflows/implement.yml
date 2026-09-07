@@ -46,7 +46,10 @@ jobs:
         env:
           NUMBER: ${{ github.event.issue.number }}
           SLOTS: ${{ inputs.per_account_slots }}
-        run: echo "index=$(( NUMBER % SLOTS ))" >> "$GITHUB_OUTPUT"
+        run: |
+          index=$(( NUMBER % SLOTS ))
+          echo "index=$index" >> "$GITHUB_OUTPUT"
+          echo "Concurrency group account-slot-$index (number $NUMBER, $SLOTS slots per account)."
 
   implement:
     runs-on: ubuntu-latest

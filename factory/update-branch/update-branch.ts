@@ -29,6 +29,7 @@ import {
   type Plan,
   VERDICT_CONTEXT,
   carriedVerdict,
+  findVerdict,
   isUpdateMerge,
   planUpdates,
 } from "./plan.ts";
@@ -72,9 +73,6 @@ const behindBy = (headSha: string): number =>
 const headStatuses = (sha: string): CommitStatus[] =>
   JSON.parse(gh(["api", `repos/${repo}/commits/${sha}/status`, "--jq", ".statuses"], statusEnv));
 
-const verdictState = (statuses: readonly CommitStatus[]): OpenPr["verdictOnHead"] =>
-  statuses.find((s) => s.context === VERDICT_CONTEXT)?.state ?? "none";
-
 const commit = (sha: string): HeadCommit => {
   const raw = JSON.parse(
     gh(["api", `repos/${repo}/commits/${sha}`, "--jq", "{sha, parents: [.parents[].sha], committerLogin: .committer.login}"]),
@@ -88,14 +86,15 @@ const toOpenPr = (raw: RawPr): OpenPr => {
     raw.mergeable === "MERGEABLE" || raw.mergeable === "CONFLICTING" ? raw.mergeable : "UNKNOWN";
   // The lookups are only worth making for PRs the plan could act on.
   const active = autoMerge && mergeable !== "CONFLICTING";
+  const head = active ? commit(raw.headRefOid) : { sha: raw.headRefOid, parents: [], committerLogin: null };
   return {
     number: raw.number,
     autoMerge,
     behindBy: active ? behindBy(raw.headRefOid) : 0,
     mergeable,
     labels: raw.labels.map((l) => l.name),
-    verdictOnHead: active ? verdictState(headStatuses(raw.headRefOid)) : "none",
-    head: active ? commit(raw.headRefOid) : { sha: raw.headRefOid, parents: [], committerLogin: null },
+    head,
+    verdict: active ? findVerdict(head, headStatuses, commit) : { state: "none", sha: head.sha },
   };
 };
 
@@ -108,11 +107,9 @@ const postStatus = (sha: string, status: CommitStatus): void => {
   ], statusEnv);
 };
 
-/** Post the first parent's passing verdict on this update merge commit; true when one was posted. */
-const carryOnto = (head: HeadCommit): boolean => {
-  if (!isUpdateMerge(head)) return false;
-  const parent = head.parents[0]!;
-  const verdict = carriedVerdict(headStatuses(parent), parent);
+/** Post the passing verdict found on `fromSha` onto `head`; true when one was posted. */
+const carryOnto = (head: HeadCommit, fromSha: string): boolean => {
+  const verdict = carriedVerdict(headStatuses(fromSha), fromSha);
   if (!verdict) return false;
   postStatus(head.sha, verdict);
   return true;
@@ -174,11 +171,11 @@ for (const plan of plans) {
   if (dryRun) continue;
   try {
     if (plan.carry) {
-      outcome.verdictCarried = carryOnto(pr.head);
+      outcome.verdictCarried = carryOnto(pr.head, pr.verdict.sha);
       console.log(
         outcome.verdictCarried
-          ? `#${plan.number}: ${VERDICT_CONTEXT} carried from ${pr.head.parents[0]!.slice(0, 7)} onto ${pr.head.sha.slice(0, 7)}.`
-          : `#${plan.number}: no passing ${VERDICT_CONTEXT} on ${pr.head.parents[0]!.slice(0, 7)} to carry.`,
+          ? `#${plan.number}: ${VERDICT_CONTEXT} carried from ${pr.verdict.sha.slice(0, 7)} onto ${pr.head.sha.slice(0, 7)}.`
+          : `#${plan.number}: no passing ${VERDICT_CONTEXT} on ${pr.verdict.sha.slice(0, 7)} to carry.`,
       );
     }
     if (plan.action === "skip") continue;
@@ -215,7 +212,8 @@ for (const plan of plans) {
       console.log(`#${plan.number}: head ${pr.head.sha.slice(0, 7)} -> ${newHead.slice(0, 7)}; ${outcome.note}.`);
       continue;
     }
-    outcome.verdictCarried = carryOnto(head);
+    // The verdict now sits on the old head, either the reviewer's or the one carried above.
+    outcome.verdictCarried = pr.verdict.state === "success" && carryOnto(head, pr.head.sha);
     console.log(
       `#${plan.number}: head ${pr.head.sha.slice(0, 7)} -> ${newHead.slice(0, 7)}; ` +
         (outcome.verdictCarried ? `${VERDICT_CONTEXT} carried.` : `no passing ${VERDICT_CONTEXT} to carry.`),

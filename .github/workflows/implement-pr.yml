@@ -46,6 +46,9 @@ jobs:
           NUMBER: ${{ github.event.pull_request.number }}
           SLOTS: ${{ inputs.per_account_slots }}
         run: |
+          case "$SLOTS" in
+            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 3." >&2; SLOTS=3 ;;
+          esac
           index=$(( NUMBER % SLOTS ))
           echo "index=$index" >> "$GITHUB_OUTPUT"
           echo "Concurrency group account-slot-$index (number $NUMBER, $SLOTS slots per account)."
@@ -96,14 +99,15 @@ jobs:
           VARS_JSON: ${{ toJSON(vars) }}
         run: |
           set -euo pipefail
-          jq -r 'to_entries[] | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[0-9]+$")) | .value' <<<"$SECRETS_JSON" \
+          jq -r 'to_entries[] | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[1-9][0-9]*$")) | .value' <<<"$SECRETS_JSON" \
             | while IFS= read -r token; do echo "::add-mask::$token"; done
           file="${RUNNER_TEMP}/factory-accounts.json"
           jq -n --argjson secrets "$SECRETS_JSON" --argjson vars "$VARS_JSON" '
             [ $secrets | to_entries[]
-              | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[0-9]+$"))
+              | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[1-9][0-9]*$"))
               | (.key | sub("^CLAUDE_CODE_OAUTH_TOKEN_"; "") | tonumber) as $n
-              | { index: $n, label: ($vars["CLAUDE_ACCOUNT_\($n)"] // "account-\($n)"), token: .value } ]
+              | ($vars["CLAUDE_ACCOUNT_\($n)"] // "") as $label
+              | { index: $n, label: (if ($label | length) > 0 then $label else "account-\($n)" end), token: .value } ]
             | sort_by(.index)' > "$file"
           chmod 600 "$file"
           count=$(jq 'length' "$file")
@@ -269,6 +273,10 @@ jobs:
           printf '`agent:implement` PR run failed.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:implement` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
           gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
           gh pr comment "$PR_NUMBER" --body-file "$body_file"
+
+      - name: Always remove the accounts file
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
 
       - name: Always remove in-progress
         if: always() && env.PR_OPEN == 'true'

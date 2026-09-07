@@ -72,11 +72,13 @@ const resetTime = ({ resetsAt }: Headroom): number => {
 /**
  * Rate-limit text as Claude Code 2.1.263 renders it into the result event
  * (`You've hit your session limit · resets ...`, `You're out of usage
- * credits`, `Request rejected (429)`), plus the API's own
- * `rate_limit_error` type and the phrases Chi's local wrapper matches on.
+ * credits`, `Request rejected (429)`) plus the API's own `rate_limit_error`
+ * type. Deliberately narrower than Chi's local wrapper: a bare "rate limit"
+ * or "limit reached" also appears in tool output and budget errors, and a
+ * false positive here re-runs a deterministic failure on another account.
  */
 const RATE_LIMIT_TEXT =
-  /usage limit|hit your [a-z0-9 ]*limit|out of (extra )?usage|limit reached|resets [0-9]|rate_limit_error|rate limit|\(429\)/i;
+  /usage limit|hit your [a-z0-9 ]*limit|out of (extra )?usage|rate_limit_error|\(429\)/i;
 
 /**
  * Whether a raw result event reports a rate limit. Reads the event only:

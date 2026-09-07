@@ -5,10 +5,11 @@ on:
   issues:
     types: [closed, labeled]
   pull_request_target:
-    types: [labeled, ready_for_review]
+    types: [labeled]
   pull_request:
   push:
     branches: [main] # update-branch: bring stale auto-merge PRs up to date when main moves
+  status: # update-branch again when a verdict passes on a head that fell behind main
   schedule:
     # Dispatcher fallback for missed events. Each run bills a minute on a private repo.
     # Off the :00 slots; GitHub delays crons on busy minutes.
@@ -51,6 +52,6 @@ jobs:
   update-branch:
     if: >-
       github.event_name == 'push' ||
-      (github.event_name == 'pull_request_target' && github.event.action == 'ready_for_review')
+      (github.event_name == 'status' && github.event.context == 'factory/verdict' && github.event.state == 'success')
     uses: chizhangucb/software-factory/.github/workflows/update-branch.yml@main
     secrets: inherit

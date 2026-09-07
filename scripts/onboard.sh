@@ -41,6 +41,7 @@ payload=$(jq -cn --arg branch "$default_branch" --argjson checks "$checks" '{
         require_code_owner_review: false,
         require_last_push_approval: false,
         required_review_thread_resolution: false,
+        require_extra_approval_for_unattributed_changes: false,
         allowed_merge_methods: ["squash"] } },
     { type: "required_status_checks", parameters: {
         strict_required_status_checks_policy: true,

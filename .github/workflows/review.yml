@@ -39,6 +39,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+      issues: read # the linked ticket and its acceptance criteria
       pull-requests: write
       statuses: write
 

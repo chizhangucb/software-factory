@@ -192,6 +192,14 @@ test("parseForcedAccounts scopes an <index>@<run> entry to that run only", () =>
   assert.deepEqual([...parseForcedAccounts("@implement-65", "implement-65")], []);
 });
 
+test("parseForcedAccounts reports malformed entries instead of dropping them silently", () => {
+  const bad: string[] = [];
+  const report = (entry: string) => bad.push(entry);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65@review-70", "implement-65", report)], []);
+  assert.deepEqual([...parseForcedAccounts("one@implement-65, 2, x, 1@", "implement-65", report)], [2]);
+  assert.deepEqual(bad, ["1@implement-65@review-70", "one@implement-65", "x", "1@"]);
+});
+
 test("parseAccounts validates the workflow's file and sorts by index", () => {
   assert.deepEqual(
     parseAccounts([

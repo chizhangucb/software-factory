@@ -60,17 +60,30 @@ export const parseAccounts = (value: unknown): AccountToken[] =>
     })
     .sort((a, b) => a.index - b.index);
 
-/** The forced accounts for one run: unscoped entries plus those scoped to `runName`. */
-export const parseForcedAccounts = (value: string | undefined, runName?: string): Set<number> =>
+/**
+ * The forced accounts for one run: unscoped entries plus those scoped to
+ * `runName`. An entry that is not `<index>` or `<index>@<run>` is reported
+ * through `onInvalid` (a typo must not read as a benign scope mismatch).
+ */
+export const parseForcedAccounts = (
+  value: string | undefined,
+  runName?: string,
+  onInvalid: (entry: string) => void = () => {},
+): Set<number> =>
   new Set(
     (value ?? "")
       .split(",")
-      .map((part) => {
-        const [index, scope] = part.split("@", 2);
-        if (scope !== undefined && scope.trim() !== runName) return Number.NaN;
-        return Number((index ?? "").trim());
-      })
-      .filter((n) => Number.isInteger(n) && n > 0),
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .flatMap((part) => {
+        const fields = part.split("@").map((f) => f.trim());
+        const index = Number(fields[0]);
+        if (fields.length > 2 || !Number.isInteger(index) || index < 1 || fields[1] === "") {
+          onInvalid(part);
+          return [];
+        }
+        return fields.length === 1 || fields[1] === runName ? [index] : [];
+      }),
   );
 
 /**
@@ -279,7 +292,9 @@ export const runWithRotation = async <T>(
   options: RunWithRotationOptions = { role: "agent" },
 ): Promise<T> => {
   const forcedValue = process.env[FORCE_RATE_LIMIT_VAR];
-  const forced = parseForcedAccounts(forcedValue, name);
+  const forced = parseForcedAccounts(forcedValue, name, (entry) =>
+    console.warn(`::warning::[${name}] ${FORCE_RATE_LIMIT_VAR} entry "${entry}" is not <index> or <index>@<run>; ignored`),
+  );
   if (forcedValue && forced.size === 0) {
     console.log(
       `[${name}] ${FORCE_RATE_LIMIT_VAR} is set (${forcedValue}) but none of its entries apply to this run; not forcing`,

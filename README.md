@@ -20,7 +20,7 @@ One ticket, one branch, one PR. The script fetches the ticket and its parent spe
 
 - The reviewer is read-only: it judges the PR head against the ticket's acceptance criteria (the checklist under `## Acceptance criteria` in the issue the PR closes) with the diff to main and the target's test output (`test_command` input, default `npm ci && npm run typecheck --if-present && npm test`, captured before the agent starts). Any commit, dirty file, or moved HEAD fails the run; the workflow never pushes.
 - Output: a `<!-- factory:verdict -->` section in the PR body with one ticked or unticked line per criterion and its evidence (replaced on re-review), a review comment with the summary, and a commit status `factory/verdict` on the PR head: `success` when every criterion is met, `failure` otherwise, including when the ticket has no criteria or the reviewer run failed. Make it a required check on the target's main.
-- The caller must grant `statuses: write` (see `examples/factory.yml`); a called workflow cannot exceed the caller's permissions. Targets onboarded before this need that one line added.
+- The caller must grant `statuses: write`, `checks: read`, and `actions: read` (see `examples/factory.yml`); a called workflow cannot exceed the caller's permissions. Targets onboarded before this need those lines added.
 - Tickets are sub-issues of their spec and are picked up as such; an issue that itself has sub-issues is refused as a spec.
 
 ## Merge

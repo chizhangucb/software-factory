@@ -65,6 +65,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: read # the retry handler links the uploaded run log (#16)
 
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -274,7 +275,7 @@ jobs:
         # the branch moved, say), or a handler that cannot reach GitHub, gets the plain blocked comment.
         if: env.PR_OPEN == 'true' && failure()
         env:
-          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
           FAILURE_KIND: implement
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ARTIFACT_NAME: factory-implement-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}

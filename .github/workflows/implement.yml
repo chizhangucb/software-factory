@@ -69,6 +69,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      actions: read # the retry handler links the uploaded run log (#16)
 
     env:
       ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -326,7 +327,7 @@ jobs:
         # or a handler that cannot reach GitHub, gets the plain blocked comment instead of burning the retry.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && failure()
         env:
-          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
           BRANCH: ${{ steps.branch.outputs.name }}
           FAILURE_KIND: implement
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

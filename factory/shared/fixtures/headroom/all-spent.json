@@ -1,0 +1,6 @@
+{
+  "_source": "Every account at its limit; the earliest reset should win.",
+  "1": { "remaining": 0, "resetsAt": "2026-09-07T21:00:00Z" },
+  "2": { "remaining": 0, "resetsAt": "2026-09-07T19:15:00Z" },
+  "3": { "remaining": 0, "resetsAt": "2026-09-07T23:45:00Z" }
+}

@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
+import { runWithRotation } from "../shared/accounts";
 import {
-  claudeAgent,
   fail,
   gh,
   required,
@@ -20,7 +20,6 @@ import {
   type ThreadReply,
 } from "../shared/review-output";
 import { runWithExtraction } from "../shared/run-with-extraction";
-import { createRunLog, runOrFail } from "../shared/run-log";
 import {
   boundOutput,
   parseAcceptanceCriteria,
@@ -137,11 +136,10 @@ try {
         : "(no test output was captured)";
     const baseline = worktreeState();
 
-    const log = createRunLog(`review-${PR_NUMBER}`);
-    const result = await runOrFail(log, () =>
+    const result = await runWithRotation(`review-${PR_NUMBER}`, REVIEWER_MODEL, (agent, log) =>
       runWithExtraction({
         name: `review-pr-${PR_NUMBER}`,
-        agent: claudeAgent(REVIEWER_MODEL),
+        agent,
         sandbox: noSandbox(),
         logging: log.logging,
         promptFile: path.join(import.meta.dirname, "prompt.md"),

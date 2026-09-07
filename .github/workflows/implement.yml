@@ -10,6 +10,10 @@ on:
         description: Default model for the implementer. A model:<name> label on the issue overrides it for that run.
         type: string
         default: claude-opus-5
+      per_account_slots:
+        description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
+        type: number
+        default: 3
       factory_repo:
         description: Repo holding the factory scripts (this repo).
         type: string
@@ -25,11 +29,31 @@ on:
       # Account tokens are CLAUDE_CODE_OAUTH_TOKEN_<n>, discovered from the inherited secrets.
 
 jobs:
+  slot:
+    # Per-account concurrency cap (#17): N named slots, account-slot-0 .. account-slot-(N-1), shared by
+    # implement, review, and implement-pr in the target repo. A run takes slot (number mod N), so
+    # every run on one issue or PR lands in the same slot and stays serialized. Runs fill accounts
+    # in configured order and rotate only on a rate limit, so N slots caps runs in flight on the
+    # account in use. GitHub's concurrency key has no arithmetic, hence this job.
+    # Trade-off: a concurrency group holds one running and one pending run; a third run arriving
+    # for the same slot cancels the older pending one before it transitions any label. The
+    # dispatcher's schedule fallback (#15) re-labels tickets left that way.
+    runs-on: ubuntu-latest
+    outputs:
+      index: ${{ steps.pick.outputs.index }}
+    steps:
+      - id: pick
+        env:
+          NUMBER: ${{ github.event.issue.number }}
+          SLOTS: ${{ inputs.per_account_slots }}
+        run: echo "index=$(( NUMBER % SLOTS ))" >> "$GITHUB_OUTPUT"
+
   implement:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: slot
     concurrency:
-      group: factory-implement-issue-${{ github.event.issue.number }}
+      group: account-slot-${{ needs.slot.outputs.index }}
       cancel-in-progress: false
     permissions:
       contents: write
@@ -104,28 +128,34 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" --remove-label "agent:blocked" || true
           gh issue edit "$ISSUE_NUMBER" --add-label "agent:in-progress"
 
-      - name: Pick account
-        # One secret per account: CLAUDE_CODE_OAUTH_TOKEN_<n>. Lowest n wins for now;
-        # rotation on rate limit is #17. The token is masked and never printed.
+      - name: Enumerate accounts
+        # One secret per account, CLAUDE_CODE_OAUTH_TOKEN_<n>, labeled by the CLAUDE_ACCOUNT_<n> variable.
+        # Every token is masked before anything else prints. The list goes to a file in RUNNER_TEMP for
+        # the run script, which picks the account, deletes the file, and rotates once on a rate limit
+        # (#17). Adding an account is adding one secret; nothing here changes.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
         env:
           SECRETS_JSON: ${{ toJSON(secrets) }}
           VARS_JSON: ${{ toJSON(vars) }}
         run: |
           set -euo pipefail
-          names=$(jq -r 'keys[] | select(test("^CLAUDE_CODE_OAUTH_TOKEN_[0-9]+$"))' <<<"$SECRETS_JSON" | sort -t_ -k5 -n)
-          first=$(printf '%s\n' "$names" | head -n1)
-          if [ -z "$first" ]; then
+          jq -r 'to_entries[] | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[0-9]+$")) | .value' <<<"$SECRETS_JSON" \
+            | while IFS= read -r token; do echo "::add-mask::$token"; done
+          file="${RUNNER_TEMP}/factory-accounts.json"
+          jq -n --argjson secrets "$SECRETS_JSON" --argjson vars "$VARS_JSON" '
+            [ $secrets | to_entries[]
+              | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[0-9]+$"))
+              | (.key | sub("^CLAUDE_CODE_OAUTH_TOKEN_"; "") | tonumber) as $n
+              | { index: $n, label: ($vars["CLAUDE_ACCOUNT_\($n)"] // "account-\($n)"), token: .value } ]
+            | sort_by(.index)' > "$file"
+          chmod 600 "$file"
+          count=$(jq 'length' "$file")
+          if [ "$count" = "0" ]; then
             echo "No CLAUDE_CODE_OAUTH_TOKEN_<n> secret is available. Pass secrets: inherit from the caller." >&2
             exit 1
           fi
-          n="${first##*_}"
-          token=$(jq -r --arg k "$first" '.[$k]' <<<"$SECRETS_JSON")
-          echo "::add-mask::$token"
-          echo "CLAUDE_CODE_OAUTH_TOKEN=$token" >> "$GITHUB_ENV"
-          echo "CLAUDE_ACCOUNT=$n" >> "$GITHUB_ENV"
-          label=$(jq -r --arg k "CLAUDE_ACCOUNT_$n" '.[$k] // empty' <<<"$VARS_JSON")
-          echo "Account $n${label:+ ($label)} selected from $(printf '%s\n' "$names" | wc -l | tr -d ' ') configured."
+          echo "FACTORY_ACCOUNTS_FILE=$file" >> "$GITHUB_ENV"
+          echo "$count account(s) configured: $(jq -r '[.[] | "\(.index) (\(.label))"] | join(", ")' "$file")"
 
       - name: Checkout target repo
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
@@ -186,7 +216,7 @@ jobs:
           BRANCH: ${{ steps.branch.outputs.name }}
           IMPLEMENTER_MODEL: ${{ inputs.implementer_model }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
-          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-config-${{ env.CLAUDE_ACCOUNT }}
+          FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
         run: tsx ../factory/factory/implement/implement.ts
 
       - name: Upload run log

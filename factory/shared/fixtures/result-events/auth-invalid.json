@@ -1,0 +1,11 @@
+{
+  "_source": "Claude Code 2.1.263 with a bad token: HTTP 401 authentication_error. An auth failure, not a rate limit; rotating to another account must not be triggered by it.",
+  "type": "result",
+  "subtype": "success",
+  "is_error": true,
+  "api_error_status": 401,
+  "num_turns": 1,
+  "stop_reason": null,
+  "result": "API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid authentication credentials\"}}",
+  "session_id": "00000000-0000-4000-8000-000000000005"
+}

@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
+import { runWithRotation } from "../shared/accounts";
 import {
-  claudeAgent,
   fail,
   gh,
   required,
@@ -11,7 +11,6 @@ import {
   writeText,
 } from "../shared/common";
 import { resolveModel } from "../shared/model";
-import { createRunLog, runOrFail } from "../shared/run-log";
 import { fetchPullRequestContext } from "../shared/review-context";
 import {
   filterInlineComments,
@@ -33,10 +32,9 @@ try {
   const { model, source } = resolveModel(IMPLEMENTER_MODEL, labels);
   console.log(`Implementer model: ${model} (from ${source}).`);
 
-  const log = createRunLog(`implement-pr-${PR_NUMBER}`);
-  const result = await runOrFail(log, () => runWithExtraction({
+  const result = await runWithRotation(`implement-pr-${PR_NUMBER}`, model, (agent, log) => runWithExtraction({
     name: `implement-pr-${PR_NUMBER}`,
-    agent: claudeAgent(model),
+    agent,
     sandbox: noSandbox(),
     logging: log.logging,
     promptFile: path.join(import.meta.dirname, "prompt.md"),

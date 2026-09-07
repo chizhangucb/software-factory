@@ -1,0 +1,14 @@
+{
+  "_source": "Claude Code 2.1.263, claude -p --output-format json on a subscription account at its 5-hour limit. Exit code 0. Shape from the CLI's result construction: the last assistant message is an API error (error rate_limit, HTTP 429), so subtype stays success while is_error is true and result carries the error text.",
+  "type": "result",
+  "subtype": "success",
+  "is_error": true,
+  "api_error_status": 429,
+  "duration_ms": 1873,
+  "duration_api_ms": 1620,
+  "num_turns": 1,
+  "stop_reason": null,
+  "result": "You've hit your session limit · resets 5pm (America/Los_Angeles)",
+  "session_id": "00000000-0000-4000-8000-000000000002",
+  "total_cost_usd": 0
+}

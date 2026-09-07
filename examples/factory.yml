@@ -31,6 +31,9 @@ jobs:
     if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/implement.yml@main
     secrets: inherit
+    # Optional, same on every job: raise the per-account concurrency cap (default 3).
+    # with:
+    #   per_account_slots: 5
   review:
     if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:review'
     uses: chizhangucb/software-factory/.github/workflows/review.yml@main

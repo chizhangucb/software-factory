@@ -1,0 +1,11 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "api_error_status": null,
+  "duration_ms": 4210,
+  "num_turns": 1,
+  "stop_reason": "end_turn",
+  "result": "OK",
+  "session_id": "00000000-0000-4000-8000-000000000001"
+}

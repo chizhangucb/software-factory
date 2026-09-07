@@ -1,0 +1,6 @@
+{
+  "_source": "Shape #24's feed will carry: per account index, remaining percent (100 minus the max of the 5-hour and 7-day utilization) and when the binding window resets.",
+  "1": { "remaining": 12, "resetsAt": "2026-09-07T20:00:00Z" },
+  "2": { "remaining": 84, "resetsAt": "2026-09-07T22:00:00Z" },
+  "3": { "remaining": 40, "resetsAt": "2026-09-07T18:30:00Z" }
+}

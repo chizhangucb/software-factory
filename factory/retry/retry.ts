@@ -21,6 +21,7 @@
  * GITHUB_WORKFLOW (set by the runner) to ignore the factory's own check runs.
  */
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { gh, outputDir, required, writeJson } from "../shared/common";
@@ -30,6 +31,8 @@ import {
   type CheckRun,
   type CommitStatus,
   evaluateChecks,
+  type GateArtifact,
+  renderGateOutput,
   runIdFromUrl,
   summariseFailures,
 } from "./checks";
@@ -159,6 +162,50 @@ const failedLog = (url: string | null): string => {
   }
 };
 
+const findFile = (dir: string, name: string): string | undefined => {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const hit = findFile(full, name);
+      if (hit) return hit;
+    } else if (entry.name === name) {
+      return full;
+    }
+  }
+  return undefined;
+};
+
+const gateOutputs = new Map<string, string>();
+
+/** The gate run's artifact (gate.json plus the red-green logs), or its log when that fails. Both gate contexts share one run. */
+const gateOutput = (url: string | null): string => {
+  const runId = runIdFromUrl(url);
+  if (!runId) return `(no gate run: ${url ?? "no url"})`;
+  const cached = gateOutputs.get(runId);
+  if (cached) return cached;
+  const output = readGateArtifact(runId, url);
+  gateOutputs.set(runId, output);
+  return output;
+};
+
+const readGateArtifact = (runId: string, url: string | null): string => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-artifact-"));
+  try {
+    gh(["run", "download", runId, "--repo", REPO, "--dir", dir]);
+    const gateFile = findFile(dir, "gate.json");
+    if (!gateFile) return `(the gate run ${runId} uploaded no gate.json)
+${failedLog(url)}`;
+    const next = (name: string) => readIf(path.join(path.dirname(gateFile), name));
+    const gate = JSON.parse(fs.readFileSync(gateFile, "utf8")) as GateArtifact;
+    return renderGateOutput(gate, { base: next("red-green-base.log"), head: next("red-green-head.log") });
+  } catch (error) {
+    return `(could not read the gate artifact of run ${runId}: ${error instanceof Error ? error.message : String(error)})
+${failedLog(url)}`;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
 const workflowNames = new Map<string, string | undefined>();
 const workflowNameOf = (run: { html_url?: string | null }): string | undefined => {
   const runId = runIdFromUrl(run.html_url);
@@ -192,7 +239,7 @@ const checksFailure = async (): Promise<{ failures: CheckFailure[]; failure: Fai
   }
   if (state.failures.length === 0) return { failures: [], failure: undefined };
   const output = state.failures
-    .map((f) => `## ${f.name}: ${f.kind} failure${f.description ? ` (${f.description})` : ""}\n${f.url ?? ""}\n\n${f.kind === "verdict" ? verdictOutput() : failedLog(f.url)}`)
+    .map((f) => `## ${f.name}: ${f.kind} failure${f.description ? ` (${f.description})` : ""}\n${f.url ?? ""}\n\n${f.kind === "verdict" ? verdictOutput() : f.kind === "gate" ? gateOutput(f.url) : failedLog(f.url)}`)
     .join("\n\n");
   const first = state.failures[0] as CheckFailure;
   return {

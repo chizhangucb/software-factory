@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluateChecks, runIdFromUrl, summariseFailures } from "./checks";
+import { evaluateChecks, renderGateOutput, runIdFromUrl, summariseFailures } from "./checks";
 
 const own = { workflowName: "factory", runId: "500" };
 
@@ -111,4 +111,25 @@ test("summariseFailures is one line naming each failure and its description", ()
     ]),
     "gate factory/red-green (no test failed on main); verdict factory/verdict (1/3 acceptance criteria met)",
   );
+});
+
+test("renderGateOutput lists each check's reasons and the tails of the red-green logs", () => {
+  const out = renderGateOutput(
+    {
+      redGreen: { ok: false, reasons: ["test/x.test.js passed on main"], exitCodes: { base: 0, head: 0 } },
+      testIntegrity: { ok: true, reasons: [] },
+    },
+    { base: "line1\nline2\nline3", head: "ok" },
+    2,
+  );
+  assert.match(out, /factory\/red-green: fail\n- test\/x\.test\.js passed on main/);
+  assert.match(out, /factory\/test-integrity: pass/);
+  assert.match(out, /on main \(expected to fail\), exit 0:\nline2\nline3/);
+  assert.match(out, /on the head \(expected to pass\), exit 0:\nok/);
+  assert.doesNotMatch(out, /line1/);
+});
+
+test("renderGateOutput without a red-green run shows only the verdicts", () => {
+  const out = renderGateOutput({ testIntegrity: { ok: false, reasons: ["test/a.test.js was deleted"] } }, {});
+  assert.equal(out, "factory/red-green: (not in gate.json)\nfactory/test-integrity: fail\n- test/a.test.js was deleted");
 });

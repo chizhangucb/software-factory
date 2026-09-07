@@ -97,3 +97,39 @@ export const summariseFailures = (failures: readonly CheckFailure[]): string =>
   failures
     .map((f) => `${f.kind} ${f.name}${f.description ? ` (${f.description})` : ""}`)
     .join("; ");
+
+export interface GateArtifact {
+  readonly redGreen?: { readonly ok?: boolean; readonly reasons?: readonly string[]; readonly exitCodes?: { base: number; head: number } };
+  readonly testIntegrity?: { readonly ok?: boolean; readonly reasons?: readonly string[] };
+}
+
+/**
+ * The gate's failing output, from the artifact its run uploaded: gate.json
+ * carries each check's reasons, the red-green logs show the test runs on
+ * main and on the head. The gate job itself fails on a one-line jq step, so
+ * its failed-step log says nothing.
+ */
+export const renderGateOutput = (
+  gate: GateArtifact,
+  logs: { readonly base?: string; readonly head?: string },
+  tailLines = 40,
+): string => {
+  const tail = (text: string | undefined): string =>
+    (text ?? "").trim().split("\n").slice(-tailLines).join("\n") || "(empty)";
+  const check = (name: string, result: { ok?: boolean; reasons?: readonly string[] } | undefined): string[] =>
+    result
+      ? [`${name}: ${result.ok ? "pass" : "fail"}`, ...(result.reasons ?? []).map((r) => `- ${r}`)]
+      : [`${name}: (not in gate.json)`];
+  const lines = [...check("factory/red-green", gate.redGreen), ...check("factory/test-integrity", gate.testIntegrity)];
+  if (gate.redGreen?.exitCodes) {
+    lines.push(
+      "",
+      `Changed tests on main (expected to fail), exit ${gate.redGreen.exitCodes.base}:`,
+      tail(logs.base),
+      "",
+      `Changed tests on the head (expected to pass), exit ${gate.redGreen.exitCodes.head}:`,
+      tail(logs.head),
+    );
+  }
+  return lines.join("\n");
+};

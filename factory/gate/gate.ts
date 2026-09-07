@@ -37,7 +37,8 @@ const run = (cwd: string, cmd: string, args: string[] = []): TestResult => {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 20 * 60 * 1000,
-    env: { ...process.env, CI: "1" },
+    // the PR's own tests run here: no GitHub credentials in their reach
+    env: { ...process.env, CI: "1", GH_TOKEN: "", GITHUB_TOKEN: "" },
   });
   return { exitCode: proc.status ?? 1, output: `${proc.stdout ?? ""}${proc.stderr ?? ""}` };
 };
@@ -106,7 +107,12 @@ const main = (): void => {
   });
 
   const summary = [
-    summarize("factory/red-green", redGreen.ok, redGreen.reasons, `${plan.reason}${results ? ` (base exit ${results.base.exitCode}, head exit ${results.head.exitCode})` : ""}`),
+    summarize(
+      "factory/red-green",
+      redGreen.ok,
+      redGreen.reasons,
+      results ? `${plan.reason} (base exit ${results.base.exitCode}, head exit ${results.head.exitCode})` : redGreen.ok ? plan.reason : "",
+    ),
     summarize(
       "factory/test-integrity",
       integrity.ok,

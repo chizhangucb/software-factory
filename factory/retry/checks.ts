@@ -1,0 +1,99 @@
+/**
+ * The state of a PR head's checks, reduced to what the retry decision needs:
+ * which are still pending, and which failed and of what kind. Statuses
+ * (the statuses API: factory/verdict, factory/red-green,
+ * factory/test-integrity, anything else posted there) and check runs (the
+ * target's own Actions CI) are read together. Check runs that belong to the
+ * factory's own caller workflow are not the target's CI and are ignored,
+ * including this very run.
+ */
+import type { FailureKind } from "./decide";
+
+export interface CommitStatus {
+  readonly context: string;
+  readonly state: string;
+  readonly description?: string | null;
+  readonly target_url?: string | null;
+}
+
+export interface CheckRun {
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion?: string | null;
+  readonly html_url?: string | null;
+  /** The Actions workflow the run belongs to; undefined when unknown. */
+  readonly workflowName?: string;
+}
+
+export interface CheckFailure {
+  readonly name: string;
+  readonly kind: FailureKind;
+  readonly description: string;
+  /** The run or job to pull a log excerpt from. */
+  readonly url: string | null;
+}
+
+export interface CheckState {
+  readonly pending: string[];
+  readonly failures: CheckFailure[];
+}
+
+export const VERDICT_CONTEXT = "factory/verdict";
+export const GATE_CONTEXTS: readonly string[] = ["factory/red-green", "factory/test-integrity"];
+
+const FAILED_STATUS_STATES = new Set(["failure", "error"]);
+const FAILED_CONCLUSIONS = new Set(["failure", "timed_out"]);
+
+/** Gate first, then the target's CI, then the verdict: the log is the more useful output. */
+const KIND_ORDER: readonly FailureKind[] = ["gate", "ci", "verdict", "implement"];
+
+export const runIdFromUrl = (url: string | null | undefined): string | undefined =>
+  url?.match(/\/actions\/runs\/(\d+)(?:[/?#]|$)/)?.[1];
+
+const statusKind = (context: string): FailureKind =>
+  context === VERDICT_CONTEXT ? "verdict" : GATE_CONTEXTS.includes(context) ? "gate" : "ci";
+
+export const evaluateChecks = (input: {
+  readonly statuses: readonly CommitStatus[];
+  readonly checkRuns: readonly CheckRun[];
+  readonly own: { readonly workflowName: string; readonly runId: string };
+}): CheckState => {
+  const pending: string[] = [];
+  const failures: CheckFailure[] = [];
+
+  for (const status of input.statuses) {
+    if (status.state === "pending") {
+      pending.push(status.context);
+    } else if (FAILED_STATUS_STATES.has(status.state)) {
+      failures.push({
+        name: status.context,
+        kind: statusKind(status.context),
+        description: status.description ?? "",
+        url: status.target_url ?? null,
+      });
+    }
+  }
+
+  for (const run of input.checkRuns) {
+    const runId = runIdFromUrl(run.html_url);
+    if (runId === input.own.runId || run.workflowName === input.own.workflowName) continue;
+    if (run.status !== "completed") {
+      pending.push(run.name);
+    } else if (FAILED_CONCLUSIONS.has(run.conclusion ?? "")) {
+      failures.push({
+        name: run.name,
+        kind: "ci",
+        description: run.conclusion ?? "",
+        url: run.html_url ?? null,
+      });
+    }
+  }
+
+  failures.sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
+  return { pending, failures };
+};
+
+export const summariseFailures = (failures: readonly CheckFailure[]): string =>
+  failures
+    .map((f) => `${f.kind} ${f.name}${f.description ? ` (${f.description})` : ""}`)
+    .join("; ");

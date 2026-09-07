@@ -18,6 +18,7 @@ import {
   implementPrOutputSchema,
 } from "../shared/review-output";
 import { runWithExtraction } from "../shared/run-with-extraction";
+import { retrySectionForRun } from "../retry/context";
 
 const PR_NUMBER = required("PR_NUMBER");
 const BRANCH = required("BRANCH");
@@ -31,6 +32,8 @@ try {
   ) as string[];
   const { model, source } = resolveModel(IMPLEMENTER_MODEL, labels);
   console.log(`Implementer model: ${model} (from ${source}).`);
+  // A retry (#16) carries the failing verdict or check log on the linked ticket.
+  const retrySection = retrySectionForRun(context.issueNumber || undefined);
 
   const result = await runWithRotation(`implement-pr-${PR_NUMBER}`, model, (agent, log) => runWithExtraction({
     name: `implement-pr-${PR_NUMBER}`,
@@ -47,6 +50,7 @@ try {
       LINKED_ISSUE: context.linkedIssue,
       DIFF_TO_MAIN: context.diff,
       PR_COMMENTS_JSON: context.prCommentsJson,
+      RETRY_SECTION: retrySection,
     },
     output: sandcastle.Output.object({
       tag: "output",

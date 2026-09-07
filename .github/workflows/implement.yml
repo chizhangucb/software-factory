@@ -204,7 +204,13 @@ jobs:
         run: |
           git config user.name "factory-agent[bot]"
           git config user.email "factory-agent[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
+          # A retry (#16) continues on the branch the failed attempt pushed; a first attempt starts from main.
+          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+            git checkout -b "$BRANCH" "origin/$BRANCH"
+            echo "Continuing on origin/$BRANCH, $(git rev-list --count main..HEAD) commit(s) ahead of main."
+          else
+            git checkout -b "$BRANCH"
+          fi
 
       - name: Setup Node.js
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
@@ -296,19 +302,45 @@ jobs:
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
         run: gh pr edit "$PR_NUMBER" --add-label "agent:review"
 
-      - name: Mark blocked on failure
+      - name: Keep partial work on failure
+        # The branch is what a retry continues on and what an escalation keeps for the human.
+        if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && failure() && steps.branch.outputs.name != ''
+        working-directory: target
+        env:
+          BRANCH: ${{ steps.branch.outputs.name }}
+          FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
+        run: |
+          if [ "$(git rev-list --count main..HEAD 2>/dev/null || echo 0)" = "0" ]; then
+            echo "No commits on $BRANCH; nothing to keep."
+          else
+            git push --force "https://x-access-token:${FACTORY_PAT}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$BRANCH"
+            echo "Pushed $(git rev-list --count main..HEAD) commit(s) to $BRANCH."
+          fi
+
+      - name: Retry or escalate
+        # One informed retry, then needs-human (#16). FACTORY_PAT so the label that starts the retry fires its event.
+        # Before the factory is installed there is no handler; that failure gets the plain blocked comment.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && failure()
         env:
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          FAILURE_KIND: implement
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ARTIFACT_NAME: factory-implement-issue-${{ github.event.issue.number }}-run-${{ github.run_attempt }}
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
         run: |
-          reason="(no reason file written; check workflow logs)"
-          if [ -f "${RUNNER_TEMP}/factory-out/failure_reason.txt" ]; then
-            reason=$(cat "${RUNNER_TEMP}/factory-out/failure_reason.txt")
+          if [ -x factory/node_modules/.bin/tsx ] && [ -n "$BRANCH" ]; then
+            factory/node_modules/.bin/tsx factory/factory/retry/retry.ts
+          else
+            reason="(no reason file written; check workflow logs)"
+            if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then
+              reason=$(cat "${OUTPUT_DIR}/failure_reason.txt")
+            fi
+            body_file="${RUNNER_TEMP}/failure-comment.md"
+            printf '`agent:implement` run failed before the implementer started.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:implement` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
+            gh issue edit "$ISSUE_NUMBER" --add-label "agent:blocked" || true
+            gh issue comment "$ISSUE_NUMBER" --body-file "$body_file"
           fi
-          body_file="${RUNNER_TEMP}/failure-comment.md"
-          printf '`agent:implement` run failed.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:implement` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
-          gh issue edit "$ISSUE_NUMBER" --add-label "agent:blocked" || true
-          gh issue comment "$ISSUE_NUMBER" --body-file "$body_file"
 
       - name: Always remove the accounts file
         if: always()

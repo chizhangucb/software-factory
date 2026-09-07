@@ -279,6 +279,21 @@ jobs:
           gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
           gh pr comment "$PR_NUMBER" --body-file "$body_file"
 
+      - name: Retry or escalate on a failing verdict or gate
+        # The one place PR-side failures are judged (#16): once the verdict is posted, wait for the
+        # head's gate statuses and the target's own CI to settle, then on any failure give the
+        # implementer one informed retry (implement-pr on this branch, agent:implement on the PR)
+        # or escalate the ticket. FACTORY_PAT so the labels fire events. A crashed reviewer is
+        # not the implementer's failure and keeps the blocked comment above.
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          FAILURE_KIND: checks
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ARTIFACT_NAME: factory-review-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
+        run: tsx factory/factory/retry/retry.ts
+
       - name: Always remove the accounts file
         if: always()
         run: rm -f "${RUNNER_TEMP}/factory-accounts.json"

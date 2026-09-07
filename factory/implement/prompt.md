@@ -6,6 +6,7 @@ You are the implementer. You are on branch `{{BRANCH}}`, already created from `m
 
 This run has a turn cap and a 60 minute limit. Spend turns on the ticket, not on exploration for its own sake.
 
+{{RETRY_SECTION}}
 # TICKET
 
 {{ISSUE_CONTEXT}}

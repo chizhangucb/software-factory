@@ -47,8 +47,10 @@ const base = process.env.BASE_BRANCH || "main";
 const dryRun = process.env.DRY_RUN === "1";
 const runUrl = process.env.RUN_URL ?? "";
 
+/** 64 MB: a busy repo's paginated listing passed Node's 1 MB default (ENOBUFS in the reconciler, #19). */
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
 const gh = (args: string[], env: NodeJS.ProcessEnv = process.env): string =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env, maxBuffer: 64 * 1024 * 1024 });
+  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env, maxBuffer: GH_MAX_BUFFER });
 
 const statusEnv = { ...process.env, GH_TOKEN: process.env.STATUS_TOKEN || process.env.GH_TOKEN };
 

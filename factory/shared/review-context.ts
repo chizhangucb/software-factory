@@ -50,8 +50,15 @@ export const fetchPullRequestContext = (
   const issueBody = issueNumber
     ? gh(["issue", "view", issueNumber, "--json", "body", "--jq", ".body"])
     : "";
+  // gh 2.95 prints only the comments under --comments, so fetch the issue and
+  // its comments separately or a ticket with no comments arrives empty.
   const linkedIssue = issueNumber
-    ? safeSh(`gh issue view ${issueNumber} --comments`)
+    ? [
+        safeSh(`gh issue view ${issueNumber}`),
+        safeSh(`gh issue view ${issueNumber} --comments`),
+      ]
+        .filter((part) => part.trim().length > 0)
+        .join("\n")
     : "(no linked issue found)";
 
   const reviews = JSON.parse(

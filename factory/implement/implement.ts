@@ -51,6 +51,11 @@ try {
       agent: withMaxTurns(agent, IMPLEMENTER_MAX_TURNS),
       sandbox: noSandbox(),
       logging: log.logging,
+      // The review skills run in sub-agents whose output never reaches this
+      // stream, so the parent can be silent for a while. The turn cap and the
+      // job timeout are the real bounds; the library's 10 minute idle default
+      // would cut a long review short.
+      idleTimeoutSeconds: 30 * 60,
       promptFile: path.join(import.meta.dirname, "prompt.md"),
       promptArgs: {
         ISSUE_NUMBER,

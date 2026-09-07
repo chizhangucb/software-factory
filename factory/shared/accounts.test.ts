@@ -9,7 +9,7 @@ import {
   parseForcedAccounts,
   runOnAccounts,
 } from "./accounts";
-import type { ResultEvent, RunLog } from "./run-log";
+import { type ResultEvent, type RunLog, runFailure } from "./run-log";
 import { type AccountToken, isRateLimited } from "./rotation";
 
 const fixture = (name: string): ResultEvent =>
@@ -26,7 +26,7 @@ const accounts: readonly AccountToken[] = [
   { index: 3, label: "gamma", token: "tok-3" },
 ];
 
-/** A run log that records nothing on disk; finish() mirrors runFailure. */
+/** A run log that records nothing on disk; finish() is the real runFailure. */
 const fakeLogs = (): { logs: string[]; createLog: (name: string) => RunLog } => {
   const logs: string[] = [];
   return {
@@ -38,21 +38,22 @@ const fakeLogs = (): { logs: string[]; createLog: (name: string) => RunLog } => 
         logging: { type: "file", path: `/dev/null/${name}.log` },
         logPath: `/dev/null/${name}.log`,
         resultEvents,
+        record: (event) => resultEvents.push(event),
         wallMs: () => 0,
-        finish: () =>
-          resultEvents.some((e) => e.is_error) ? "error" : undefined,
+        finish: () => runFailure(resultEvents),
       };
     },
   };
 };
 
 /** Each attempt's agent is the token it ran on, so the outcome per account is scripted. */
-const scripted = (outcomes: Record<string, ResultEvent>) =>
+const scripted = (outcomes: Record<string, ResultEvent | ResultEvent[]>) =>
   async (agent: string, log: RunLog): Promise<string> => {
-    const event = outcomes[agent];
-    if (!event) throw new Error(`unexpected attempt on ${agent}`);
-    log.resultEvents.push(event);
-    if (event.is_error) throw new Error("library threw, as it does on a bad turn");
+    const scripted = outcomes[agent];
+    if (!scripted) throw new Error(`unexpected attempt on ${agent}`);
+    const events = Array.isArray(scripted) ? scripted : [scripted];
+    for (const event of events) log.record(event);
+    if (events[events.length - 1]?.is_error) throw new Error("library threw, as it does on a bad turn");
     return `ran on ${agent}`;
   };
 
@@ -97,6 +98,21 @@ test("a run that succeeds first time never touches a second account or the tree"
   assert.deepEqual(logs, ["t.account-1"]);
 });
 
+test("a rate-limited turn the library retried to success stays on its account", async () => {
+  const { logs, createLog } = fakeLogs();
+  const outcome = await runOnAccounts({
+    name: "t",
+    accounts,
+    agentFor: (a) => a.token,
+    run: scripted({ "tok-1": [fixture("rate-limit-session"), fixture("success")] }),
+    createLog,
+    log: () => {},
+    restore: () => assert.fail("a run whose last event succeeded must not re-run"),
+  });
+  assert.deepEqual(outcome, { ok: true, value: "ran on tok-1", account: accounts[0] });
+  assert.deepEqual(logs, ["t.account-1"]);
+});
+
 test("two rate limits in a row stop after the single re-run and name both accounts", async () => {
   const { createLog } = fakeLogs();
   const outcome = await runOnAccounts({
@@ -111,6 +127,7 @@ test("two rate limits in a row stop after the single re-run and name both accoun
     log: () => {},
   });
   assert.equal(outcome.ok, false);
+  assert.equal(outcome.ok || outcome.rateLimited, true, "exhaustion is flagged for the retry handler");
   assert.match(outcome.ok ? "" : outcome.reason, /alpha.*beta/s);
   assert.doesNotMatch(outcome.ok ? "" : outcome.reason, /tok-/);
 });
@@ -126,6 +143,7 @@ test("an auth error does not rotate; it fails on the account it happened on", as
     log: () => {},
   });
   assert.equal(outcome.ok, false);
+  assert.equal(outcome.ok || outcome.rateLimited, false);
   assert.deepEqual(logs, ["t.account-1"]);
 });
 

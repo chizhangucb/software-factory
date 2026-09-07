@@ -15,6 +15,9 @@ export const required = (name: string): string => {
   return value;
 };
 
+export const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 export const fail = (message: string): never => {
   console.error(`\nFAILED: ${message}`);
   fs.mkdirSync(outputDir(), { recursive: true });

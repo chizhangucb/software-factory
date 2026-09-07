@@ -12,9 +12,11 @@ import {
   asRecord,
   asString,
   claudeAgent,
+  errorMessage,
   fail,
   required,
   sh,
+  writeText,
 } from "./common";
 import {
   createRunLog,
@@ -74,9 +76,7 @@ export const loadAccounts = (file = required(ACCOUNTS_FILE_VAR)): AccountToken[]
   try {
     accounts = parseAccounts(JSON.parse(fs.readFileSync(file, "utf8")));
   } catch (error) {
-    return fail(
-      `Could not read the accounts file: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    return fail(`Could not read the accounts file: ${errorMessage(error)}`);
   } finally {
     fs.rmSync(file, { force: true });
   }
@@ -114,7 +114,12 @@ export interface RunOnAccountsOptions<A, T> {
 
 export type RunOnAccountsOutcome<T> =
   | { readonly ok: true; readonly value: T; readonly account: AccountToken }
-  | { readonly ok: false; readonly reason: string };
+  | {
+      readonly ok: false;
+      readonly reason: string;
+      /** Every account tried was rate limited: a quota problem, not the ticket's. */
+      readonly rateLimited: boolean;
+    };
 
 const describe = (account: AccountToken): string =>
   `account ${account.index} (${account.label})`;
@@ -122,7 +127,9 @@ const describe = (account: AccountToken): string =>
 /**
  * Pick, run, and rotate once. Rate limits are read from the raw result
  * events the run log captured, never from an exit code. Any other failure
- * stays on the account it happened on.
+ * stays on the account it happened on, and an attempt whose last result
+ * event succeeded is a success whatever an earlier event said: the library
+ * retries a turn, and the retry can land on quota the first turn lacked.
  */
 export const runOnAccounts = async <A, T>(
   options: RunOnAccountsOptions<A, T>,
@@ -154,7 +161,7 @@ export const runOnAccounts = async <A, T>(
       log(
         `[${name}] ${FORCE_RATE_LIMIT_VAR} includes ${account.index}: treating this attempt as rate limited without running the agent`,
       );
-      runLog.resultEvents.push(forcedRateLimitEvent(account));
+      runLog.record(forcedRateLimitEvent(account));
       settled = { ok: false, failure: runLog.finish() ?? "forced rate limit" };
     } else {
       settled = await settleRun(runLog, () =>
@@ -162,7 +169,7 @@ export const runOnAccounts = async <A, T>(
       );
     }
 
-    const limit = runLog.resultEvents.find(isRateLimited);
+    const limit = settled.ok ? undefined : runLog.resultEvents.find(isRateLimited);
     if (limit) {
       rateLimited.add(account.index);
       limits.push(`${describe(account)}: ${limit.result ?? limit.subtype}`);
@@ -175,7 +182,7 @@ export const runOnAccounts = async <A, T>(
     }
     if (!settled.ok) {
       log(`[${name}] failed on ${describe(account)}`);
-      return { ok: false, reason: settled.failure };
+      return { ok: false, reason: settled.failure, rateLimited: false };
     }
     log(`[${name}] finished on ${describe(account)}`);
     return { ok: true, value: settled.value, account };
@@ -183,6 +190,7 @@ export const runOnAccounts = async <A, T>(
 
   return {
     ok: false,
+    rateLimited: true,
     reason:
       `Rate limited on every account tried (${limits.length} of ${accounts.length} configured; one re-run allowed): ` +
       limits.join("; "),
@@ -220,8 +228,8 @@ const recordingLog = (
     const log = createRunLog(logName);
     return {
       ...log,
-      finish(result) {
-        const failure = log.finish(result);
+      finish() {
+        const failure = log.finish();
         try {
           appendUsageRecord(
             {
@@ -238,9 +246,7 @@ const recordingLog = (
           );
         } catch (error) {
           // Usage is a report, never a reason to fail the run.
-          console.warn(
-            `::warning::Could not record usage for ${logName}: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          console.warn(`::warning::Could not record usage for ${logName}: ${errorMessage(error)}`);
         }
         return failure;
       },
@@ -248,10 +254,14 @@ const recordingLog = (
   };
 };
 
+/** Written next to failure_reason.txt when every account was rate limited; the retry handler reads it (#16). */
+export const RATE_LIMITED_FILE = "rate_limited.txt";
+
 /**
  * The scripts' entry point: accounts from the workflow's file, the forced
  * set from the repo variable, the factory's Claude provider per account.
- * Exits the process on failure, like `runOrFail`.
+ * Exits the process on failure, like `runOrFail`. Rate limits on every
+ * account leave a marker so the failure is not charged to the ticket.
  */
 export const runWithRotation = async <T>(
   name: string,
@@ -268,5 +278,7 @@ export const runWithRotation = async <T>(
     createLog: recordingLog(options.role, model),
     restore: restoreWorkingTree(sh("git rev-parse HEAD").trim()),
   });
-  return outcome.ok ? outcome.value : fail(outcome.reason);
+  if (outcome.ok) return outcome.value;
+  if (outcome.rateLimited) writeText(RATE_LIMITED_FILE, outcome.reason);
+  return fail(outcome.reason);
 };

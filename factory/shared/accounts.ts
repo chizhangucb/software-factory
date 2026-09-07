@@ -33,9 +33,11 @@ import { appendUsageRecord } from "./usage-record";
 export const ACCOUNTS_FILE_VAR = "FACTORY_ACCOUNTS_FILE";
 
 /**
- * Comma-separated account indexes whose first attempt in a job is treated
- * as rate limited without running the agent. Off unless set; used by the
- * proof run (#19) to force one rotation.
+ * Comma-separated entries naming accounts whose first attempt is treated as
+ * rate limited without running the agent. `<index>` applies to every run,
+ * `<index>@<run>` only to the run with that name (`implement-<issue>`,
+ * `review-<pr>`, `implement-pr-<pr>`, `audit-<pr>`), so the proof run (#19)
+ * can force exactly one rotation. Off unless set.
  */
 export const FORCE_RATE_LIMIT_VAR = "FACTORY_FORCE_RATE_LIMIT_ON";
 
@@ -58,11 +60,16 @@ export const parseAccounts = (value: unknown): AccountToken[] =>
     })
     .sort((a, b) => a.index - b.index);
 
-export const parseForcedAccounts = (value: string | undefined): Set<number> =>
+/** The forced accounts for one run: unscoped entries plus those scoped to `runName`. */
+export const parseForcedAccounts = (value: string | undefined, runName?: string): Set<number> =>
   new Set(
     (value ?? "")
       .split(",")
-      .map((part) => Number(part.trim()))
+      .map((part) => {
+        const [index, scope] = part.split("@", 2);
+        if (scope !== undefined && scope.trim() !== runName) return Number.NaN;
+        return Number((index ?? "").trim());
+      })
       .filter((n) => Number.isInteger(n) && n > 0),
   );
 
@@ -271,10 +278,17 @@ export const runWithRotation = async <T>(
   run: (agent: AgentProvider, log: RunLog) => Promise<T>,
   options: RunWithRotationOptions = { role: "agent" },
 ): Promise<T> => {
+  const forcedValue = process.env[FORCE_RATE_LIMIT_VAR];
+  const forced = parseForcedAccounts(forcedValue, name);
+  if (forcedValue && forced.size === 0) {
+    console.log(
+      `[${name}] ${FORCE_RATE_LIMIT_VAR} is set (${forcedValue}) but none of its entries apply to this run; not forcing`,
+    );
+  }
   const outcome = await runOnAccounts({
     name,
     accounts: loadAccounts(),
-    forced: parseForcedAccounts(process.env[FORCE_RATE_LIMIT_VAR]),
+    forced,
     agentFor: (account) => claudeAgent(model, account),
     run,
     createLog: recordingLog(options.role, model),

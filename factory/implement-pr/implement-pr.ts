@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";
@@ -19,10 +20,23 @@ import {
 } from "../shared/review-output";
 import { runWithExtraction } from "../shared/run-with-extraction";
 import { retrySectionForRun } from "../retry/context";
+import { conflictSection, parseMergeTreeConflicts } from "./conflicts";
 
 const PR_NUMBER = required("PR_NUMBER");
 const BRANCH = required("BRANCH");
 const IMPLEMENTER_MODEL = required("IMPLEMENTER_MODEL");
+/** The base branch, present as a local branch (the workflow runs `git branch -f main origin/main`). */
+const BASE_BRANCH = process.env.BASE_BRANCH || "main";
+
+/** Whether this branch conflicts with the base: update-branch hands such PRs to this run. */
+const detectConflicts = (): readonly string[] => {
+  const probe = spawnSync("git", ["merge-tree", "--write-tree", BASE_BRANCH, "HEAD"], { encoding: "utf8" });
+  if (probe.status !== 0 && probe.status !== 1) {
+    console.warn(`::warning::git merge-tree could not probe for conflicts (exit ${probe.status}): ${probe.stderr}`);
+    return [];
+  }
+  return parseMergeTreeConflicts({ status: probe.status, stdout: probe.stdout });
+};
 
 try {
   const context = fetchPullRequestContext(PR_NUMBER);
@@ -34,6 +48,12 @@ try {
   console.log(`Implementer model: ${model} (from ${source}).`);
   // A retry (#16) carries the failing verdict or check log on the linked ticket.
   const retrySection = retrySectionForRun(context.issueNumber || undefined);
+  const conflicts = detectConflicts();
+  console.log(
+    conflicts.length === 0
+      ? `No conflict with ${BASE_BRANCH}.`
+      : `Conflicts with ${BASE_BRANCH} (${conflicts.join(", ")}): the prompt asks the agent to merge and resolve first.`,
+  );
 
   const result = await runWithRotation(`implement-pr-${PR_NUMBER}`, model, (agent, log) => runWithExtraction({
     name: `implement-pr-${PR_NUMBER}`,
@@ -51,6 +71,7 @@ try {
       DIFF_TO_MAIN: context.diff,
       PR_COMMENTS_JSON: context.prCommentsJson,
       RETRY_SECTION: retrySection,
+      CONFLICT_SECTION: conflictSection(BASE_BRANCH, conflicts),
     },
     output: sandcastle.Output.object({
       tag: "output",

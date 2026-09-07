@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   BLOCKED_LABEL,
+  IMPLEMENT_LABEL,
   type CommitStatus,
   type HeadCommit,
   type OpenPr,
@@ -59,16 +60,18 @@ test("a PR whose verdict failed is not updated, wherever that verdict sits; it c
   assert.deepEqual(actions([pr(7, { verdict: { state: "error", sha: "h0" } })]), ["7:skip"]);
 });
 
-test("a stale PR that conflicts with main is escalated, not updated", () => {
+test("a stale PR that conflicts with main is handed to the implementer, not updated", () => {
   const conflicting = pr(7, { mergeable: "CONFLICTING" });
-  assert.deepEqual(actions([conflicting]), ["7:escalate"]);
-  assert.equal(planUpdate(conflicting).reason, "conflicts with main");
+  assert.deepEqual(actions([conflicting]), ["7:resolve"]);
+  assert.match(planUpdate(conflicting).reason, /conflicts with main; handing/);
 });
 
-test("a conflicting PR already labeled blocked is not escalated twice", () => {
-  const already = pr(7, { mergeable: "CONFLICTING", labels: [BLOCKED_LABEL] });
-  assert.deepEqual(actions([already]), ["7:skip"]);
-  assert.equal(planUpdate(already).reason, `conflicts with main, already ${BLOCKED_LABEL}`);
+test("a conflicting PR the implementer already holds, or that is parked, is not handed off twice", () => {
+  for (const label of [IMPLEMENT_LABEL, "agent:in-progress", BLOCKED_LABEL]) {
+    const already = pr(7, { mergeable: "CONFLICTING", labels: [label] });
+    assert.deepEqual(actions([already]), ["7:skip"], label);
+    assert.equal(planUpdate(already).reason, `conflicts with main, already ${label}`);
+  }
 });
 
 test("an unknown mergeability is tried anyway; the API answers with a conflict if there is one", () => {

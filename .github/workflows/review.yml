@@ -49,7 +49,6 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      OUT: ${{ runner.temp }}/factory-out
 
     steps:
       - name: Transition labels
@@ -129,14 +128,14 @@ jobs:
           GITHUB_TOKEN: ""
           CLAUDE_CODE_OAUTH_TOKEN: ""
         run: |
-          mkdir -p "$OUT"
+          mkdir -p "$RUNNER_TEMP/factory-out"
           set +e
-          timeout 20m bash -o pipefail -c "$TEST_COMMAND" > "$OUT/test-output.txt" 2>&1
+          timeout 20m bash -o pipefail -c "$TEST_COMMAND" > "$RUNNER_TEMP/factory-out/test-output.txt" 2>&1
           status=$?
           set -e
-          printf '\n[test command exited with status %s]\n' "$status" >> "$OUT/test-output.txt"
-          echo "Test command exited $status; $(wc -c < "$OUT/test-output.txt" | tr -d ' ') bytes captured."
-          tail -n 40 "$OUT/test-output.txt"
+          printf '\n[test command exited with status %s]\n' "$status" >> "$RUNNER_TEMP/factory-out/test-output.txt"
+          echo "Test command exited $status; $(wc -c < "$RUNNER_TEMP/factory-out/test-output.txt" | tr -d ' ') bytes captured."
+          tail -n 40 "$RUNNER_TEMP/factory-out/test-output.txt"
 
       - name: Install factory (pinned sandcastle, tsx, Claude Code)
         working-directory: factory
@@ -165,7 +164,7 @@ jobs:
 
       - name: Write verdict into the PR body
         if: success()
-        run: gh pr edit "$PR_NUMBER" --body-file "$OUT/pr_body.md"
+        run: gh pr edit "$PR_NUMBER" --body-file "$RUNNER_TEMP/factory-out/pr_body.md"
 
       - name: Post PR review
         if: success()
@@ -200,9 +199,9 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          if [ "$JOB_STATUS" = "success" ] && [ -f "$OUT/verdict.txt" ]; then
-            state=$(cat "$OUT/verdict.txt")
-            description=$(cat "$OUT/verdict-description.txt")
+          if [ "$JOB_STATUS" = "success" ] && [ -f "$RUNNER_TEMP/factory-out/verdict.txt" ]; then
+            state=$(cat "$RUNNER_TEMP/factory-out/verdict.txt")
+            description=$(cat "$RUNNER_TEMP/factory-out/verdict-description.txt")
           else
             state=failure
             description="reviewer run failed, see the run"

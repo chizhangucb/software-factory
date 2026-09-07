@@ -46,8 +46,9 @@ export const fetchPullRequestContext = (
   const issueTitle = issueNumber
     ? safeSh(`gh issue view ${issueNumber} --json title --jq .title`).trim()
     : "";
+  // Throws on an API error: a missing body must never read as "no criteria".
   const issueBody = issueNumber
-    ? safeSh(`gh issue view ${issueNumber} --json body --jq .body`)
+    ? gh(["issue", "view", issueNumber, "--json", "body", "--jq", ".body"])
     : "";
   const linkedIssue = issueNumber
     ? safeSh(`gh issue view ${issueNumber} --comments`)

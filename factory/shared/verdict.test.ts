@@ -34,11 +34,28 @@ test("parseAcceptanceCriteria reads the checklist under the acceptance criteria 
   ]);
 });
 
-test("parseAcceptanceCriteria falls back to any top-level checklist when the heading is missing", () => {
-  assert.deepEqual(parseAcceptanceCriteria("intro\n\n- [ ] one\n- [X] two\n"), [
-    "one",
-    "two",
-  ]);
+test("parseAcceptanceCriteria ignores a checklist that is not under the heading", () => {
+  assert.deepEqual(parseAcceptanceCriteria("intro\n\n- [ ] one\n- [X] two\n"), []);
+  assert.deepEqual(
+    parseAcceptanceCriteria("## Blocked by\n\n- [ ] #3\n\n## Acceptance criteria\n\n- [ ] real\n"),
+    ["real"],
+  );
+});
+
+test("parseAcceptanceCriteria skips fenced code, headings and checkboxes alike", () => {
+  const body = [
+    "## Acceptance criteria",
+    "",
+    "- [ ] CLI prints help",
+    "",
+    "```sh",
+    "# run it",
+    "- [ ] phantom",
+    "```",
+    "",
+    "- [ ] exit code is 0",
+  ].join("\n");
+  assert.deepEqual(parseAcceptanceCriteria(body), ["CLI prints help", "exit code is 0"]);
 });
 
 test("parseAcceptanceCriteria returns nothing for a body without a checklist", () => {

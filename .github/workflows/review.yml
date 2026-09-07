@@ -59,10 +59,13 @@ jobs:
           gh pr edit "$PR_NUMBER" --add-label "agent:in-progress"
 
       - name: Mark verdict pending
+        # Needs statuses: write from the caller (see examples/factory.yml); a caller without it
+        # gets a warning here and a hard failure at "Set verdict status".
         run: |
           gh api --method POST "repos/${GH_REPO}/statuses/${BRANCH_HEAD_SHA}" \
             -f state=pending -f context=factory/verdict \
-            -f description="reviewer running" -f target_url="$RUN_URL" --silent
+            -f description="reviewer running" -f target_url="$RUN_URL" --silent \
+            || echo "::warning::Could not set factory/verdict to pending. Does the caller grant statuses: write?"
 
       - name: Pick account
         env:
@@ -118,9 +121,13 @@ jobs:
 
       - name: Run target tests
         # Evidence for the reviewer, never a gate: the job goes on whatever the exit status.
+        # The PR's own scripts run here, so no token is in reach.
         working-directory: target
         env:
           TEST_COMMAND: ${{ inputs.test_command }}
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+          CLAUDE_CODE_OAUTH_TOKEN: ""
         run: |
           mkdir -p "$OUT"
           set +e
@@ -187,10 +194,13 @@ jobs:
           done
 
       - name: Set verdict status
-        # Always lands: a reviewer that crashed is a failing verdict, never a green one.
+        # Always lands: a reviewer that crashed, or a job that failed after the
+        # verdict was written, is a failing verdict, never a green one.
         if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
         run: |
-          if [ -f "$OUT/verdict.txt" ]; then
+          if [ "$JOB_STATUS" = "success" ] && [ -f "$OUT/verdict.txt" ]; then
             state=$(cat "$OUT/verdict.txt")
             description=$(cat "$OUT/verdict-description.txt")
           else

@@ -7,7 +7,7 @@ Reusable GitHub Actions workflows that turn a labeled ticket into a draft PR, re
 1. Copy `examples/factory.yml` to `.github/workflows/factory.yml` in the target. That file is the only factory file the target carries.
 2. Add secrets: `FACTORY_PAT` (a classic PAT with `repo` and `workflow`, so pushes trigger CI) and one `CLAUDE_CODE_OAUTH_TOKEN_<n>` per account from `claude setup-token`. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account for the logs.
 3. Run `scripts/onboard.sh owner/repo` to create the `agent:*` and `needs-human` labels.
-4. Label a ticket `agent:implement`. A draft PR with `Closes #N` appears on `agent/issue-N-<slug>`, then the reviewer runs.
+4. Label a ticket `ready-for-agent`. The dispatcher adds `agent:implement` once every blocker is closed; a draft PR with `Closes #N` appears on `agent/issue-N-<slug>`, then the reviewer runs. Labeling `agent:implement` by hand still works.
 5. Require the two gate statuses on `main`: `factory/red-green` and `factory/test-integrity`. They post on every `pull_request` event next to the target's own checks.
 
 Models per role are inputs on each reusable workflow (`implementer_model`, `reviewer_model`, defaults `claude-opus-5`). A `model:<name>` label on a ticket overrides the implementer model for that run.
@@ -30,10 +30,17 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 
 ## Layout
 
-- `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow. `gate.yml`: the factory's own gate checks.
-- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `gate/`). Treated as our code.
+- `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow. `gate.yml`: the factory's own gate checks. `dispatch.yml`: the dispatcher, factory-owned.
+- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `gate/`, `dispatch/`). Treated as our code.
 - `vendor/`: the `@ai-hero/sandcastle@0.12.0` tarball, integrity-checked against the lockfile in CI.
 - `.github/dependabot.yml`: opens a PR when a new sandcastle or Claude Code version ships. The pin only moves by hand.
+
+## Dispatcher
+
+- Runs on `issues: closed` and `issues: labeled` (ready-for-agent), every 10 minutes as the fallback for missed events, and on `workflow_dispatch`.
+- Dispatches an open issue when it carries `ready-for-agent`, has zero open blockers (GitHub native issue dependencies, `issue_dependencies_summary.blocked_by`), no assignee, no sub-issues, no `agent:*` or `needs-human` label, and no open PR already closing it. Refuses `ready-for-human` and `needs-triage`.
+- Labels with `FACTORY_PAT`: a label added with `GITHUB_TOKEN` fires no `issues: labeled` event, so the implementer would never start.
+- Selection is `factory/dispatch/select.ts`, pure and unit-tested. The job installs nothing; it runs the script on Node's type stripping, so the 10-minute cron costs seconds (billed as a minute on private repos).
 
 ## Engine notes
 

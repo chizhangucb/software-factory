@@ -13,10 +13,22 @@ const RECORDS_FILE = "usage.json";
 
 export const usageCommentFile = (role: string): string => `usage-${role}.md`;
 
+/**
+ * The records so far. A missing, unreadable, or malformed file reads as
+ * empty, both here and when appending: usage is a report, and a corrupt
+ * report must never stop a run or the next record.
+ */
 export const readUsageRecords = (dir = outputDir()): RunUsageRecord[] => {
   const file = path.join(dir, RECORDS_FILE);
-  if (!fs.existsSync(file)) return [];
-  const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn(`::warning::Ignoring unreadable ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return [];
+  }
   return Array.isArray(parsed) ? (parsed as RunUsageRecord[]) : [];
 };
 

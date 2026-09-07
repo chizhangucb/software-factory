@@ -217,7 +217,9 @@ export interface RunWithRotationOptions {
  * Every attempt's usage goes to OUTPUT_DIR the moment its log is settled
  * (#18), so a run that fails afterwards still reports what it used. The
  * finish() call is what the rotation loop makes after each attempt, so the
- * record is taken there rather than after the whole run.
+ * record is taken there rather than after the whole run. Only the usage
+ * write is guarded: the log's own finish() runs unguarded, since its
+ * failure verdict is the run's, not a report.
  */
 const recordingLog = (
   role: string,

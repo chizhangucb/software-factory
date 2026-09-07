@@ -35,3 +35,15 @@ test("records accumulate in usage.json and the role's comment is re-rendered aft
   assert.match(comment, /\| total \|/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("an unreadable or malformed usage.json reads as empty and is replaced by the next record", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "factory-usage-"));
+  fs.writeFileSync(path.join(dir, "usage.json"), "{ not json");
+  assert.deepEqual(readUsageRecords(dir), []);
+  assert.equal(appendUsageRecord(record({ attempt: 1 }), { runUrl: "u", dir }).length, 1);
+  fs.writeFileSync(path.join(dir, "usage.json"), JSON.stringify({ not: "an array" }));
+  assert.deepEqual(readUsageRecords(dir), []);
+  assert.equal(appendUsageRecord(record({ attempt: 2 }), { runUrl: "u", dir }).length, 1);
+  assert.equal(readUsageRecords(dir).length, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

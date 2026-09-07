@@ -1,0 +1,70 @@
+# Reusable: the v0 stand-in for a merge queue (ADR 0003, fallback amendment).
+# When main moves, or a factory PR is marked ready, every open PR with
+# auto-merge enabled and a stale head gets GitHub's update-branch call with
+# FACTORY_PAT, so the target's CI and the gate re-run on the new head and
+# auto-merge lands it on the latest main. No agent runs here. Called from a
+# target repo's thin factory workflow on `push` to main and
+# `pull_request_target: ready_for_review`.
+name: factory update-branch
+
+on:
+  workflow_call:
+    inputs:
+      factory_repo:
+        description: Repo holding the factory scripts (this repo).
+        type: string
+        default: chizhangucb/software-factory
+      factory_ref:
+        description: Ref of the factory scripts to run. Keep it equal to the ref in the caller's `uses:`; GitHub does not expose that ref to the called workflow.
+        type: string
+        default: main
+    secrets:
+      FACTORY_PAT:
+        description: Personal access token for the update-branch call. GITHUB_TOKEN must not be used; the merge commit it makes fires no pull_request event, so CI would never run on the new head.
+        required: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # One at a time per repo: two runs racing on the same PR would trip the
+    # expected_head_sha guard. A group keeps one running plus one pending run;
+    # every run is a full scan, so the newest pending run covers the cancelled ones.
+    concurrency:
+      group: factory-update-branch
+      cancel-in-progress: false
+    permissions: {}
+
+    steps:
+      - name: Checkout factory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+          sparse-checkout: factory/update-branch
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Update stale auto-merge PRs
+        # No npm install: the script is builtins only and runs on strip-types.
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
+        run: node --experimental-strip-types factory/factory/update-branch/update-branch.ts
+
+      - name: Upload decisions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-update-branch-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/factory-out/update-branch.json
+          if-no-files-found: ignore

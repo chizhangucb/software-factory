@@ -269,6 +269,19 @@ jobs:
           echo "pr_number=$(basename "$pr_url")" >> "$GITHUB_OUTPUT"
           echo "Opened $pr_url"
 
+      - name: Enable auto-merge
+        # No human in the merge path (ADR 0003). Squash, so update-branch's merge commits collapse.
+        # Fires once the reviewer marks the PR ready on a passing verdict and every check the
+        # target's main ruleset requires is green on the head. A target whose main requires
+        # nothing refuses this ("clean status"): run scripts/onboard.sh there first.
+        if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
+        env:
+          PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+        run: |
+          gh pr merge "$PR_NUMBER" --auto --squash
+          gh pr view "$PR_NUMBER" --json autoMergeRequest --jq '"auto-merge: " + (.autoMergeRequest.mergeMethod // "not enabled") + " by " + (.autoMergeRequest.enabledBy.login // "nobody")'
+
       - name: Request review
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
         env:

@@ -125,6 +125,12 @@ test("a passing verdict on the old head is carried with its provenance", () => {
   });
 });
 
+test("a verdict carried a second time keeps one provenance note, not a chain", () => {
+  const once = carriedVerdict([verdict("success")], "aaaaaaa1")!;
+  const twice = carriedVerdict([once], "bbbbbbb2");
+  assert.equal(twice?.description, "3/3 acceptance criteria met (carried from bbbbbbb by update-branch)");
+});
+
 test("a failing or pending verdict is never carried", () => {
   assert.equal(carriedVerdict([verdict("failure")], "aaaaaaa1"), undefined);
   assert.equal(carriedVerdict([verdict("pending")], "aaaaaaa1"), undefined);

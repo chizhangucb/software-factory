@@ -1,6 +1,8 @@
 # Reusable: run the reviewer on a PR labeled agent:review.
 # Called from a target repo's thin factory workflow on `pull_request_target: labeled`.
-# Vendored from sandcastle's agent-review.yml (v0.12.0), edited for the factory.
+# Vendored from sandcastle's agent-review.yml (v0.12.0), edited for the factory:
+# the reviewer is read-only (no push, no mark-ready), ticks the ticket's acceptance
+# criteria into the PR body, and sets the factory/verdict commit status.
 name: factory review
 
 on:
@@ -10,6 +12,10 @@ on:
         description: Model for the reviewer.
         type: string
         default: claude-opus-5
+      test_command:
+        description: The target's test command, run on the PR head before the reviewer; its output is evidence for the verdict.
+        type: string
+        default: npm ci && npm run typecheck --if-present && npm test
       factory_repo:
         description: Repo holding the factory scripts (this repo).
         type: string
@@ -32,8 +38,9 @@ jobs:
       group: factory-mutate-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
+      statuses: write
 
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -41,6 +48,8 @@ jobs:
       BRANCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      OUT: ${{ runner.temp }}/factory-out
 
     steps:
       - name: Transition labels
@@ -48,6 +57,12 @@ jobs:
           gh pr edit "$PR_NUMBER" --remove-label "agent:review" || true
           gh pr edit "$PR_NUMBER" --remove-label "agent:blocked" || true
           gh pr edit "$PR_NUMBER" --add-label "agent:in-progress"
+
+      - name: Mark verdict pending
+        run: |
+          gh api --method POST "repos/${GH_REPO}/statuses/${BRANCH_HEAD_SHA}" \
+            -f state=pending -f context=factory/verdict \
+            -f description="reviewer running" -f target_url="$RUN_URL" --silent
 
       - name: Pick account
         env:
@@ -101,6 +116,21 @@ jobs:
         with:
           node-version: 22
 
+      - name: Run target tests
+        # Evidence for the reviewer, never a gate: the job goes on whatever the exit status.
+        working-directory: target
+        env:
+          TEST_COMMAND: ${{ inputs.test_command }}
+        run: |
+          mkdir -p "$OUT"
+          set +e
+          timeout 20m bash -o pipefail -c "$TEST_COMMAND" > "$OUT/test-output.txt" 2>&1
+          status=$?
+          set -e
+          printf '\n[test command exited with status %s]\n' "$status" >> "$OUT/test-output.txt"
+          echo "Test command exited $status; $(wc -c < "$OUT/test-output.txt" | tr -d ' ') bytes captured."
+          tail -n 40 "$OUT/test-output.txt"
+
       - name: Install factory (pinned sandcastle, tsx, Claude Code)
         working-directory: factory
         run: |
@@ -109,10 +139,12 @@ jobs:
           echo "Claude Code $(node_modules/.bin/claude --version)"
 
       - name: Run reviewer
+        # Read-only: the script fails the run on any commit, dirty file, or moved HEAD.
         working-directory: target
         env:
           REVIEWER_MODEL: ${{ inputs.reviewer_model }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
+          TEST_OUTPUT_FILE: ${{ runner.temp }}/factory-out/test-output.txt
           CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-config-${{ env.CLAUDE_ACCOUNT }}
         run: tsx ../factory/factory/review/review.ts
 
@@ -124,35 +156,15 @@ jobs:
           path: ${{ runner.temp }}/factory-out/logs
           if-no-files-found: ignore
 
-      - name: Push branch
+      - name: Write verdict into the PR body
         if: success()
-        working-directory: target
-        env:
-          FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
-        run: |
-          set +e
-          git push --force-with-lease="refs/heads/$BRANCH:$BRANCH_HEAD_SHA" "https://x-access-token:${FACTORY_PAT}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$BRANCH" 2> push_err.txt
-          status=$?
-          set -e
-          if [ $status -ne 0 ]; then
-            if grep -qiE "non-fast-forward|rejected|fetch first|stale info" push_err.txt; then
-              echo "Branch advanced during review run." > "${RUNNER_TEMP}/factory-out/failure_reason.txt"
-              cat push_err.txt
-              exit 1
-            fi
-            cat push_err.txt
-            exit $status
-          fi
+        run: gh pr edit "$PR_NUMBER" --body-file "$OUT/pr_body.md"
 
       - name: Post PR review
         if: success()
         env:
           PAYLOAD: ${{ runner.temp }}/factory-out/review_payload.json
         run: gh api --method POST "repos/{owner}/{repo}/pulls/${PR_NUMBER}/reviews" --input "$PAYLOAD"
-
-      - name: Mark PR ready
-        if: success()
-        run: gh pr ready "$PR_NUMBER" || true
 
       - name: Post thread replies
         if: success()
@@ -174,10 +186,24 @@ jobs:
             gh api --method POST "repos/{owner}/{repo}/pulls/${PR_NUMBER}/comments/${rest_id}/replies" -f body="$body"
           done
 
+      - name: Set verdict status
+        # Always lands: a reviewer that crashed is a failing verdict, never a green one.
+        if: always()
+        run: |
+          if [ -f "$OUT/verdict.txt" ]; then
+            state=$(cat "$OUT/verdict.txt")
+            description=$(cat "$OUT/verdict-description.txt")
+          else
+            state=failure
+            description="reviewer run failed, see the run"
+          fi
+          gh api --method POST "repos/${GH_REPO}/statuses/${BRANCH_HEAD_SHA}" \
+            -f state="$state" -f context=factory/verdict \
+            -f description="$description" -f target_url="$RUN_URL" --silent
+          echo "factory/verdict on ${BRANCH_HEAD_SHA}: $state ($description)"
+
       - name: Mark blocked on failure
         if: failure()
-        env:
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           reason="(no reason file written; check workflow logs)"
           if [ -f "${RUNNER_TEMP}/factory-out/failure_reason.txt" ]; then

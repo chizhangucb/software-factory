@@ -11,6 +11,12 @@ Reusable GitHub Actions workflows that turn a labeled ticket into a draft PR, re
 
 Models per role are inputs on each reusable workflow (`implementer_model`, `reviewer_model`, defaults `claude-opus-5`). A `model:<name>` label on a ticket overrides the implementer model for that run.
 
+## Reviewer and verdict
+
+- The reviewer is read-only: it judges the PR head against the ticket's acceptance criteria (the checklist under `## Acceptance criteria` in the issue the PR closes) with the diff to main and the target's test output (`test_command` input, default `npm ci && npm run typecheck --if-present && npm test`, captured before the agent starts). Any commit, dirty file, or moved HEAD fails the run; the workflow never pushes.
+- Output: a `<!-- factory:verdict -->` section in the PR body with one ticked or unticked line per criterion and its evidence (replaced on re-review), a review comment with the summary, and a commit status `factory/verdict` on the PR head: `success` when every criterion is met, `failure` otherwise, including when the ticket has no criteria or the reviewer run crashed. Make it a required check on the target's main.
+- Tickets are sub-issues of their spec and are picked up as such; an issue that itself has sub-issues is refused as a spec.
+
 ## Layout
 
 - `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow.

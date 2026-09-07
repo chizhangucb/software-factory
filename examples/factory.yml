@@ -43,6 +43,10 @@ jobs:
     secrets: inherit
     with:
       factory_ref: main
+      # Optional: whose tickets run, by GitHub author_association (default OWNER).
+      # A ticket body is what the implementer executes, and on a public repo anyone
+      # can open an issue. Widen only to people who could already push.
+      # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
       # Optional: the reconciler's deadlines in minutes (defaults 15, 30, 30).
       # stuck_minutes: 15
       # verdict_minutes: 30
@@ -53,6 +57,12 @@ jobs:
     secrets: inherit
     with:
       factory_ref: main
+      # Optional, on implement, implement-pr, review, gate and audit: the Node the target's
+      # own tests and tooling need (default "22"). Set it on every one of those jobs.
+      # node_version: "24"
+      # Optional: whose words the implementer acts on. Keep it equal to the dispatch job's,
+      # or a trusted author's ticket is dispatched and their comments are then dropped.
+      # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
       # Optional, same on every job: raise the per-account concurrency cap (default 3).
       # per_account_slots: 5
   review:
@@ -61,24 +71,28 @@ jobs:
     secrets: inherit
     with:
       factory_ref: main
+      # node_version: "24"
   implement-pr:
     if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/implement-pr.yml@main
     secrets: inherit
     with:
       factory_ref: main
+      # node_version: "24"
   gate:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     uses: chizhangucb/software-factory/.github/workflows/gate.yml@main
     secrets: inherit
     with:
       factory_ref: main
+      # node_version: "24"
   audit:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged
     uses: chizhangucb/software-factory/.github/workflows/audit.yml@main
     secrets: inherit
     with:
       factory_ref: main
+      # node_version: "24"
       # Optional: the strongest model the subscription serves (see README, Audit).
       # audit_model: claude-fable-5-1
   update-branch:

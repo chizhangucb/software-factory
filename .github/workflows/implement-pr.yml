@@ -14,6 +14,10 @@ on:
         description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
         type: number
         default: 3
+      node_version:
+        description: The Node the target's own tests and tooling run on. Match the target's own CI.
+        type: string
+        default: "22"
       factory_repo:
         description: Repo holding the factory scripts (this repo).
         type: string
@@ -173,7 +177,7 @@ jobs:
         if: env.PR_OPEN == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ inputs.node_version }}
 
       - name: Install factory (pinned sandcastle, tsx, Claude Code)
         if: env.PR_OPEN == 'true'

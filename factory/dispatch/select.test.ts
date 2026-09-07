@@ -5,6 +5,7 @@ import {
   type DispatchIssue,
   fromGitHub,
   issuesClosedByPrs,
+  parseTrustedAuthors,
   selectForDispatch,
   whyNotDispatchableNow,
   whySkipped,
@@ -19,6 +20,7 @@ const ticket = (
   assigned: false,
   openBlockers: 0,
   hasOpenPr: false,
+  authorAssociation: "OWNER",
   ...overrides,
 });
 
@@ -104,6 +106,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
       number: 1,
       labels: [{ name: "ready-for-agent" }, { name: "enhancement" }],
       assignees: [],
+      author_association: "OWNER",
       issue_dependencies_summary: { blocked_by: 0, total_blocked_by: 1 },
       sub_issues_summary: { total: 0 },
     },
@@ -111,6 +114,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
       number: 2,
       labels: [{ name: "ready-for-agent" }],
       assignees: [{ login: "chi" }],
+      author_association: "COLLABORATOR",
       issue_dependencies_summary: { blocked_by: 1, total_blocked_by: 1 },
       sub_issues_summary: { total: 2 },
     },
@@ -125,6 +129,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
       openBlockers: 0,
       subIssues: 0,
       hasOpenPr: true,
+      authorAssociation: "OWNER",
     },
     {
       number: 2,
@@ -133,6 +138,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
       openBlockers: 1,
       subIssues: 2,
       hasOpenPr: false,
+      authorAssociation: "COLLABORATOR",
     },
     {
       number: 4,
@@ -141,6 +147,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
       openBlockers: 0,
       subIssues: 0,
       hasOpenPr: false,
+      authorAssociation: "NONE",
     },
   ]);
 });
@@ -152,6 +159,7 @@ test("re-reading an issue before labeling catches a close or a new blocker since
     state: "open",
     labels: [{ name: "ready-for-agent" }],
     assignees: [],
+    author_association: "OWNER",
     issue_dependencies_summary: { blocked_by: 0 },
     ...over,
   });
@@ -164,4 +172,39 @@ test("re-reading an issue before labeling catches a close or a new blocker since
     whyNotDispatchableNow(raw({ labels: [{ name: "ready-for-agent" }, { name: "agent:in-progress" }] }), none),
     "already in the factory: agent:in-progress",
   );
+});
+
+test("the re-read applies the same trust list the selection did", () => {
+  const raw = { number: 67, state: "open", labels: [{ name: "ready-for-agent" }], assignees: [], author_association: "COLLABORATOR", issue_dependencies_summary: { blocked_by: 0 } };
+  const none = new Set<number>();
+  assert.equal(whyNotDispatchableNow(raw, none), "untrusted author: COLLABORATOR");
+  assert.equal(whyNotDispatchableNow(raw, none, parseTrustedAuthors("OWNER,COLLABORATOR")), undefined);
+});
+
+test("a ticket written by someone without write access is not dispatched", () => {
+  // chronicle is public: anyone can open an issue, and the ticket is what the
+  // implementer executes. Only the owner's own tickets are trusted by default.
+  const outsider = ticket(1, { authorAssociation: "NONE" });
+  assert.deepEqual(numbers([outsider]), []);
+  assert.equal(whySkipped(outsider), "untrusted author: NONE");
+});
+
+test("a wider trust list lets in a ticket the default would park", () => {
+  const member = ticket(1, { authorAssociation: "COLLABORATOR" });
+  const trusted = parseTrustedAuthors("OWNER,COLLABORATOR");
+  assert.deepEqual(selectForDispatch([member], trusted).map((i) => i.number), [1]);
+  assert.equal(whySkipped(member, trusted), undefined);
+});
+
+test("fromGitHub carries author_association, and an issue with none is untrusted", () => {
+  const [owned, anonymous] = fromGitHub(
+    [
+      { number: 1, labels: [{ name: "ready-for-agent" }], author_association: "OWNER" },
+      { number: 2, labels: [{ name: "ready-for-agent" }] },
+    ],
+    new Set(),
+  );
+  assert.equal(owned.authorAssociation, "OWNER");
+  assert.equal(anonymous.authorAssociation, "NONE");
+  assert.deepEqual(numbers([owned, anonymous]), [1]);
 });

@@ -18,6 +18,17 @@ on:
         description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
         type: number
         default: 3
+      trusted_author_associations:
+        description: >-
+          Comma-separated GitHub author_association values whose words the factory acts on
+          (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE). Comments on the ticket from anyone
+          else are dropped before the implementer reads it. Keep it equal to the dispatch job's.
+        type: string
+        default: OWNER
+      node_version:
+        description: The Node the target's own tests and tooling run on. Match the target's own CI.
+        type: string
+        default: "22"
       factory_repo:
         description: Repo holding the factory scripts (this repo).
         type: string
@@ -131,7 +142,7 @@ jobs:
         if: steps.shape.outputs.proceed == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ inputs.node_version }}
 
       - name: Preflight existing PR
         # The same closing-keyword test as the reviewer, the gate, and the retry handler
@@ -240,6 +251,7 @@ jobs:
           BRANCH: ${{ steps.branch.outputs.name }}
           IMPLEMENTER_MODEL: ${{ inputs.implementer_model }}
           IMPLEMENTER_MAX_TURNS: ${{ inputs.implementer_max_turns }}
+          TRUSTED_AUTHOR_ASSOCIATIONS: ${{ inputs.trusted_author_associations }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

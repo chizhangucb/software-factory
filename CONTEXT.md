@@ -55,6 +55,10 @@ The daily Telegram message listing merges, escalations, and audit findings. The 
 **Dispatcher**:
 The step that moves a ticket into the factory once its blockers close. Bridges the human intent label to the factory's state labels.
 
+**Trusted author**:
+Whoever the factory will take instructions from. A ticket body is what the implementer executes, so on a public target the dispatcher runs only tickets written by an author it trusts, by GitHub's `author_association`. Default: the repo owner alone.
+_Avoid_: allowlist, whitelist.
+
 **Proof run**:
 The acceptance test for the factory: seven tickets in two chains on a fixture repo, two accounts, one forced rate limit, zero human actions.
 

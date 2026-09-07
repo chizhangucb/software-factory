@@ -17,6 +17,7 @@
  * schedule path runs every ten minutes and should cost seconds.
  */
 import { execFileSync } from "node:child_process";
+import { GH_MAX_BUFFER } from "./gh-read.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -37,8 +38,6 @@ if (!repo) {
 }
 const dryRun = process.env.DRY_RUN === "1";
 
-/** 64 MB: a busy repo's paginated listing passed Node's 1 MB default (ENOBUFS in the reconciler, #19). */
-const GH_MAX_BUFFER = 64 * 1024 * 1024;
 const gh = (args: string[]): string =>
   execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: GH_MAX_BUFFER });
 

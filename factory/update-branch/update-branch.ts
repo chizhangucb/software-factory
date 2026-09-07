@@ -9,8 +9,8 @@
  * agent:blocked; escalation proper is #16. No agent runs here.
  *
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT, for the update call,
- * comments, and labels), STATUS_TOKEN (GITHUB_TOKEN, for the carried
- * status: a fine-grained PAT cannot write statuses; defaults to GH_TOKEN),
+ * comments, and labels), STATUS_TOKEN (GITHUB_TOKEN, for reading and
+ * posting statuses: a fine-grained PAT can do neither; defaults to GH_TOKEN),
  * optional BASE_BRANCH (default main), optional OUTPUT_DIR for
  * update-branch.json, optional DRY_RUN=1 to plan without writing.
  *
@@ -70,7 +70,7 @@ const behindBy = (headSha: string): number =>
   Number(gh(["api", `repos/${repo}/compare/${base}...${headSha}`, "--jq", ".behind_by"]).trim());
 
 const headStatuses = (sha: string): CommitStatus[] =>
-  JSON.parse(gh(["api", `repos/${repo}/commits/${sha}/status`, "--jq", ".statuses"]));
+  JSON.parse(gh(["api", `repos/${repo}/commits/${sha}/status`, "--jq", ".statuses"], statusEnv));
 
 const verdictState = (statuses: readonly CommitStatus[]): OpenPr["verdictOnHead"] =>
   statuses.find((s) => s.context === VERDICT_CONTEXT)?.state ?? "none";

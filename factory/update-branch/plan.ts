@@ -67,6 +67,10 @@ export const planUpdate = (pr: OpenPr): Plan => {
   // The reviewer is on this head; moving it now would strand the verdict on the old
   // sha. The verdict's status event triggers another run once it lands.
   if (pr.verdictOnHead === "pending") return plan("skip", "reviewer running on the head");
+  // A failed verdict cannot merge whatever main does; the re-review's dispatch brings it back.
+  if (pr.verdictOnHead === "failure" || pr.verdictOnHead === "error") {
+    return plan("skip", `verdict ${pr.verdictOnHead} on the head, waiting for a re-review`);
+  }
   // A head that update-branch made and that never got its verdict (a poll that timed
   // out, a race with the reviewer): carry before anything else, so a further update
   // still finds a verdict on its first parent.

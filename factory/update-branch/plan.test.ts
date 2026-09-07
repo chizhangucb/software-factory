@@ -46,9 +46,14 @@ test("a PR whose reviewer is running waits; the verdict's status event brings it
   assert.equal(planUpdate(reviewing).reason, "reviewer running on the head");
 });
 
-test("a stale PR with no verdict yet is still updated; the reviewer will judge the new head", () => {
+test("a stale PR with no verdict yet is still updated; the reviewer's verdict is carried onto the merge", () => {
   assert.deepEqual(actions([pr(7, { verdictOnHead: "none" })]), ["7:update"]);
-  assert.deepEqual(actions([pr(7, { verdictOnHead: "failure" })]), ["7:update"]);
+});
+
+test("a PR whose verdict failed is not updated; it cannot merge until a re-review", () => {
+  assert.deepEqual(actions([pr(7, { verdictOnHead: "failure" })]), ["7:skip"]);
+  assert.equal(planUpdate(pr(7, { verdictOnHead: "failure" })).reason, "verdict failure on the head, waiting for a re-review");
+  assert.deepEqual(actions([pr(7, { verdictOnHead: "error" })]), ["7:skip"]);
 });
 
 test("a stale PR that conflicts with main is escalated, not updated", () => {

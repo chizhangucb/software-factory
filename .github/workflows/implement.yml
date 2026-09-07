@@ -83,19 +83,31 @@ jobs:
       - name: Detect issue shape
         # A ticket is a sub-issue of its spec by design (ADR 0002), so being a
         # sub-issue is fine. Having sub-issues means the issue is a spec, refused.
+        # A closed issue is refused too: the dispatcher labels from a snapshot,
+        # and a ticket closed in between must not get a branch and a PR (#19).
         id: shape
         run: |
           set -euo pipefail
+          state=$(gh issue view "$ISSUE_NUMBER" --json state --jq .state 2>/dev/null || echo "UNKNOWN")
           sub_count=$(gh api "repos/${GH_REPO}/issues/${ISSUE_NUMBER}/sub_issues" --jq 'length' 2>/dev/null || echo "0")
-          if [ "$sub_count" != "0" ]; then
+          if [ "$state" != "OPEN" ] || [ "$sub_count" != "0" ]; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
           else
             echo "proceed=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
           echo "sub_count=$sub_count" >> "$GITHUB_OUTPUT"
 
+      - name: Refuse closed issue
+        if: steps.shape.outputs.state != 'OPEN'
+        env:
+          STATE: ${{ steps.shape.outputs.state }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" --remove-label "agent:implement" || true
+          gh issue comment "$ISSUE_NUMBER" --body "Refused to run: issue #${ISSUE_NUMBER} is ${STATE}, not open. Reopen it and re-add \`agent:implement\` if it should be implemented."
+
       - name: Refuse PRD-shaped issue
-        if: steps.shape.outputs.sub_count != '0'
+        if: steps.shape.outputs.state == 'OPEN' && steps.shape.outputs.sub_count != '0'
         run: |
           gh issue edit "$ISSUE_NUMBER" --remove-label "agent:implement" || true
           gh issue edit "$ISSUE_NUMBER" --add-label "agent:blocked" || true

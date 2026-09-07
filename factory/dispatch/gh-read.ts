@@ -31,11 +31,11 @@ export const PROJECTIONS = {
 
 export type Projection = keyof typeof PROJECTIONS;
 
-export type Page = { page: number; received: number };
+export type PageRead = { page: number; received: number };
 export type PageDecision = { next: number } | { done: "short page" | "page cap" };
 
 /** A page shorter than PER_PAGE is the last one; the cap bounds a walk that never shortens. */
-export const nextPage = ({ page, received }: Page): PageDecision => {
+export const nextPage = ({ page, received }: PageRead): PageDecision => {
   if (received < PER_PAGE) return { done: "short page" };
   if (page >= MAX_PAGES) return { done: "page cap" };
   return { next: page + 1 };

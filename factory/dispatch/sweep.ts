@@ -13,12 +13,14 @@
  * STUCK_MINUTES, VERDICT_MINUTES, UPDATE_MINUTES (see DEFAULT_DEADLINES),
  * RUN_URL, OUTPUT_DIR for sweep.json, DRY_RUN=1 to decide without writing.
  *
- * Every list read is one page per `gh api` call, projected with `--jq` to
- * the fields the reconciler maps (`gh-read.ts`): a full run payload is
- * 10 KB and a page of them overflowed the spawn buffer on the fixture.
- * A `gh` call that fails aborts the sweep with one `::error::` line
- * naming the command and the cause; nothing is repaired from a partial
- * snapshot.
+ * Every list read (issues, timelines, runs, jobs) is one page per `gh api`
+ * call, projected with `--jq` to the fields the reconciler maps
+ * (`gh-read.ts`): a full run payload is 10 KB and a page of them
+ * overflowed the spawn buffer on the fixture. A failed read aborts the
+ * sweep with one `::error::` line naming the command and the cause,
+ * nothing is repaired from a partial snapshot; the one exception is a
+ * run's jobs, where a failure only leaves the run's role unknown (it then
+ * counts as covering while live).
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine.
@@ -73,7 +75,7 @@ const ghJson = (args: string[], env?: NodeJS.ProcessEnv): any => {
   try {
     return JSON.parse(out);
   } catch {
-    throw new GhError(`gh ${args.join(" ")} printed something other than JSON: ${out.slice(0, 200)}`);
+    throw new GhError(describeGhFailure(args, new Error(`printed something other than JSON: ${out.slice(0, 200)}`)));
   }
 };
 /** Walks `endpoint` page by page, each projected to the fields the reconciler maps. */
@@ -177,8 +179,7 @@ const readRuns = (issues: readonly TicketState[], prs: readonly PrState[]): Run[
     for (const run of runsFor(subject, [...runsById.values()])) {
       if (run.role !== undefined) continue;
       try {
-        const jobs = ghJson(["api", `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`, "--jq", PROJECTIONS.jobs], readEnv);
-        run.role = roleFromJobs(jobs);
+        run.role = roleFromJobs(paginate(`repos/${repo}/actions/runs/${run.id}/jobs`, "jobs", readEnv));
       } catch (error) {
         console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -255,7 +256,7 @@ for (const d of decisions) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     failed.push({ log: d.log, error: message });
-    console.error(`Could not apply "${d.log}": ${message}`);
+    console.error(`::error::Could not apply "${d.log}": ${message}`);
   }
 }
 

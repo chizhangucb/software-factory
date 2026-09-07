@@ -8,10 +8,13 @@
  * - escalate: agent:* labels off, needs-human on, the PR closed, the
  *   branch kept, a comment on the ticket linking the run and its log.
  *
- * Runs with FACTORY_PAT so the labels it adds fire events.
+ * Two tokens: reads (statuses, check runs, run logs and artifacts, labels)
+ * use GH_TOKEN, the job's GITHUB_TOKEN, which needs checks: read and
+ * actions: read from the caller. Writes (labels, comments, closing the PR)
+ * use FACTORY_PAT so the labels fire events; that PAT cannot read statuses.
  *
- * Env: GH_REPO, GH_TOKEN, BRANCH, RUN_URL, OUTPUT_DIR, one of ISSUE_NUMBER
- * or PR_NUMBER, and FAILURE_KIND:
+ * Env: GH_REPO, GH_TOKEN, FACTORY_PAT, BRANCH, RUN_URL, OUTPUT_DIR, one of
+ * ISSUE_NUMBER or PR_NUMBER, and FAILURE_KIND:
  * - `implement`: the run in this job failed; the output is
  *   OUTPUT_DIR/failure_reason.txt plus the tail of the newest run log.
  * - `checks`: a verdict was just posted on HEAD_SHA; wait for the head's
@@ -52,6 +55,7 @@ import {
 } from "./decide";
 
 const REPO = required("GH_REPO");
+const FACTORY_PAT = required("FACTORY_PAT");
 const BRANCH = required("BRANCH");
 const RUN_URL = required("RUN_URL");
 const FAILURE_MODE = required("FAILURE_KIND");
@@ -75,14 +79,24 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const ghJson = <T>(args: string[]): T => JSON.parse(gh(args)) as T;
 
-const tryGh = (args: string[]): string | undefined => {
+/** A write with FACTORY_PAT: labels it adds fire events, GITHUB_TOKEN's do not. */
+const ghWrite = (args: string[]): string =>
+  execFileSync("gh", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, GH_TOKEN: FACTORY_PAT, GITHUB_TOKEN: FACTORY_PAT },
+  });
+
+const attempt = (call: () => string, label: string): string | undefined => {
   try {
-    return gh(args);
+    return call();
   } catch (error) {
-    console.log(`gh ${args.slice(0, 3).join(" ")} failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
 };
+const tryGh = (args: string[]): string | undefined => attempt(() => gh(args), `gh ${args.slice(0, 3).join(" ")}`);
+const tryWrite = (args: string[]): string | undefined => attempt(() => ghWrite(args), `gh ${args.slice(0, 3).join(" ")}`);
 
 interface Target {
   readonly issue: string | undefined;
@@ -286,14 +300,14 @@ const branchExists = (): boolean =>
   tryGh(["api", `repos/${REPO}/branches/${BRANCH}`, "--jq", ".name"]) !== undefined;
 
 const ensureRetryLabel = (label: string): void => {
-  tryGh(["label", "create", label, "--repo", REPO, "--color", "c5def5", "--description", "Factory: retries used on this ticket", "--force"]);
+  tryWrite(["label", "create", label, "--repo", REPO, "--color", "c5def5", "--description", "Factory: retries used on this ticket", "--force"]);
 };
 
 const commentOn = (kind: "issue" | "pr", number: string, body: string): void => {
   const file = path.join(outputDir(), `retry-comment-${kind}-${number}.md`);
   fs.mkdirSync(outputDir(), { recursive: true });
   fs.writeFileSync(file, body);
-  gh([kind, "comment", number, "--repo", REPO, "--body-file", file]);
+  ghWrite([kind, "comment", number, "--repo", REPO, "--body-file", file]);
 };
 
 const retry = (target: Target, retryNumber: number, failure: Failure): void => {
@@ -302,10 +316,10 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   const on: ["issue" | "pr", string] = target.issue ? ["issue", target.issue] : ["pr", target.pr as string];
   commentOn(on[0], on[1], comment);
   ensureRetryLabel(label);
-  gh([on[0], "edit", on[1], "--repo", REPO, "--add-label", label]);
+  ghWrite([on[0], "edit", on[1], "--repo", REPO, "--add-label", label]);
   // The label that starts the retry goes last, once the context it reads is in place.
   const trigger: ["issue" | "pr", string] = target.pr ? ["pr", target.pr] : ["issue", target.issue as string];
-  gh([trigger[0], "edit", trigger[1], "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
+  ghWrite([trigger[0], "edit", trigger[1], "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
   console.log(
     `Retry ${retryNumber} of ${MAX_RETRIES}: ${label} on ${on[0]} #${on[1]}, ${IMPLEMENT_LABEL} on ${trigger[0]} #${trigger[1]} (${failure.summary}).`,
   );
@@ -314,16 +328,16 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
 const escalate = (target: Target, reason: string, failure: Failure): void => {
   if (target.pr) {
     const prLabels = escalationLabels(labelsOf("pr", target.pr)).remove;
-    if (prLabels.length > 0) tryGh(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", prLabels.join(",")]);
-    tryGh([
+    if (prLabels.length > 0) tryWrite(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", prLabels.join(",")]);
+    tryWrite([
       "pr", "close", target.pr, "--repo", REPO, "--comment",
       `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
     ]);
   }
   const on: ["issue" | "pr", string] = target.issue ? ["issue", target.issue] : ["pr", target.pr as string];
   const labels = escalationLabels(labelsOf(on[0], on[1]));
-  if (labels.remove.length > 0) tryGh([on[0], "edit", on[1], "--repo", REPO, "--remove-label", labels.remove.join(",")]);
-  gh([on[0], "edit", on[1], "--repo", REPO, "--add-label", labels.add]);
+  if (labels.remove.length > 0) tryWrite([on[0], "edit", on[1], "--repo", REPO, "--remove-label", labels.remove.join(",")]);
+  ghWrite([on[0], "edit", on[1], "--repo", REPO, "--add-label", labels.add]);
   commentOn(
     on[0],
     on[1],

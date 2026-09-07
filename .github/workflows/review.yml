@@ -73,6 +73,8 @@ jobs:
       issues: read # the linked ticket and its acceptance criteria
       pull-requests: write
       statuses: write
+      checks: read # the retry handler reads the head's check runs (#16)
+      actions: read # and the failing runs' logs and artifacts
 
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -286,9 +288,10 @@ jobs:
         # or escalate the ticket. FACTORY_PAT so the labels fire events. A crashed reviewer is
         # not the implementer's failure and keeps the blocked comment above; so does a handler
         # that cannot reach GitHub, so the PR never sits with no label and no comment.
+        # Reads with GITHUB_TOKEN (checks: read, actions: read), writes with FACTORY_PAT.
         if: success()
         env:
-          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
           FAILURE_KIND: checks
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           ARTIFACT_NAME: factory-review-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}

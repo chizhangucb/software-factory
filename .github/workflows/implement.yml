@@ -10,6 +10,10 @@ on:
         description: Default model for the implementer. A model:<name> label on the issue overrides it for that run.
         type: string
         default: claude-opus-5
+      implementer_max_turns:
+        description: Turn cap passed to the CLI as --max-turns. The 60 minute job timeout is the other bound.
+        type: number
+        default: 200
       per_account_slots:
         description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
         type: number
@@ -222,6 +226,7 @@ jobs:
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
           IMPLEMENTER_MODEL: ${{ inputs.implementer_model }}
+          IMPLEMENTER_MAX_TURNS: ${{ inputs.implementer_max_turns }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
         run: tsx ../factory/factory/implement/implement.ts

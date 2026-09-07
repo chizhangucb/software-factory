@@ -1,0 +1,12 @@
+{
+  "name": "mattpocock-skills",
+  "version": "1.2.3",
+  "description": "Vendored subset of mattpocock-skills 1.2.3 (MIT) for the factory implementer: the standards-and-spec code review. Copied verbatim; bump by hand.",
+  "author": {
+    "name": "Matt Pocock",
+    "url": "https://www.aihero.dev"
+  },
+  "repository": "https://github.com/mattpocock/skills",
+  "license": "MIT",
+  "skills": ["./skills/code-review"]
+}

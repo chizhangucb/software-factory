@@ -33,3 +33,24 @@ _Avoid_: failure, blocked (the tracker's dependency word).
 
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.
+
+**Implementer**:
+The agent that runs one ticket and produces the PR. Never approves anything.
+
+**Reviewer**:
+The agent that judges a PR against its acceptance criteria and emits the verdict. Read-only on the branch.
+
+**Verdict**:
+The reviewer's pass or fail, delivered as a required status check. Merge needs gate green plus verdict pass.
+
+**Calibration**:
+The opening period when a human merges every PR to learn where the reviewer fails. Ends by decision, not by count.
+
+**Audit**:
+A periodic sampled re-review of merged PRs, run by an agent, reported in the digest.
+
+**Digest**:
+The daily Telegram message listing merges, escalations, and audit findings. The human's inbox for the factory.
+
+**Dispatcher**:
+The step that moves a ticket into the factory once its blockers close. Bridges the human intent label to the factory's state labels.

@@ -37,31 +37,31 @@ const CRITERIA_HEADING = /acceptance\s+criteria/i;
 
 /**
  * The ticket's acceptance criteria: top-level checklist items under the
- * "Acceptance criteria" heading. Without that heading, every top-level
- * checklist item in the body counts.
+ * "Acceptance criteria" heading. Fenced code is skipped. No heading means no
+ * criteria; a checklist elsewhere in the body (blockers, a task list) is not
+ * the test.
  */
 export const parseAcceptanceCriteria = (issueBody: string): string[] => {
-  const lines = issueBody.split(/\r?\n/);
-  const underHeading: string[] = [];
-  const anywhere: string[] = [];
+  const criteria: string[] = [];
   let inCriteria = false;
-  let sawHeading = false;
+  let inFence = false;
 
-  for (const line of lines) {
+  for (const line of issueBody.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
     const heading = line.match(HEADING);
     if (heading) {
       inCriteria = CRITERIA_HEADING.test(heading[1] ?? "");
-      sawHeading ||= inCriteria;
       continue;
     }
-    const item = line.match(CHECKLIST_ITEM);
-    if (!item) continue;
-    const text = item[2] ?? "";
-    anywhere.push(text);
-    if (inCriteria) underHeading.push(text);
+    const item = inCriteria ? line.match(CHECKLIST_ITEM) : null;
+    if (item) criteria.push(item[2] ?? "");
   }
 
-  return sawHeading ? underHeading : anywhere;
+  return criteria;
 };
 
 const normalise = (text: string): string =>

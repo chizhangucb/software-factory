@@ -5,6 +5,7 @@ import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 import {
   claudeAgent,
   fail,
+  gh,
   required,
   sh,
   writeJson,
@@ -15,6 +16,8 @@ import {
   filterInlineComments,
   filterReplies,
   reviewOutputSchema,
+  type InlineComment,
+  type ThreadReply,
 } from "../shared/review-output";
 import { runWithExtraction } from "../shared/run-with-extraction";
 import { createRunLog, runOrFail } from "../shared/run-log";
@@ -38,41 +41,71 @@ const TEST_OUTPUT_FILE = process.env.TEST_OUTPUT_FILE;
 
 const TEST_OUTPUT_LIMITS = { head: 4_000, tail: 12_000 };
 
+const worktreeState = (): string[] =>
+  sh("git status --porcelain")
+    .split("\n")
+    .filter((line) => line.trim().length > 0 && !line.includes(".sandcastle/"));
+
 /**
  * The reviewer is read-only. It judges the head sha the workflow labeled;
- * any commit, any dirty file, or any moved HEAD fails the run before a
+ * any commit, any file it dirtied, or any moved HEAD fails the run before a
  * verdict is written, so nothing the reviewer touched can reach the branch.
+ * The baseline is taken after the workflow's own test run, whose byproducts
+ * are not the reviewer's doing.
  */
-const assertBranchUntouched = (commits: number): void => {
+const assertBranchUntouched = (commits: number, baseline: string[]): void => {
   const head = sh("git rev-parse HEAD").trim();
   if (commits > 0 || head !== BRANCH_HEAD_SHA) {
     fail(
       `Reviewer must not commit: ${commits} commit(s) made, HEAD ${head.slice(0, 7)} vs reviewed ${BRANCH_HEAD_SHA.slice(0, 7)}.`,
     );
   }
-  const dirty = sh("git status --porcelain")
-    .split("\n")
-    .filter((line) => line.trim().length > 0 && !line.includes(".sandcastle/"));
+  const before = new Set(baseline);
+  const dirty = worktreeState().filter((line) => !before.has(line));
   if (dirty.length > 0) {
     fail(`Reviewer must not edit files: ${dirty.join("; ")}`);
   }
 };
 
-const writeVerdict = (
-  verdict: Verdict,
-  prBody: string,
-  issueNumber: string,
-): void => {
+interface ReviewFiles {
+  readonly verdict: Verdict;
+  readonly issueNumber: string;
+  readonly summary: string;
+  readonly inlineComments: readonly InlineComment[];
+  readonly replies: readonly ThreadReply[];
+}
+
+/**
+ * Everything the workflow posts. The verdict files come last: the workflow
+ * treats a missing verdict.txt as a failed run, so nothing written before a
+ * late failure can leave a green status behind.
+ */
+const writeReview = (review: ReviewFiles): void => {
+  const { verdict } = review;
+  writeJson("review_payload.json", {
+    commit_id: BRANCH_HEAD_SHA,
+    event: "COMMENT",
+    body: `Verdict: ${verdict.verdict} (${verdictDescription(verdict)}).\n\n${review.summary}`,
+    comments: review.inlineComments.map((comment) => ({
+      path: comment.path,
+      line: comment.line,
+      side: "RIGHT",
+      body: comment.body,
+    })),
+  });
+  writeJson("replies.json", review.replies);
+  writeText("summary.md", review.summary);
+
   const section = renderVerdictSection(verdict, {
     headSha: BRANCH_HEAD_SHA,
-    issueNumber: issueNumber || "(none)",
+    issueNumber: review.issueNumber || "(none)",
     runUrl: RUN_URL,
   });
-  writeText("verdict.txt", verdict.verdict === "pass" ? "success" : "failure");
-  writeText("verdict-description.txt", verdictDescription(verdict));
-  writeText("verdict-section.md", section);
+  // Re-read the body now, not at the start: a human may have edited it meanwhile.
+  const prBody = gh(["pr", "view", PR_NUMBER, "--json", "body", "--jq", ".body"]);
   writeText("pr_body.md", upsertVerdictSection(prBody, section));
-  writeJson("verdict.json", verdict);
+  writeText("verdict-description.txt", verdictDescription(verdict));
+  writeText("verdict.txt", verdict.verdict === "pass" ? "success" : "failure");
   console.log(`Verdict: ${verdict.verdict} (${verdictDescription(verdict)}).`);
 };
 
@@ -87,26 +120,22 @@ try {
   if (criteria.length === 0) {
     // Nothing to tick, so no reviewer run: the verdict is a mechanical fail.
     const reason = context.issueNumber
-      ? `#${context.issueNumber} has no acceptance criteria checklist.`
+      ? `#${context.issueNumber} has no checklist under an "Acceptance criteria" heading.`
       : "The PR body links no ticket (no `Closes #N`).";
-    writeVerdict(
-      resolveVerdict([], { verdict: "fail", criteria: [] }),
-      context.prBody,
-      context.issueNumber,
-    );
-    writeJson("review_payload.json", {
-      commit_id: BRANCH_HEAD_SHA,
-      event: "COMMENT",
-      body: `Verdict: fail. ${reason} The reviewer ticks acceptance criteria; without them there is nothing to judge.`,
-      comments: [],
-    });
-    writeJson("replies.json", []);
     console.log(reason);
+    writeReview({
+      verdict: resolveVerdict([], { verdict: "fail", criteria: [] }),
+      issueNumber: context.issueNumber,
+      summary: `${reason} The reviewer ticks acceptance criteria; without them there is nothing to judge.`,
+      inlineComments: [],
+      replies: [],
+    });
   } else {
     const testOutput =
       TEST_OUTPUT_FILE && fs.existsSync(TEST_OUTPUT_FILE)
         ? boundOutput(fs.readFileSync(TEST_OUTPUT_FILE, "utf8"), TEST_OUTPUT_LIMITS)
         : "(no test output was captured)";
+    const baseline = worktreeState();
 
     const log = createRunLog(`review-${PR_NUMBER}`);
     const result = await runOrFail(log, () =>
@@ -141,36 +170,23 @@ try {
       }),
     );
 
-    assertBranchUntouched(result.commits.length);
+    assertBranchUntouched(result.commits.length, baseline);
 
-    const verdict = resolveVerdict(criteria, result.output);
-    writeVerdict(verdict, context.prBody, context.issueNumber);
-
-    const validInlineComments = filterInlineComments(
+    const inlineComments = filterInlineComments(
       result.output.inlineComments,
       context.diffLines,
     );
-    const validReplies = filterReplies(
-      result.output.replies,
-      context.validReplyIds,
-    );
-    writeJson("review_payload.json", {
-      commit_id: BRANCH_HEAD_SHA,
-      event: "COMMENT",
-      body: `Verdict: ${verdict.verdict} (${verdictDescription(verdict)}).\n\n${result.output.summary}`,
-      comments: validInlineComments.map((comment) => ({
-        path: comment.path,
-        line: comment.line,
-        side: "RIGHT",
-        body: comment.body,
-      })),
+    const replies = filterReplies(result.output.replies, context.validReplyIds);
+    writeReview({
+      verdict: resolveVerdict(criteria, result.output),
+      issueNumber: context.issueNumber,
+      summary: result.output.summary,
+      inlineComments,
+      replies,
     });
-    writeJson("replies.json", validReplies);
-    writeText("summary.md", result.output.summary);
-
-    console.log("Review complete.");
-    console.log(`Inline comments: ${validInlineComments.length}.`);
-    console.log(`Replies: ${validReplies.length}.`);
+    console.log(
+      `Review complete. Inline comments: ${inlineComments.length}. Replies: ${replies.length}.`,
+    );
   }
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));

@@ -193,7 +193,7 @@ export const renderEscalationComment = (input: EscalationInput): string => {
     ? `Branch \`${input.branch}\` is kept for you.`
     : `No branch was pushed: no attempt made a commit.`;
   const prLine = input.closedPr
-    ? `Draft PR #${input.closedPr} was closed so no open PR remains.`
+    ? `PR #${input.closedPr} was closed (auto-merge with it) so no open PR remains.`
     : "No PR was open.";
   const lines = [
     `## Escalated: \`${ESCALATION_LABEL}\``,

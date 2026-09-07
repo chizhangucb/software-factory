@@ -1,7 +1,16 @@
-# Reusable: the dispatcher. Moves tickets labeled ready-for-agent with no open
-# blockers, no assignee, and no factory state into the factory by adding
-# agent:implement. Called from a target repo's thin factory workflow on
-# `issues: [closed, labeled]`, a schedule fallback, and workflow_dispatch.
+# Reusable: the dispatcher and the reconciler. Moves tickets labeled
+# ready-for-agent with no open blockers, no assignee, and no factory state into
+# the factory by adding agent:implement. On every sweep (schedule,
+# workflow_dispatch, and the `factory-sweep` repository_dispatch) it also
+# repairs states stuck past their deadline (#35): a ticket or PR whose label
+# never got its run, an auto-merge PR with no verdict, a merge-ready PR left
+# behind main. Called from a target repo's thin factory workflow on
+# `issues: [closed, labeled]`, the schedule, workflow_dispatch, and
+# `repository_dispatch: [factory-sweep]`.
+#
+# GitHub's cron is unreliable on some accounts (a seven hour gap was seen), so
+# any machine can drive the sweep with a PAT that has contents: write on the
+# target: gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep
 name: factory dispatch
 
 on:
@@ -15,9 +24,21 @@ on:
         description: Ref of the factory scripts to run. Keep it equal to the ref in the caller's `uses:`; GitHub does not expose that ref to the called workflow.
         type: string
         default: main
+      stuck_minutes:
+        description: Reconciler deadline. A ticket in agent:implement or agent:in-progress, or a PR in agent:review, agent:implement, or agent:in-progress, with no live run for this long is re-labeled; a second miss escalates to needs-human.
+        type: number
+        default: 15
+      verdict_minutes:
+        description: Reconciler deadline. A factory PR with auto-merge armed and no factory/verdict on its head for this long gets agent:review.
+        type: number
+        default: 30
+      update_minutes:
+        description: Reconciler deadline. A PR with a passing verdict that is behind main, with no update-branch run in this long, gets a factory-update-branch dispatch.
+        type: number
+        default: 30
     secrets:
       FACTORY_PAT:
-        description: Personal access token that adds the label. GITHUB_TOKEN must not be used here; a label it adds fires no labeled event, so the implementer never starts.
+        description: Personal access token that adds the labels and sends dispatches. GITHUB_TOKEN must not be used for those; a label it adds fires no labeled event, so the implementer never starts. The reconciler reads Actions runs and commit statuses with GITHUB_TOKEN, which a fine-grained PAT cannot.
         required: true
 
 jobs:
@@ -31,7 +52,9 @@ jobs:
     concurrency:
       group: factory-dispatch
       cancel-in-progress: false
-    permissions: {}
+    permissions:
+      actions: read # reconciler: the run list and job names
+      statuses: read # reconciler: factory/verdict on auto-merge PR heads
 
     steps:
       - name: Checkout factory
@@ -57,10 +80,27 @@ jobs:
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
         run: node --experimental-strip-types factory/factory/dispatch/dispatch.ts
 
+      - name: Reconcile stuck states
+        # The sweep proper (#35): one logged decision per candidate, repairs with FACTORY_PAT so the
+        # labels fire their events. Not on issue events: those runs are the event path itself, and
+        # every sweep is a full scan, so the next one covers whatever they would have found.
+        if: ${{ !cancelled() && github.event_name != 'issues' }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          STUCK_MINUTES: ${{ inputs.stuck_minutes }}
+          VERDICT_MINUTES: ${{ inputs.verdict_minutes }}
+          UPDATE_MINUTES: ${{ inputs.update_minutes }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
+        run: node --experimental-strip-types factory/factory/dispatch/sweep.ts
+
       - name: Upload decisions
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: factory-dispatch-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/factory-out/dispatch.json
+          path: ${{ runner.temp }}/factory-out/*.json
           if-no-files-found: ignore

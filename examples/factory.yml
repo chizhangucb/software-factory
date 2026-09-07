@@ -13,10 +13,14 @@ on:
   push:
     branches: [main] # update-branch: bring stale auto-merge PRs up to date when main moves
   repository_dispatch:
-    types: [factory-update-branch] # sent by the review workflow on a passing verdict
+    # factory-update-branch: sent by the review workflow on a passing verdict.
+    # factory-sweep: the dispatcher's sweep, from outside GitHub when its cron does not fire:
+    #   gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep
+    types: [factory-update-branch, factory-sweep]
   schedule:
-    # Dispatcher fallback for missed events. Each run bills a minute on a private repo.
-    # Off the :00 slots; GitHub delays crons on busy minutes.
+    # Dispatcher and reconciler sweep, the fallback for missed events. Each run bills a minute on
+    # a private repo. Off the :00 slots; GitHub delays crons on busy minutes, and on some accounts
+    # skips them for hours: a cron on any machine can send the factory-sweep dispatch above.
     - cron: "4,14,24,34,44,54 * * * *"
   workflow_dispatch:
 
@@ -33,11 +37,16 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'factory-sweep') ||
       (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.label.name == 'ready-for-agent'))
     uses: chizhangucb/software-factory/.github/workflows/dispatch.yml@main
     secrets: inherit
     with:
       factory_ref: main
+      # Optional: the reconciler's deadlines in minutes (defaults 15, 30, 30).
+      # stuck_minutes: 15
+      # verdict_minutes: 30
+      # update_minutes: 30
   implement:
     if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/implement.yml@main

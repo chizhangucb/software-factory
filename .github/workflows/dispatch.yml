@@ -25,6 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # One dispatcher at a time per repo so two runs never race on the same ticket.
+    # GitHub keeps one running plus one pending run per group and cancels older
+    # pending ones; safe here, every run is a full scan, so the newest run sees
+    # everything the cancelled ones would have.
     concurrency:
       group: factory-dispatch
       cancel-in-progress: false

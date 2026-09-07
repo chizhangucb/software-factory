@@ -105,3 +105,50 @@ The factory: issue to PR on GitHub Actions, gate as required status checks, read
 - https://cryptobriefing.com/grok-bot-coding-chatgpt-moment/ (Aug 31 2026, secondary, for the a16z quote only)
 - https://www.youtube.com/watch?v=Ib5GBkD555M (Dex Horthy, AI Engineer, July 23 2026)
 - The six X posts listed above, read via publish.twitter.com/oembed and threadreaderapp.com
+
+## Addendum: the six article bodies, read in full (2026-09-06, via Chi's logged-in browser)
+
+All six X Articles were read end to end, plus Dex Horthy's parts 2 and 3, which part 1 defers to. Nothing above is retracted. What the full bodies add:
+
+### Addy Osmani, "Loop Engineering" (Jun 8 2026, 2.3M views)
+- Five building blocks plus memory: scheduled automations, worktrees, skills, connectors, sub-agents, and a state file outside the model. Both Claude Code and Codex ship all five.
+- `/goal` uses a separate small model to judge the stop condition, which is "the maker and checker split applied to the stop condition itself." It reads the transcript, it does not run the tests.
+- His own caveats, verbatim in spirit: verification is still on you, "done is a claim and not a proof," comprehension debt grows faster with a smoother loop, and "if I relied entirely on automated loops ... my product's quality would suffer."
+- Source: https://x.com/addyosmani/status/2064127981161959567
+
+### Thariq Shihipar (Anthropic), "A harness for every task: dynamic workflows" (Jun 2 2026)
+- Dynamic workflows: Claude writes a JS orchestration script, spawns subagents with schemas, worktrees, model choice. Trigger word "ultracode".
+- Names the three failure modes it exists to fight: agentic laziness, self-preferential bias, goal drift. Patterns: classify-and-act, fan-out-and-synthesize, adversarial verification, generate-and-filter, tournament, loop-until-done.
+- Explicit guidance: "most traditional coding tasks do not need a panel of 5 reviewers." Token budgets can be set in the prompt.
+- Source: https://x.com/trq212/status/2061907337154367865
+
+### Dex Horthy, "Why Software Factories Fail" parts 1 to 3 (Jul 24 to 27 2026, 570K views on part 1)
+- Part 1 thesis: lights-off factories fail because of model training, not harness quality. RL rewards FAIL_TO_PASS and PASS_TO_PASS; "there is no penalty for eroding codebase maintainability." Test edits are thrown away in eval because models "quietly comment out the failing test or splice in a mock."
+- His own July 2025 lights-off attempt: outages, then a two week hand rewrite by his cofounder in November.
+- Part 2: put code review back. Front-load four human-in-the-loop phases: product review, system architecture, program design (types, signatures, call-stack trees), vertical slices. ~40% of tasks still one-shot. "30 minutes of planning saves hours of review." "Read the dang code."
+- Part 3: SlopCodeBench (UW Madison, March 2026), incrementally divulged specs with held-out black-box tests per checkpoint. Opus 5 strict pass 24% on his subset, Opus 4.8 and Sonnet 5 at 6%. No model finished any challenge defect-free, including the "easy" one. His read: "today's models can't be relied on to run lights-off without steering." Cognition's Frontier Code penalises tests that do not fail on pre-patch code, which is the red-green rule.
+- Sources: https://x.com/dexhorthy/status/2080697380379427275, https://x.com/dexhorthy/status/2081058573556306030, https://x.com/dexhorthy/status/2081797628552270027
+
+### Anatoli Kopadze, "Graph Engineering explained" (Jul 24 2026, 12M views)
+- Graph = nodes with contracts plus edges that carry data. The "fake edge test": drop sequencing that carries no data and run those steps in parallel. The diamond: fan out, reduce in code, verify with a fresh context skeptic, synthesise.
+- His best point, section 9, "anchors": a graph that only checks itself is "consistent, nothing verified." Needs nodes that cannot be argued with: "tests that actually ran, not should pass, did pass." Rules the optimiser would bend must be frozen.
+- It is dynamic workflows repackaged; his own build instructions are "put the word workflow in your prompt." Cites Bun's rewrite at roughly $165K usage.
+- Source: https://x.com/AnatoliKopadze/status/2080668775796314331
+
+### 0xCodez, "Graph Engineering with Claude: 14-step roadmap" (Jul 20 2026, 7.4M views)
+- A tutorial on the dynamic workflows API: schemas as edge contracts, `parallel()`, barriers, conditionals, a verifier on the edge, worktree isolation, converging cycles, model tiering, self-routing. Same substance as Kopadze with code. Substack funnel.
+- Source: https://x.com/0xCodez/status/2079165300625330317
+
+### David Ondrej, "Agentic Engineering Setup" (Aug 31 2026)
+- Subscriptions over API: "do not pay API pricing." Recommends stacking $200 plans; says the Cursor plan gives separate limits for Cursor and Grok Bot.
+- Cloud agents are the future (cites Cursor's internal merged-PR share from cloud agents rising from 10 to 15% to near 60% in 2026), but warns of lock-in; his answer is a cheap VPS running Herdr with SSH.
+- Reviews: `/total-review` runs two models (GPT-5.6 Sol and Fable 5) and dedupes. "NEVER do recursive reviews ... models invent imaginary bugs." ADRs in every repo. Models bloat tests; say "don't add tests" to land at the right amount. Read-only prod DB role for agents.
+- Grok Bot is mentioned only as an interaction layer worth a subscription; nothing on its mechanism.
+- Source: https://x.com/DavidOndrej1/status/2094424967345496191
+
+### What the full read changes for the factory
+- Nothing replaces the loop. Every primary source that ran agents on real code lands on: deterministic gate, separate fresh-context verifier, human review somewhere.
+- Dex's SlopCodeBench numbers are the strongest evidence in this note and cut against a fully lights-off design. They argue for two additions to the map: maintainability backpressure in the gate (complexity and duplication deltas, not just pass or fail) and a standing human code-reading sample after calibration, not only an agent audit.
+- Dex's front-loaded phases map onto Chi's grilling, /to-spec, and /to-tickets. The one missing phase is program design (types, signatures, call trees) inside the spec.
+- Ondrej's "never recursive reviews" and Thariq's "no panel of five" both say: one implementer polish pass plus one reviewer, not more.
+- Kopadze's "anchors" is the same rule as the factory's "gate lives in CI, never in a prompt."

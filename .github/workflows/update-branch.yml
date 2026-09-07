@@ -3,8 +3,8 @@
 # and a stale head gets GitHub's update-branch call with FACTORY_PAT, so the
 # target's CI and the gate re-run on the new head and auto-merge lands it on
 # the latest main. No agent runs here. Called from a target repo's thin
-# factory workflow on `push` to main and on the `status` event for a
-# successful factory/verdict.
+# factory workflow on `push` to main and on the `repository_dispatch` event
+# `factory-update-branch` that the review workflow sends on a passing verdict.
 name: factory update-branch
 
 on:
@@ -20,7 +20,7 @@ on:
         default: main
     secrets:
       FACTORY_PAT:
-        description: Personal access token for the update-branch call. GITHUB_TOKEN must not be used; the merge commit it makes fires no pull_request event, so CI would never run on the new head.
+        description: Personal access token for the update-branch call. GITHUB_TOKEN must not be used there; the merge commit it makes fires no pull_request event, so CI would never run on the new head. Statuses are posted with GITHUB_TOKEN, which needs statuses write from the caller.
         required: true
 
 jobs:
@@ -33,7 +33,8 @@ jobs:
     concurrency:
       group: factory-update-branch
       cancel-in-progress: false
-    permissions: {}
+    permissions:
+      statuses: write # the carried factory/verdict
 
     steps:
       - name: Checkout factory
@@ -56,6 +57,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          STATUS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out

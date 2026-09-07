@@ -35,3 +35,7 @@ GitHub offers merge queues only on organization-owned repos (public, or private 
 - The update happens in the target's workflow, so a target that does not carry the `push` and `repository_dispatch` triggers in its caller file stalls PRs behind main. `examples/factory.yml` has both.
 - Commit statuses are always posted with GITHUB_TOKEN: the fine-grained FACTORY_PAT cannot write them (verified, 403), which also rules out a `status` event as the trigger.
 - #27 removes the update-branch call, its triggers, and the verdict carry, and makes the three factory checks report on `merge_group`.
+
+## Note, 2026-09-07: the verdict walk trusts only merges the factory requested
+
+GitHub also commits as `web-flow` when a person resolves a conflict in the web editor, and that merge changes the PR's diff. So update-branch posts a `factory/update-branch` status on the old head the moment its update call is accepted, and the first-parent walk crosses a GitHub merge only when the parent carries that marker. A walk that hits its hop limit reports `exhausted` and the PR is skipped with a request for a re-review, rather than being updated again with no verdict to carry.

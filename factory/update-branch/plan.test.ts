@@ -10,6 +10,7 @@ import {
   isUpdateMerge,
   planUpdate,
   planUpdates,
+  requestedByFactory,
 } from "./plan.ts";
 
 const pr = (number: number, overrides: Partial<OpenPr> = {}): OpenPr => ({
@@ -104,6 +105,8 @@ test("isUpdateMerge names GitHub's own two-parent merge and nothing else", () =>
 });
 
 const status = (state: CommitStatus["state"]): CommitStatus => ({ context: "factory/verdict", state, description: null, target_url: null });
+/** The marker update-branch posts on a head when GitHub accepts its update call. */
+const requested: CommitStatus = { context: "factory/update-branch", state: "success", description: "requested", target_url: null };
 
 const chain = (
   commits: Record<string, HeadCommit>,
@@ -122,11 +125,20 @@ test("findVerdict takes the verdict on the head itself first", () => {
   assert.deepEqual(findVerdict(updateMerge, statusesOf, commitOf), { state: "failure", sha: "h2" });
 });
 
-test("findVerdict walks first parents through GitHub's update merges to the head the reviewer judged", () => {
+test("findVerdict walks first parents through the factory's update merges to the head the reviewer judged", () => {
   const h1: HeadCommit = { sha: "h1", parents: ["p0"], committerLogin: "factory-agent[bot]" };
   const h3: HeadCommit = { sha: "h3", parents: ["h2", "m4"], committerLogin: "web-flow" };
-  const { statusesOf, commitOf } = chain({ h2: updateMerge, h1 }, { h1: [status("failure")] });
+  const { statusesOf, commitOf } = chain({ h2: updateMerge, h1 }, { h2: [requested], h1: [status("failure"), requested] });
   assert.deepEqual(findVerdict(h3, statusesOf, commitOf), { state: "failure", sha: "h1" });
+});
+
+test("findVerdict does not cross a GitHub merge the factory never asked for: a conflict resolved in the web editor", () => {
+  const h1: HeadCommit = { sha: "h1", parents: ["p0"], committerLogin: "factory-agent[bot]" };
+  const { statusesOf, commitOf } = chain({ h1 }, { h1: [status("success")] });
+  assert.equal(isUpdateMerge(updateMerge), true, "same shape as an update merge");
+  assert.deepEqual(findVerdict(updateMerge, statusesOf, commitOf), { state: "none", sha: "h2" });
+  assert.equal(requestedByFactory([requested]), true);
+  assert.equal(requestedByFactory([{ ...requested, state: "pending" }]), false);
 });
 
 test("findVerdict stops at a commit a person or an agent made, and reports none on the head", () => {
@@ -137,11 +149,23 @@ test("findVerdict stops at a commit a person or an agent made, and reports none 
   assert.deepEqual(findVerdict(h1, statusesOf, commitOf), { state: "success", sha: "h1" });
 });
 
-test("findVerdict gives up after maxHops without touching commits beyond it", () => {
+test("findVerdict reports exhaustion after maxHops without touching commits beyond it", () => {
   const commits: Record<string, HeadCommit> = {};
-  for (let i = 1; i <= 5; i++) commits[`h${i}`] = { sha: `h${i}`, parents: [`h${i - 1}`, "m"], committerLogin: "web-flow" };
-  const { statusesOf, commitOf } = chain(commits, { h0: [status("success")] });
-  assert.deepEqual(findVerdict(commits.h5!, statusesOf, commitOf, 2), { state: "none", sha: "h5" });
+  const statuses: Record<string, CommitStatus[]> = { h0: [status("success"), requested] };
+  for (let i = 1; i <= 5; i++) {
+    commits[`h${i}`] = { sha: `h${i}`, parents: [`h${i - 1}`, "m"], committerLogin: "web-flow" };
+    statuses[`h${i}`] = [requested];
+  }
+  const { statusesOf, commitOf } = chain(commits, statuses);
+  assert.deepEqual(findVerdict(commits.h5!, statusesOf, commitOf, 2), { state: "exhausted", sha: "h5" });
+  assert.deepEqual(findVerdict(commits.h5!, statusesOf, commitOf), { state: "success", sha: "h0" });
+});
+
+test("an exhausted walk skips the PR and asks for a re-review instead of deepening the chain", () => {
+  const plan = planUpdate(pr(4, { verdict: { state: "exhausted", sha: "h1" } }));
+  assert.equal(plan.action, "skip");
+  assert.equal(plan.carry, false);
+  assert.match(plan.reason, /agent:review/);
 });
 
 const verdict = (state: CommitStatus["state"]): CommitStatus => ({

@@ -55,8 +55,9 @@ const scripted = (outcomes: Record<string, ResultEvent>) =>
     return `ran on ${agent}`;
   };
 
-test("a rate-limited first attempt re-runs once on the next account", async () => {
+test("a rate-limited first attempt restores the tree and re-runs once on the next account", async () => {
   const { logs, createLog } = fakeLogs();
+  let restored = 0;
   const outcome = await runOnAccounts({
     name: "t",
     accounts,
@@ -67,6 +68,9 @@ test("a rate-limited first attempt re-runs once on the next account", async () =
     }),
     createLog,
     log: () => {},
+    restore: () => {
+      restored++;
+    },
   });
   assert.deepEqual(outcome, {
     ok: true,
@@ -74,9 +78,10 @@ test("a rate-limited first attempt re-runs once on the next account", async () =
     account: accounts[1],
   });
   assert.deepEqual(logs, ["t.account-1", "t.account-2"]);
+  assert.equal(restored, 1);
 });
 
-test("a run that succeeds first time never touches a second account", async () => {
+test("a run that succeeds first time never touches a second account or the tree", async () => {
   const { logs, createLog } = fakeLogs();
   const outcome = await runOnAccounts({
     name: "t",
@@ -85,6 +90,7 @@ test("a run that succeeds first time never touches a second account", async () =
     run: scripted({ "tok-1": fixture("success") }),
     createLog,
     log: () => {},
+    restore: () => assert.fail("restore must not run without a re-run"),
   });
   assert.equal(outcome.ok, true);
   assert.deepEqual(logs, ["t.account-1"]);
@@ -169,5 +175,10 @@ test("parseAccounts validates the workflow's file and sorts by index", () => {
     ],
   );
   assert.throws(() => parseAccounts([{ index: 1, label: "a", token: "" }]));
+  assert.throws(() => parseAccounts([{ index: 0, label: "a", token: "t" }]));
   assert.throws(() => parseAccounts({ index: 1 }));
+});
+
+test("parseAccounts falls back to account-<n> when the label variable is empty", () => {
+  assert.equal(parseAccounts([{ index: 2, label: "", token: "t" }])[0].label, "account-2");
 });

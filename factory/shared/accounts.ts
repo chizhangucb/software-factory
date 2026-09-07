@@ -6,7 +6,16 @@
  */
 import * as fs from "node:fs";
 import type { AgentProvider } from "@ai-hero/sandcastle";
-import { asArray, asRecord, asString, claudeAgent, fail, required } from "./common";
+import {
+  asArray,
+  asOptionalString,
+  asRecord,
+  asString,
+  claudeAgent,
+  fail,
+  required,
+  sh,
+} from "./common";
 import {
   createRunLog,
   type ResultEvent,
@@ -39,7 +48,7 @@ export const parseAccounts = (value: unknown): AccountToken[] =>
       }
       return {
         index,
-        label: asString(record.label, `accounts[${i}].label`),
+        label: asOptionalString(record.label) ?? `account-${index}`,
         token: asString(record.token, `accounts[${i}].token`),
       };
     })
@@ -66,9 +75,10 @@ export const loadAccounts = (file = required(ACCOUNTS_FILE_VAR)): AccountToken[]
     return fail(
       `Could not read the accounts file: ${error instanceof Error ? error.message : String(error)}`,
     );
+  } finally {
+    fs.rmSync(file, { force: true });
   }
   for (const account of accounts) console.log(`::add-mask::${account.token}`);
-  fs.rmSync(file, { force: true });
   if (accounts.length === 0) {
     return fail(
       "No CLAUDE_CODE_OAUTH_TOKEN_<n> secret is available. Pass secrets: inherit from the caller.",
@@ -96,6 +106,8 @@ export interface RunOnAccountsOptions<A, T> {
   readonly run: (agent: A, log: RunLog) => Promise<T>;
   readonly createLog?: (name: string) => RunLog;
   readonly log?: (line: string) => void;
+  /** Called before the re-run: put the working tree back where the first attempt found it. */
+  readonly restore?: () => void;
 }
 
 export type RunOnAccountsOutcome<T> =
@@ -119,6 +131,7 @@ export const runOnAccounts = async <A, T>(
     forced = new Set<number>(),
     createLog = createRunLog,
     log = console.log,
+    restore = () => {},
   } = options;
   const rateLimited = new Set<number>();
   const limits: string[] = [];
@@ -130,6 +143,7 @@ export const runOnAccounts = async <A, T>(
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const account = pickToken(accounts, undefined, rateLimited);
     if (!account) break;
+    if (attempt > 1) restore();
     log(`[${name}] attempt ${attempt} on ${describe(account)}`);
     const runLog = createLog(`${name}.account-${account.index}`);
 
@@ -174,6 +188,17 @@ export const runOnAccounts = async <A, T>(
 };
 
 /**
+ * Reset the target repo (the cwd) to the commit the run started on, dropping
+ * anything a rate-limited first attempt left behind, so the re-run starts
+ * from the same tree and its commit count means what the scripts think.
+ */
+const restoreWorkingTree = (startSha: string) => (): void => {
+  sh(`git reset --hard ${startSha}`);
+  sh("git clean -fd");
+  console.log(`Working tree reset to ${startSha.slice(0, 12)} before the re-run.`);
+};
+
+/**
  * The scripts' entry point: accounts from the workflow's file, the forced
  * set from the repo variable, the factory's Claude provider per account.
  * Exits the process on failure, like `runOrFail`.
@@ -189,6 +214,7 @@ export const runWithRotation = async <T>(
     forced: parseForcedAccounts(process.env[FORCE_RATE_LIMIT_VAR]),
     agentFor: (account) => claudeAgent(model, account),
     run,
+    restore: restoreWorkingTree(sh("git rev-parse HEAD").trim()),
   });
   return outcome.ok ? outcome.value : fail(outcome.reason);
 };

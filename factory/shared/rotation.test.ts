@@ -104,6 +104,25 @@ test("isRateLimited: other errors are not rate limits", () => {
   assert.equal(isRateLimited(resultEvent("max-turns")), false);
 });
 
+test("isRateLimited: an error whose text merely mentions a limit is not a rate limit", () => {
+  for (const text of [
+    "The session process exited with code 1. Last output before exit: GitHub API rate limit exceeded for user",
+    "Max budget limit reached",
+    "output token limit reached",
+  ]) {
+    assert.equal(
+      isRateLimited({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: [text],
+      }),
+      false,
+      text,
+    );
+  }
+});
+
 test("isRateLimited: limit-shaped text on a successful result is ignored", () => {
   assert.equal(
     isRateLimited({

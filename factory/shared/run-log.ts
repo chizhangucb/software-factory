@@ -148,7 +148,11 @@ export const settleRun = async <T>(
   return { ok: true, value: result as T };
 };
 
-/** `settleRun`, then exit the process on failure. */
+/**
+ * `settleRun`, then exit the process on failure. Scripts should go through
+ * `runWithRotation` (accounts.ts), which adds account rotation on top of
+ * this; call this directly only for a run that must not rotate.
+ */
 export const runOrFail = async <T>(
   log: RunLog,
   runAgent: () => Promise<T>,

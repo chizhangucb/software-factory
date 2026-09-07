@@ -1,5 +1,6 @@
 import { gh, safeSh, sh } from "./common";
 import { parseDiffLines } from "./diff-lines";
+import { linkedIssueNumber } from "./linked-issue";
 
 export interface ReviewThreadComment {
   readonly commentId: string;
@@ -39,10 +40,7 @@ export const fetchPullRequestContext = (
     }[];
   };
 
-  const issueMatch = (prView.body ?? "").match(
-    /(?:closes|fixes|resolves)\s+#(\d+)/i,
-  );
-  const issueNumber = issueMatch?.[1] ?? "";
+  const issueNumber = linkedIssueNumber(prView.body);
   const issueTitle = issueNumber
     ? safeSh(`gh issue view ${issueNumber} --json title --jq .title`).trim()
     : "";

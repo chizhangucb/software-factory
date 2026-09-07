@@ -39,7 +39,7 @@ export const retriesUsed = (labels: readonly string[]): number =>
   }, 0);
 
 export type Decision =
-  | { readonly action: "retry"; readonly attempt: number }
+  | { readonly action: "retry"; readonly retry: number }
   | { readonly action: "escalate"; readonly reason: string }
   | { readonly action: "none"; readonly reason: string };
 
@@ -57,7 +57,7 @@ export const decide = (input: {
     return { action: "none", reason: `already escalated: ${ESCALATION_LABEL} is on the ticket` };
   }
   if (input.retriesUsed < MAX_RETRIES) {
-    return { action: "retry", attempt: input.retriesUsed + 2 };
+    return { action: "retry", retry: input.retriesUsed + 1 };
   }
   const attempts = input.retriesUsed + 1;
   return {
@@ -75,15 +75,15 @@ export const escalationLabels = (
 });
 
 export interface RetryContext {
-  /** The attempt this context is for: 2 for the one retry. */
-  readonly attempt: number;
+  /** Which retry this context is for: 1 for the one retry, matching the `factory:retry-1` label. */
+  readonly retry: number;
   readonly kind: FailureKind;
   readonly runUrl: string;
   /** The failing output: a reviewer checklist, a check's log excerpt, or the run's failure reason. */
   readonly output: string;
 }
 
-const MARKER = /^<!-- factory:retry attempt=(\d+) kind=([a-z]+) -->\n?/;
+const MARKER = /^<!-- factory:retry retry=(\d+) kind=([a-z]+) -->\n?/;
 const RUN_LINE = /^Attempt \d+ failed \([a-z]+\)\. Run: (\S+)$/m;
 /** Fits a GitHub comment (64k) with room for the rest of the body. */
 const OUTPUT_LIMITS = { head: 6_000, tail: 10_000 };
@@ -97,10 +97,10 @@ const fence = (text: string): string => {
 /** The marker comment the failure handler posts on the ticket before the retry starts. */
 export const renderRetryComment = (context: RetryContext): string =>
   [
-    `<!-- factory:retry attempt=${context.attempt} kind=${context.kind} -->`,
-    `### Retry ${context.attempt - 1} of ${MAX_RETRIES} requested by the factory`,
+    `<!-- factory:retry retry=${context.retry} kind=${context.kind} -->`,
+    `### Retry ${context.retry} of ${MAX_RETRIES} requested by the factory`,
     "",
-    `Attempt ${context.attempt - 1} failed (${context.kind}). Run: ${context.runUrl}`,
+    `Attempt ${context.retry} failed (${context.kind}). Run: ${context.runUrl}`,
     "",
     "The implementer runs once more on the same branch with this output in its prompt; a second failure escalates to `needs-human`.",
     "",
@@ -123,20 +123,28 @@ export const parseRetryComment = (body: string): RetryContext | undefined => {
   const fenced = details?.[1] ?? "";
   const output = fenced.replace(/^`{3,}text\n/, "").replace(/\n`{3,}$/, "");
   return {
-    attempt: Number(marker[1]),
+    retry: Number(marker[1]),
     kind: marker[2] as FailureKind,
     runUrl: rest.match(RUN_LINE)?.[1] ?? "",
     output,
   };
 };
 
-/** The newest marker comment among a ticket's comments, oldest first. */
+/**
+ * The newest marker comment among a ticket's comments, oldest first, and
+ * only while the ticket's `factory:retry-<n>` label says that retry is the
+ * current one. A ticket handed back after an escalation (label removed)
+ * starts a fresh cycle and its old marker is history.
+ */
 export const latestRetryContext = (
   commentBodies: readonly string[],
+  labels: readonly string[],
 ): RetryContext | undefined => {
+  const current = retriesUsed(labels);
+  if (current === 0) return undefined;
   for (let i = commentBodies.length - 1; i >= 0; i--) {
     const parsed = parseRetryComment(commentBodies[i] ?? "");
-    if (parsed) return parsed;
+    if (parsed) return parsed.retry === current ? parsed : undefined;
   }
   return undefined;
 };
@@ -153,11 +161,10 @@ const KIND_GUIDANCE: Record<FailureKind, string> = {
 /** The prompt section an implementer gets on a retry; empty on a first attempt. */
 export const retryPromptSection = (context: RetryContext | undefined): string => {
   if (!context) return "";
-  const total = MAX_RETRIES + 1;
   return [
     "# RETRY: THE PREVIOUS ATTEMPT FAILED",
     "",
-    `This is attempt ${context.attempt} of ${total} on this ticket. If it fails again the factory escalates to a human, so fix the cause of the failure first. Attempt ${context.attempt - 1} failed (${context.kind}). Run: ${context.runUrl}`,
+    `This is retry ${context.retry} of ${MAX_RETRIES} on this ticket (attempt ${context.retry + 1} of ${MAX_RETRIES + 1}). If it fails again the factory escalates to a human, so fix the cause of the failure first. Attempt ${context.retry} failed (${context.kind}). Run: ${context.runUrl}. The branch carries whatever the previous attempt committed.`,
     "",
     KIND_GUIDANCE[context.kind],
     "",
@@ -168,7 +175,6 @@ export const retryPromptSection = (context: RetryContext | undefined): string =>
 
 export interface EscalationInput {
   readonly issueNumber: string;
-  readonly kind: FailureKind;
   readonly reason: string;
   /** One line per failure, for the top of the comment. */
   readonly summary: string;
@@ -199,7 +205,7 @@ export const renderEscalationComment = (input: EscalationInput): string => {
     `- Run log: ${input.logUrl ?? "see the run"}`,
     `- ${branchLine} ${prLine}`,
     "",
-    `To hand it back to the factory: fix the ticket or the branch, then remove \`${ESCALATION_LABEL}\` and \`${retryLabel(MAX_RETRIES)}\`; the dispatcher picks it up again on the next event.`,
+    `To hand it back to the factory: fix the ticket, then remove \`${ESCALATION_LABEL}\` and \`${retryLabel(MAX_RETRIES)}\`. The dispatcher picks it up on the next event and the new run starts from main again; the kept branch is for reading.`,
   ];
   if (input.output.trim().length > 0) {
     lines.push(

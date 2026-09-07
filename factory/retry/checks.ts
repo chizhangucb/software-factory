@@ -4,8 +4,12 @@
  * (the statuses API: factory/verdict, factory/red-green,
  * factory/test-integrity, anything else posted there) and check runs (the
  * target's own Actions CI) are read together. Check runs that belong to the
- * factory's own caller workflow are not the target's CI and are ignored,
- * including this very run.
+ * factory's own caller workflow are not the target's CI: their failures are
+ * ignored (the gate speaks through its statuses), but one still in progress
+ * means the head is not judged yet, so it counts as pending. This very run
+ * is skipped. The gate contexts are expected on every factory PR: until
+ * they appear they are pending too, since the gate run may still be queued
+ * when the review starts.
  */
 import type { FailureKind } from "./decide";
 
@@ -74,11 +78,17 @@ export const evaluateChecks = (input: {
     }
   }
 
+  for (const context of GATE_CONTEXTS) {
+    if (!input.statuses.some((status) => status.context === context)) pending.push(`${context} (not posted yet)`);
+  }
+
   for (const run of input.checkRuns) {
     const runId = runIdFromUrl(run.html_url);
-    if (runId === input.own.runId || run.workflowName === input.own.workflowName) continue;
+    if (runId === input.own.runId) continue;
     if (run.status !== "completed") {
       pending.push(run.name);
+    } else if (run.workflowName === input.own.workflowName) {
+      continue;
     } else if (FAILED_CONCLUSIONS.has(run.conclusion ?? "")) {
       failures.push({
         name: run.name,

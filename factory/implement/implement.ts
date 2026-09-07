@@ -34,7 +34,6 @@ try {
   writeText(ticketFile, ticketDocument({ number: ISSUE_NUMBER, issueContext, parent }));
   // A retry (#16) runs on the same branch with the previous failure in its prompt.
   const retrySection = retrySectionForRun(ISSUE_NUMBER);
-  const startSha = sh("git rev-parse HEAD").trim();
 
   const labels = JSON.parse(
     gh(["issue", "view", ISSUE_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),
@@ -71,13 +70,14 @@ try {
     });
   });
 
-  // Counted from where this run started: a retry begins on the previous attempt's commits.
-  const commitsAhead = Number(sh(`git rev-list --count ${startSha}..HEAD`).trim());
+  // Against main, not this run's start: a retry that inherits the previous
+  // attempt's commits and rightly changes nothing still has a branch to judge.
+  const commitsAhead = Number(sh("git rev-list --count main..HEAD").trim());
   if (!Number.isFinite(commitsAhead) || commitsAhead === 0) {
     fail("Agent finished but no commits were made on the branch.");
   }
 
-  console.log(`Implementation produced ${commitsAhead} commit(s), ${sh("git rev-list --count main..HEAD").trim()} ahead of main.`);
+  console.log(`Implementation produced ${commitsAhead} commit(s) ahead of main.`);
   console.log(`Commits this run: ${result.commits.length}.`);
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));

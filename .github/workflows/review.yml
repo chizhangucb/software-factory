@@ -284,7 +284,8 @@ jobs:
         # head's gate statuses and the target's own CI to settle, then on any failure give the
         # implementer one informed retry (implement-pr on this branch, agent:implement on the PR)
         # or escalate the ticket. FACTORY_PAT so the labels fire events. A crashed reviewer is
-        # not the implementer's failure and keeps the blocked comment above.
+        # not the implementer's failure and keeps the blocked comment above; so does a handler
+        # that cannot reach GitHub, so the PR never sits with no label and no comment.
         if: success()
         env:
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
@@ -292,7 +293,13 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           ARTIFACT_NAME: factory-review-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
-        run: tsx factory/factory/retry/retry.ts
+        run: |
+          if tsx factory/factory/retry/retry.ts; then
+            exit 0
+          fi
+          gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
+          gh pr comment "$PR_NUMBER" --body "The retry handler failed after the verdict was posted; see ${RUN_URL}. Re-add \`agent:review\` to judge this head again."
+          exit 1
 
       - name: Always remove the accounts file
         if: always()

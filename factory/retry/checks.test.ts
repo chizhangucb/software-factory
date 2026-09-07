@@ -45,8 +45,16 @@ test("evaluateChecks: a pending status or check run is reported as pending", () 
     checkRuns: [checkRun("check", "in_progress", null, "check")],
     own,
   });
-  assert.deepEqual(result.pending, ["factory/red-green", "check"]);
+  assert.deepEqual(result.pending, ["factory/red-green", "factory/test-integrity (not posted yet)", "check"]);
   assert.deepEqual(result.failures, []);
+});
+
+test("evaluateChecks: gate contexts that are not posted yet are pending, the gate run may still be queued", () => {
+  const result = evaluateChecks({ statuses: [status("factory/verdict", "success")], checkRuns: [], own });
+  assert.deepEqual(result.pending, [
+    "factory/red-green (not posted yet)",
+    "factory/test-integrity (not posted yet)",
+  ]);
 });
 
 test("evaluateChecks: factory gate contexts fail as gate, other statuses and check runs as ci, verdict as verdict", () => {
@@ -75,9 +83,10 @@ test("evaluateChecks: factory gate contexts fail as gate, other statuses and che
   assert.equal(redGreen?.url, "https://github.com/o/r/actions/runs/17");
 });
 
-test("evaluateChecks: check runs of the factory workflow and of this run are ignored", () => {
+test("evaluateChecks: factory workflow check runs never fail the head but count as pending while running; this run is skipped", () => {
+  const gate = [status("factory/red-green", "success"), status("factory/test-integrity", "success")];
   const result = evaluateChecks({
-    statuses: [],
+    statuses: gate,
     checkRuns: [
       checkRun("review / review", "in_progress", null, "factory", "500"),
       checkRun("gate / gate", "completed", "failure", "factory", "400"),
@@ -89,6 +98,12 @@ test("evaluateChecks: check runs of the factory workflow and of this run are ign
     own,
   });
   assert.deepEqual(result.pending, []);
+  const queued = evaluateChecks({
+    statuses: gate,
+    checkRuns: [checkRun("gate / gate", "queued", null, "factory", "400")],
+    own,
+  });
+  assert.deepEqual(queued.pending, ["gate / gate"]);
   assert.deepEqual(
     result.failures.map((f) => [f.name, f.kind]),
     [["check", "ci"]],

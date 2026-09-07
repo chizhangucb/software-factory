@@ -1,0 +1,400 @@
+Automated code review is one of the most
+impactful ways that you can improve the
+code quality coming out of your agent.
+I've known this for a while, but it's
+taken me a while to kind of implement it
+and figure out a reusable skill that I
+can give to people to review their code.
+I've got this review skill here in my
+skills repo, which is currently sitting
+at whoa, 1,000
+Sorry, 109,000 stars, and it is
+currently marked as in progress. I'm
+sort of okay with it, but I'm not
+terribly happy with it. So, I've been
+looking around for inspiration in other
+skills that I can copy from, steal ideas
+from, and one crossed my path I want to
+show you. It is this one from the cursor
+team. It is the thermonuclear code
+quality review. Use this skill for an
+unusually strict review focused on
+implementation quality, maintainability,
+abstraction quality, and code base
+health. And one thing I think is notable
+about this skill is how ambitious it
+asks the reviewer to be. It's asking it
+to be very ambitious and look for code
+judo moves throughout the review. The
+skill itself is simply one file. It's
+just a skill.md
+up here. And what I thought I'd do is I
+would copy it to my local system, try it
+out on some actual code of mine, and see
+what it comes up with. Yesterday, I
+spent a lot of time working on
+Sandcastle, my open-source software
+factory, and so I figure I would review
+the last X number of commits and see
+what it thought about them. So, I'm
+going to be pretty loose here. I'm just
+going to say thermonuclear code quality
+review, review the last five PRs that
+made it to main. I'm going to stick it
+on auto mode, and while it's doing this,
+let's actually go and read the skill
+because that should explain the skill a
+bit more.
+So, it starts from this baseline.
+Perform a deep code quality audit of the
+current branches changes. Rethink how to
+structure implement the changes to
+meaningfully improve code quality
+without impacting behavior. Work to
+improve abstractions, modularity, reduce
+spaghetti code, improve succinctness and
+legibility. Be ambitious. If there is a
+clear path to improving the
+implementation that involves
+restructuring some of the code base, go
+for it. Be extremely thorough and
+rigorous. Measure twice, cut once. What
+I've often found with review skills like
+this is that the agent is not ambitious
+enough. If you pass an agent a diff,
+then it will usually treat that diff as
+its bounds within which it can work.
+Whereas this prompt appears to be going
+beyond that. It's essentially saying,
+"Look throughout the entire code base
+for opportunities, but starting from
+this current current branch's changes."
+It also goes on to add a bunch of
+non-negotiable non-negotiable additional
+standards. Be ambitious about structural
+simplification. Again, the ambition. Do
+not let a PR push a file from under 1K
+lines to over 1K lines without a very
+strong reason. This is really
+interesting. I've actually reached this
+conclusion myself as well. Large files
+are just quite hard for agents to
+navigate because they need to ingest the
+entire file into their context window in
+order to find the thing that's actually
+useful within it. A much better way to
+structure that is to split them into
+multiple files and let the kind of the
+file name of the file be the context
+pointer that tells it what's in that
+file and whether it might need to open
+it. This ends up being a lot more
+context efficient. I have generally
+split my files if they go over 5K
+tokens, but this 1K lines is sort of I
+guess a similar rubric. Do not allow
+random spaghetti growth in existing
+code, okay? I see it's sort of arguing
+against nesting here. If a change adds
+weird if statements in random places,
+treat that as a design problem, not a
+stylistic nit. Prefer pushing the logic
+into a dedicated abstraction, helper,
+state machine, policy object, or
+separate module instead of tangling an
+existing path. Interesting. This is
+another way of telling it to be
+aggressive about, you know, if there's a
+bunch of nested if statements and weird
+conditionals, maybe abstract that into a
+cleaner abstraction or a helper or
+something. It's arguable whether I
+prefer that. I suppose sometimes I do,
+sometimes I don't, but let's assume it's
+a good thing for now. Bias towards
+cleaning the design, not just accepting
+working code, again pushing it to be
+ambitious. Prefer direct, boring,
+maintainable code over hacky and magical
+code. This is like a classic one in
+these prompts. This comes from I think
+simplify in Claude code. And not the
+same wording I think, but a similar idea
+that you want simple, direct code that's
+easy to read. I really like this one
+actually. Push hard on type and boundary
+cleanliness when they affect
+maintainability. So we're specifically
+talking about types here. Question
+unnecessary optionality, unknown, any,
+or cast heavy code when a clearer type
+boundary could exist. This is kind of
+TypeScript focused here. Unknown and any
+are specifically TypeScript
+terms. And the unnecessary optionality
+is one that always gets me. Whenever an
+agent adds a prop onto a React
+component, let's say, it always adds it
+as optional. I don't know why. I don't
+know why. It's so stupid. Even when it's
+always required, it will add it as
+optional just to make it backwards
+compatible or something or to lessen the
+blast radius of the change. So yeah,
+question unnecessary optionality is a
+great one. Keep logic in the canonical
+layer and reuse existing helpers. Prefer
+existing canonical utilities and helpers
+over bespoke one-offs. Yes, I suppose
+it's basically just telling it to look
+for places where this has already been
+solved in the code base and use those
+instead. Makes sense. Treat unnecessary
+sequential orchestration and non-atomic
+updates as design smells when the
+cleaner structure is obvious. If
+independent work is serialized for no
+good reason, ask whether the flow should
+run in parallel instead. I see, this is
+about performance essentially.
+Obviously, when two things that are
+independent, if they run in parallel,
+then it's going to be faster than if
+they run sequentially. So that's kind of
+what it's going for here. But it's also
+saying do not over-index on
+micro-optimizations.
+Okay, so it's basically telling it don't
+go too far. I think if this was my
+skill, I would definitely rewrite this
+to be a lot more direct. Treat
+unnecessary sequential orchestration and
+non-atomic updates as design smells.
+That's just word salad to me. I don't
+know what that means. So, this is really
+cool. Primary review questions for every
+meaningful change ask, is there a code
+judo move that would make this
+dramatically simpler? That's great. I
+love that. Can this be reframed so that
+fewer concepts branch or helper layers
+are needed? Lovely. I don't love this.
+Does this improve or worsen the local
+architecture? You've got to say exactly
+what good and bad looks like to an agent
+in order for improve or worsen to mean
+anything. Overall, this set of questions
+along with the kind of rules above give
+the agent a nice kind of way into
+talking about the code, which is what
+you need. And now it talks about really
+bad stuff. Escalate findings when you
+see a complicated implementation where a
+cleaner reframing could delete whole
+categories of complexity. Refactors that
+move code around but fail to reduce the
+number of concepts a reader must hold in
+their head. Yeah, there's a bit of
+repetition going on here. Unnecessary
+casts, any unknown or optional params.
+What sort of scares me about these big
+review-based prompts is that this is a
+huge ball of mud for the agent to read.
+Like there's a lot of instructions in
+here and it's hard to know what to
+prioritize for the agent. So, I don't
+know. This this makes me a little bit
+nervous. I do like this though. When you
+identify a code quality problem,
+perverse suggestions like delete a whole
+layer of indirection rather than
+polishing it. Again, ambitious. Split a
+large file into smaller focused modules.
+Again, you know, making things easier to
+navigate for the agent. Again,
+duplication. Make type boundaries more
+explicit so the control flow gets
+simpler. There's a lot of duplication
+throughout a lot of this. This could be
+cut down I think quite a lot. Review
+tone. I don't know why this is here.
+This is just sort of saying
+choose your tone. I suppose. Be direct,
+serious, and demanding about quality. Do
+not be rude. This seems like a crazy
+thing to add to a skill. I don't know
+why that's here. What this does do is it
+does really punch the language that the
+agent should be using. So, we're really
+emphasizing code judo, saying decompose,
+pushes the file past, makes the
+surrounding code more spaghetti. I like
+that. But the down we can say output
+expectations. Right, this is nice. It's
+saying to prioritize findings in this
+order. It's saying to float the
+important stuff to the top. And
+legibility and maintainability concerns
+are at the bottom, structural code
+quality regressions right at the top.
+Right, and it is asking for an approval
+here. So, it's approving or rejecting
+the PR. And again, tons and tons of
+repetition here. This skill could be a
+lot shorter. So, what we have is a large
+block of text that basically says, "Be
+more ambitious. Here are some specific
+things that you can focus on in your
+review. Really go nuts here and like uh
+propose a ton of structural changes.
+Make sure that you uh prioritize your
+findings in a certain order so you don't
+flood it with useless crap, and then
+approve or reject based on these
+conditions." What I don't like here is
+there's no mention of testing. There's
+no mention of seams. There's no mention
+of any kind of like improving the
+feedback loops to make future runs
+better, which in my view is the entire
+point now of having a good code base or
+having a code base that's easy to change
+and modular and easy to navigate. All of
+this appears to be focused on actual
+source code, none of it on tests.
+Interesting. But, okay, let's read what
+it said here. So, it's taken the last
+five PRs to main, and it has found some
+blocker class structural issues. Okay,
+it's found that an init service is now a
+big file, so it's over 1,000 lines, and
+it mixes a bunch of stuff here, and it
+should have been preceded by a split,
+and it's proposed an I split there. Ooh,
+it's also trying to create an
+abstraction here, a little make registry
+generic function. Returning this would
+delete 20 lines of duplicated
+boilerplate for the same time. Feels
+good. That's nice. So, we now go to the
+next one. The feature specific if issue
+tracker name custom scattered across
+three layers. Interesting. It's
+basically saying that instead of this
+being a special case if statement here,
+we should instead do a bit of code judo
+and push the custom tracker variations
+into a type itself, and then it can be
+read later. I think in terms of
+suggestions here, I happen to know this
+code quite well. I think we are at two
+out of two here. That's um seems like
+two really good suggestions. Down here
+we have an inconsistent contract
+template args carries both shell
+commands and prose markers. It's
+basically saying that some of these are
+runnable, but some of these are not
+runnable here. And it's saying that
+maybe we should widen the type to either
+a command or a to-do marker
+discriminated union or use a different
+field entirely for unfilled markers. So
+it's basically it's basically trying to
+strengthen the type boundary here so
+that we don't later pass in a prose
+marker into something else. That's
+interesting. I think that this comes
+from an inaccurate understanding of the
+whole system, which is okay. You're
+going to get some false positives. I
+suppose it's a false positive in any
+review prompt. So this is the kind of
+thing if it came up in a PR, I would say
+this is fine. Don't worry about it. So
+two out of three, not bad. Let's go look
+at the strong code quality issues. Aha,
+we do have a weird bug here that it's
+found or not a bug, just a weird bit of
+code design. We essentially have
+different templates in Sandcastle that
+each declare the dependencies that they
+need and mostly they declare Zod as the
+dependency. So we have this weird code
+path in here that looks like it just
+hard codes Zod and then interesting.
+What Yeah, overall this is quite hard to
+explain, but it's definitely pulled up
+something weird here. So I think we're
+at three out of four, which is good. Oh,
+it's found some swallowed errors here.
+Exec sync inside effect. sync with
+swallowed errors. Interesting. We can
+see it's trying something inside here
+and if it fails, then it just like
+returns false inside here. So yeah, this
+is definitely another thing that I would
+like the reviewer to look at. Looks like
+we started decomposing a large file into
+small files, but only half finished. So
+this again is a good one. This is five
+out of six so far. And it's now saying
+there's a bit of prompt duplication
+within some prompts that were changed
+here. So the change is bite identical
+for two different prompts here. It's
+saying that we should refactor those
+into a issue list preamble. I don't
+think that's right. I think the prompts
+should just be independently
+changeable. So, not bad though, five out
+of seven. Then, it's got a list of
+smaller items worth fixing here. I've
+done a quick scan and I would say most
+of those look pretty good. And
+interesting, I'm kind of intrigued by
+the approval bar here. Under the skill
+stated bar, a couple of the PRs should
+not have landed in their current shape.
+The behavior is correct in all three
+substantive PRs, but the code base is
+meaningfully messier than it was a week
+ago.
+>> [laughter]
+>> Well, cool. I mean, we got some really
+good feedback from this skill, I think.
+I think what this is teaching me is that
+actually getting the review to be super
+ambitious and getting it to push a lot
+of different options
+will give you more false positives, but
+those false positives are pretty easy
+just to say no to, right? It's the ones
+that you miss, that you never know
+about, the opportunity for improvement
+that you never see, those are the
+dangerous ones. Overall, I would clean
+up this skill so it's not quite so
+duplicative, so there's, you know, a bit
+more dry. And I would also just get it
+to focus a lot more on tests, as well.
+Think about the seams in your code base,
+kind of like what my improved code base
+architecture does. But overall, I think
+this is worth pulling down,
+experimenting with, and just seeing what
+comes out of it. Now, if you dig this
+stuff, then I'm running a cohort
+starting next week, starting June 1st,
+on AI coding for real engineers. This
+has been my most subscribed to course
+ever. People are going nuts for this.
+We're going to have, I think, around
+4,000, 4,500 people in there. So, yeah,
+it's absolutely wild. But if you're
+enjoying this stuff, if there's a skill
+that you want me to review, I really
+like making that content because it lets
+me steal ideas from other people's great
+skills, then let me know. Nice work, and
+I'll see you very soon.

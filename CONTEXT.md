@@ -54,3 +54,12 @@ The daily Telegram message listing merges, escalations, and audit findings. The 
 
 **Dispatcher**:
 The step that moves a ticket into the factory once its blockers close. Bridges the human intent label to the factory's state labels.
+
+**Proof run**:
+The acceptance test for the factory: seven tickets in two chains on a fixture repo, two accounts, one forced rate limit, zero human actions.
+
+**Fixture repo**:
+A throwaway target repo with a tiny project, used only by the proof run and ticket demos.
+
+**Rotation**:
+Choosing which subscription account a run uses, by remaining quota, and retrying once on the next one when a run is rate limited.

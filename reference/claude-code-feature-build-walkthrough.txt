@@ -1,0 +1,1362 @@
+I've been posting a lot recently about
+things you should do with Claude code
+and mostly I've been approaching it from
+the kind of philosophy angle. In other
+words, kind of everyone's thinking this
+is a new paradigm shift, but actually
+just the stuff we've been doing for 20
+years is really, really good with Claude
+code. You get the most out of it when
+you treat it like someone you would
+delegate to in your team. In other
+words, you focus on the architecture,
+you focus on making sure that you've got
+good feedback loops, you focus on all
+the things we've been doing for the last
+20 years, not planning too much up
+front, all that stuff. And in all the
+comments, people have been saying, "Show
+us something practical. Show Show us you
+doing it." And so this is that video. I
+have no idea how long this video is
+going to be. I have no idea exactly what
+we're going to cover. I'm just going to
+go into actually doing some work with
+Claude code in my work repo and I'm
+going to talk you through it. I'm going
+to show you all of the skills I'm using,
+I'm going to show you my process, and
+we're just going to give you all the
+context you can on how these tools are
+actually used. And if you dig this, then
+I'm running a cohort in a couple of
+weeks for Claude code for real
+engineers. It is 40% off this week and
+it teaches you either teaches you the
+skills that you need to do real
+engineering or it gives you the
+conversion course you need to take the
+existing skills you have and apply them
+to this new age. So if that sounds good
+to you, then the link is below. Okay,
+let's start by understanding the project
+that I'm in and what point it is in in
+its life cycle, all that stuff. This is
+my course video manager. It's It's
+about, you know, 1,200 commit. I've
+closed around what, 637
+issues on this project. And what I'm
+using this for is this is my main kind
+of entry point for anything I do
+regarding creating content. In other
+words, I create videos on here. I
+organize my courses on here. I post
+videos on here. I do thumbnail editing
+on here. I do writing on here. It really
+is my one-stop shop for everything I
+need to do my job and it's amazing. In
+terms of the code, it's a React router
+application which uses TypeScript and
+Node and uses drizzle for the database
+ORM, use Postgres as its database, does
+some a lot of testing with V test. And
+the way I run this is I don't actually
+deploy it, I just basically run it
+locally. So, I just tend to run start. I
+build it and I'm just, you know, run it
+with the start script. This is a
+confusing video for me to make because
+actually right now I'm recording the
+video that I'm making on the course
+video manager. Here you go, this is me,
+this is the clips that are being
+detected from the video that I'm
+recording and there you go, that's the
+previous clip. This is a confusing video
+to me to make, you know what I mean?
+This is just got loads of stuff here.
+This is what the main view looks like.
+We've got courses down the left-hand
+side here, then we've got lessons and
+sections within those courses. And the
+stuff I want to show you is inside the
+free videos over here. Inside the app
+I've got a concept of ghost lessons and
+real lessons, which you can see on the
+filters here. These ghost lessons
+basically don't exist on disk and I need
+to right-click the lesson and say create
+on disk to actually create the lesson
+in like a repo in the disk. And the
+logic for this is fairly complicated
+because I can turn this back into a
+ghost here. So, and then when I do, I
+need to delete all of the files that are
+on the file system, convert it back to a
+ghost. The idea here is that it lets me
+plan and kind of create courses in the
+same UI, which ends up being really,
+really nice. But the thing I want to add
+are some enhancements here. So, I want
+to be able to when I create a lesson, I
+shouldn't just need to create a ghost, I
+should be able to add a real lesson
+instead of a ghost lesson. Same when I
+delete a real lesson, I should be able
+to just delete it instead of needing to
+turn it into a ghost first. So, this one
+here. Now, this part of the code base is
+really well tested and so this should be
+a relatively simple build. But there is
+another thing I want to do as well,
+which is I want to when we go up to
+these courses up here and add a new
+course, I want to be able to basically
+create a ghost course, a course that
+doesn't yet exist on the file system
+because currently every course needs an
+entry in the file system. So, that is my
+idea. I've got a very loose set of
+requirements here, and this is maybe how
+you enter most days as a developer. You
+have some small tweaks that you need to
+make to your application that are based
+on some vague ideas. Maybe those are
+ideas that you've come up with. Maybe
+those are ideas that have come from
+somewhere else. And the first thing you
+need to do is actually road test those
+ideas and harden those ideas. But, the
+first thing we're going to do is open
+this up in VS Code, and we're going to
+um go into this and say "Grill me." I'm
+going to use my dictation tool to
+dictate some stuff into here. The way
+that we handle ghosts in real lessons is
+a little bit cumbersome in places. It's
+annoying that you have to create a ghost
+lesson before you then create a real
+lesson. And it's also annoying that when
+you delete it or delete a real lesson,
+you can't just delete the real lesson.
+You have to turn it into a ghost lesson
+first. Now, at this point, I'm thinking,
+"Do I also in this session want to
+tackle the other thing? Do I want to
+tackle the idea of ghost courses as
+well?" My decision space for that is
+like, "Will this crowd out the grill me
+session, or will it all actually fairly
+seamlessly link together?" Because the
+idea of this grill me session is I'm
+going to create a document out of this
+that I'm then going to use to um
+do future builds on, basically. So,
+that's my decision here is, "Do I want
+to create a PRD, a product requirements
+document that has both of these things
+in, or are these separate concerns that
+I need to separate into separate PRDs?"
+I'm going to say that this stuff
+actually sort of belongs together. But,
+I'm just making that decision kind of
+arbitrarily really. I also want to
+extend the courses functionality so that
+it allows me to create a course without
+having a file path. This would be a kind
+of ghost course, a planned course that I
+haven't actually decided whether I'm
+going to build yet. Now, this second
+section here, I haven't really explained
+the why. That's something that's on my
+mind now. I've sort of like I've
+explained what I want the feature to do,
+but I haven't explained why I want the
+feature to exist. It's always really
+important when you enter these sessions
+that you explain the why to the LLM
+because
+sure, if the LLM has the what, then it
+understands what you want to build, but
+if it doesn't know the why, then it
+can't suggest alternatives. The reason I
+want this is so that I can plan courses
+freely without needing to commit to an
+exact shape on the file system.
+Initiating new repositories is kind of
+cumbersome, and I sometimes just like to
+prefer or I prefer building stuff in
+empty space instead of having to commit
+to an actual shape. Ghost courses would
+have slightly different constraints on
+them. Ghost courses would likely have to
+No, I guess ghost courses could have
+real lessons. It's just the moment that
+they have a real lesson inside them,
+then they become a real course, and
+you're then required to put it in the
+file system, I guess. Or I don't know,
+I'm not sure about that flow. Maybe we
+can work on that together. Notice how
+rough this is. This is just a super
+hashed-out sort of idea that I'm kind of
+you know, just spewing out the LLM and
+making it do all the work. If you've not
+seen my Grill Me skill, then head to my
+I'll I'll send it in a link below. It's
+in my top five skills article. But
+you'll be able to see what it does. Here
+it is. Really, really cool. Okay, it's
+going to do an explore phase. I'm going
+to
+head and get a glass of water. And by
+the way, if you don't know what explore
+is, explore is it's basically invoking a
+sub-agent. So it's essentially just
+passing a message to another agent to
+say explore this codebase. That agent
+then
+explores it within its own context
+window, and then it takes that context
+it takes a sort of summary of that, and
+it hands it back to the parent agent. So
+it allows you to get a lot of juice out
+of an explore phase because the explore
+can just go bam, bam, bam, bam, bam,
+read tons and tons of files, and then
+the parent agent only gets a summary of
+it. So it's very token efficient. But
+anyway, I need a glass of water. Okay,
+Grill Me has come back with a let me
+challenge your framing of the current
+pain points. It says that looking at the
+code delete lesson in in course right
+service already handles both ghost and
+real lessons directly. If it's real, it
+deletes the directory and renumbers. If
+it's ghost, it just removes the DB row.
+So, you can delete a real lesson without
+converting to ghost first. Is there
+something in the UI that forces the
+convert to ghost then delete flow? Well,
+yeah, there is. Yeah, in the UI there's
+no option to delete the lesson
+immediately. And
+what I mean by deleting a real lesson is
+it would both delete the entry from the
+database and um purge the on-disk
+representation. I'll ping this off while
+I explain something very cool that I've
+just recently started doing. I've been
+reading a book called um
+domain-driven design. And in this book,
+they talk about how important it is that
+you maintain a sense of a sort of
+glossary of all of the terms that you
+use to describe the system. This
+ubiquitous language can then be used
+basically to um bridge the gap between
+uh devs and domain experts, the thing
+the people you're actually building it
+for. So, I love this because this is
+exactly what the LLM has to have with
+me. I'm the domain expert and the LLM is
+the dev. And we need some kind of shared
+language so that we can talk together
+precisely. So, for instance, here we
+have a concept of a ghost lesson, a
+lesson that exists on whoopsie, a lesson
+that exists on the database. Where is
+it? Yeah, a lesson that exists on the
+database but not yet on the file system.
+And so, whenever the LLM is searching
+for stuff about ghost lessons, it's
+going to come up come across this
+ubiquitous language file. Okay, so it
+has come back and it said, "Yeah, the UI
+currently only exposes convert to ghost
+for real lessons, not a direct delete
+entirely option. That's a
+straightforward UI gap." Okay, that's
+useful. Let's quickly talk about like
+the way it's using service here and um
+what this actually means in my code
+base. I might actually try the new um by
+the way side question thing here. This
+is really useful when you just want to
+ask a quick question and you don't want
+it to kind of enter into the chat
+history. Describe what's going on with
+the course right service. uh describe
+the shape of it, describe its
+capabilities. Let's see what it comes
+back with here. The reason I'm uh asking
+about this and want to show you what it
+is is that um I'm really proud of the
+way that I've designed this repo. I
+mean, there's definitely stuff in there
+that definitely needs to be um looked
+at, but the way I've done this service,
+I think is quite nice. And the course
+right service is the main business logic
+layer for mutating course data, the
+right side of the system. It coordinates
+between the database, the file system,
+and the path numbering and renumbering
+logic. It's got a really clear interface
+here, like you can add ghost lessons,
+you can materialize a ghost, so convert
+a ghost lesson to a real lesson, uh
+convert it to ghost again, uh delete
+lesson, etc. So, this is a big, big blob
+of functionality. And the tests for this
+course right service are all in one
+place. So, course right service.test.ts.
+Oh, no, okay, it used to be there, not
+anymore. Yeah, here they are, course
+right e2e.test.ts.
+And this actually creates a test
+database, it sets up a temporary Git
+repo, and so it tests all of the
+synchronization between this. This repo
+is using effect, and effect makes it so,
+so nice to create these kind of like
+units within your system that you can
+test really easily. Other languages have
+this as a first-class thing, but effect
+um sort of bolts that on on top of
+TypeScript in a really beautiful way.
+I've made a video about effect before on
+this channel, just one video, and uh
+suffice to say I still love it, and I
+use it for literally everything. Or at
+least every back end thing that I build
+is all in effect. Anyway, this huge
+service, the course right service, uh
+where is it? DB function service, here
+it is, the course right service. It just
+lives in here. So, it's a file with
+essentially a bunch of methods inside
+here, and these methods, like
+materialize ghost, like add ghost
+section, add ghost lesson, delete
+lesson, etc. This is what we're talking
+about when we talk about this service.
+So, then I can exit out of this by the
+way thing by just pressing space, enter,
+or escape, and now I'm back here. So,
+this is a great question. What flow do
+you actually want here? Are you saying
+you want to create a lesson action that
+immediately creates the directory on
+disk, skipping the go step entirely? Or
+is the pain more that the two-step
+process, create ghost and then
+materialize, feels like unnecessary
+ceremony when you already know you want
+a real lesson? Yes, exactly, the
+two-step process feels unnecessary. And
+it says, "Okay, so you want a single
+create lesson action that creates both
+the DB entity and the on-disk directory
+in one shot when you already know that
+it's going to be real." Yep. Okay, and
+now it's gone to the bigger topic, ghost
+courses. Yeah, here we go. Then you said
+something interesting and immediately
+hedged on it. Ghost courses could have
+real lessons, and when they do, they
+become a real course and you're required
+to put it in the file system. Let me
+break this apart. First question, a
+ghost course has no file path, so it has
+no Git repo. Sections and lessons inside
+it would all be ghost by necessity.
+There's no way to put them on disk. When
+you say a ghost course could have real
+lessons, what does real mean without a
+file system? Right, so here what it's
+doing is it's fleshing out my kind of
+woolly language a little bit and forcing
+me to be a bit more specific. This is an
+easy question for me to answer. I don't
+want them to have some kind of
+intermediate status, like flesh more
+fleshed out than a ghost. What a great
+phrase. But yeah, A is pretty obviously
+the thing here. Adding a real lesson to
+a ghost course is the trigger that
+forces you to assign a file path and
+materialize the course. Now, I'm already
+thinking from a UI point of view, what's
+going to be the easier thing to do, or
+rather the most obvious thing for the
+user, the cleanest UI? Either when we
+create a like real lesson inside a ghost
+course, we basically say, "No, you can't
+do that. to choose a thing in disk
+first, and then you need to click away."
+Or we create a kind of integrated flow
+where you say, "Okay, you're writing
+this to disk. When you do that for the
+first time inside a ghost course, you
+need to choose a place that it's going
+to live." I think I'm like veering
+towards the second because it's not that
+complicated to do that in terms of UI,
+and
+I think it'll would a nicer flow. So,
+let's say that to it. Yeah, we're going
+to choose A here um and I think it makes
+sense that when you press um convert to
+or convert reveal in file system or
+whatever the button is, whenever you
+make it and material
+Notice here, this is where the
+ubiquitous language comes in really
+handy because I was just sort of
+fluffing around there, but what I mean
+is that when I materialize a ghost
+lesson, when you materialize a ghost
+lesson, you should have a modal pop-up
+that forces you to materialize the
+course as well. Look how clean like how
+much cleaner that language is because
+I've got a concept of materializing and
+the word agreed on between me and the
+LLM. Anyway, let's fire this off and see
+what happens. Right, yeah, we've got a
+concept of um versions inside the
+application, so course versions. This is
+really important for me because I have a
+team of people who actually apply the
+course to the CMS and so I have a course
+and a change log. For instance, here in
+my Claude Code Cohort, I've got several
+versions here and
+like the sooner I approach the cohort,
+the more I'm sort of fixing bugs or like
+um switching out videos, that kind of
+thing. The latest version is always the
+draft version and then I can like
+publish that draft version and add a
+commit message to it and it goes into
+the change log. Here you go, this is the
+UI for publishing the new version and
+here's a preview of the change log. So,
+yeah, I'm pretty sure that the schema
+that we rely on needs the ghost course
+to still have versions. Yeah, I'm fairly
+sure that the schema that we need um
+will require us to have versions because
+versions are needed in order to have
+sections and lessons and stuff inside
+them. However, it makes zero sense to be
+able to publish a ghost version, so we
+should just hide the bits of UI that's
+um and the actions in the menu that
+allow you to publish. So, let's fire
+this off. I can see in my video editor
+that we're about like 15 minutes in and
+just notice like how long we're spending
+here on fleshing out these ideas. The
+more we do here, the less we're going to
+end up needing to do
+when we actually guide the LLM. Okay,
+let me push on the file assignment
+moments. When you materialize a ghost
+course cuz you're materializing a lesson
+inside of it, you need to give it a file
+path. Either the repo already exists or
+the repo doesn't exist yet. When you
+assign a file path to a ghost course,
+should the app handle repo creation for
+you? No, it shouldn't handle repo
+creation. It's just pointing at an
+existing directory. That's an easy one
+to figure out there. Okay, this is such
+a lovely smart question that it's given
+us here. It's laying out what you're
+asking for. Direct delete for real
+lessons, direct create for real lessons,
+ghost courses, and then materializing a
+lesson in ghost courses. Question, does
+direct create apply inside ghost
+courses, too? That's so freaking smart.
+That's such a nice question. I can
+imagine my old boss, Willow Reagan,
+asking that question, who is the guy I
+learned a lot of this lead developer
+stuff from. He had this incredible
+ability to just basically sit in a
+meeting and ask smart questions for
+hours and hours and hours. And this is
+exactly what the AI is doing here. It's
+asking really smart questions at the
+right point in the process. So, if
+you're inside a ghost course and you hit
+create lesson, should that immediately
+trigger the assigned file path modal and
+create it on disk? Now, again, there's a
+trade-off here, and instead of me
+thinking about this in my own head,
+which is not particularly fun viewing,
+why don't we model what it might look
+like if I sort of work this through with
+the LLM? Can you give me the trade-offs
+of both of these approaches? Okay, so
+it's saying on option A, create lesson
+inside a ghost course always creates a
+ghost ghost lesson. Keeps the ghost
+course as a pure planning space. The
+assigned file path moment only happens
+when you explicitly choose to
+materialize, which is a clear deliberate
+action. There's downside if you've
+already decided this course is real and
+you're just adding lessons, you're back
+to the two-step annoyance you're trying
+to fix. Option B, create lesson inside a
+ghost course triggers the
+materialization cascade. Yeah, it's
+saying option A is the obvious choice
+given your stated goal. The two-step
+annoyance you described is specifically
+about real courses where the file system
+exists and you want a real lesson. Yeah,
+I probably agree with it. If we want a
+consistent UI, then we do want the
+ability to both create real lessons and
+create ghost lessons
+at whatever stage the course is at,
+whether it's real or ghost. That will
+mean a bit less work in the front end
+because we don't want to or won't need
+to conditionally show things. Blah blah
+blah blah blah. Yes, this makes sense to
+me. Option A sounds good. I think it
+mostly makes sense in the context of
+having
+two buttons, one to create a real lesson
+and one to create a ghost lesson. Could
+you just talk me through the UI a little
+bit and how this is going to look?
+Notice that I'm driving this a little
+bit more now. That's okay, too. The
+is nice and flexible so that you can
+drive sometimes and the AI can drive.
+This is nice, too. It's actually
+checking the current UI for lesson
+creation first. This is part of the
+skill is I get it to, instead of asking
+me questions about everything, if it's a
+question that can only be answered by or
+can be answered by looking at the code,
+it should look at the code first. I do
+wish that explore was faster. Explore is
+the thing that's like, you need it in
+every single session, sometimes multiple
+times a session, and I just wish it was
+quicker. Okay, so here's how the current
+UI works. You right-click a section
+header, you add a lesson, right-click an
+existing lesson, add lesson before, add
+lesson after, also creates a ghost.
+Inside a real course, you right-click a
+section, you'd see add ghost lesson and
+add lesson. Inside a ghost course,
+right-click a section, you'd only see
+add ghost lesson. Yeah, right. That's
+the question. Inside a ghost course, do
+you want the create real lesson button
+to exist at all? Now, at this point, I
+don't know. Like, I'm imagining this UI
+is going to get pretty crowded with this
+like, cuz you're going to have multiple
+buttons there. You're going to have
+like, add a lesson
+before this one, and then do you make it
+ghost or real?
+I guess like, oh man, this is actually
+quite gnarly. I'm thinking, do I
+actually want a prototype of this so I
+can sort of see how it looks? Because
+there's multiple ways that we could
+fiddle with this and and get it like,
+nice. You could have it where you add a
+lesson, then it opens a modal, and you
+whether um
+it's a ghost lesson or a real lesson. I
+think probably what I'm going to do is
+I'm just going to build it one way and
+then maybe offer feedback afterwards.
+So, let's say yes, inside a ghost course
+let's have the create real lesson
+button. You know, I could like stop this
+whole grilling session. I could go into
+prototyping mode here where I just sort
+of prototype, you know, three different
+versions, five different versions of
+this just to see what the UI would look
+like, but I'm quite keen to get into
+implementation now. Okay, so create real
+lesson inside a ghost course triggers
+the full cascade. Modal asks for file
+path, course becomes real, section
+materializes, lesson gets created on on
+disk, all in one flow. That's right.
+That modal is doing a lot of work.
+Correct. It needs to grab the lesson
+title and the course file path. Yeah,
+that's it. Correct. That's it. We just
+need the lesson title and the course
+file path. That's it. I can feel it.
+We're getting to the end of this
+grilling session. Oh, maybe not.
+It's asking about section behavior,
+sections inside ghost courses, and the
+state of a section is basically just
+derived from um
+the lesson. If there were any ghost
+lessons inside a section, then it's
+going to be a ghost. Oh, sorry. If there
+are any real lessons inside a section,
+then it's a real section on disk. A
+section basically looks like this. It's
+just essentially a directory on disk.
+You can rename it and rename the
+directory or you can add things to it,
+but that's basically it. Section logic
+should obey the current rules that we
+already have. There's nothing really new
+about sections. For instance, when we're
+inside a ghost course and we create a
+real lesson inside that section, then we
+basically flow all the way up so it
+becomes a real section, becomes a real
+lesson, and becomes a real course. Here
+we go. Let's keep going. Let me switch
+to the database schema. Right now,
+courses table has a file path as a
+required text field. For ghost courses,
+this would need to be nullable. That is
+the only schema change I'm envisioning.
+Yeah, just going to say yes to this.
+It's going to grill me on a tricky edge
+case. I see. Have a real course with a
+file path. It has some real lessons and
+some ghost lessons. You delete all the
+real lessons or convert them all to
+ghost, does the real course become a
+ghost course? Again, this is like a
+classic Willow Reagan question. It's
+fantastic, really, really good. No, the
+real course does not become a ghost
+course. Once a course has a file path,
+it stays real forever because the thing
+that's on disk is not going anywhere.
+Yeah, I was thinking about that before
+and so I'm super glad that it answered
+it because now it's in the context and
+it's spelled out. Another edge case, you
+have a ghost course, you materialize a
+lesson, you assign a file path,
+everything becomes real. Now the course
+has a file path but no real lessons. I
+feel like we just answered that, right?
+That's a weird one. I mean, I don't
+think Willow Reagan would ask that
+question. Yeah, let me move to the
+deletion side. You want to direct delete
+action for real lessons in the UI.
+Currently, the context menu for real
+lessons shows convert to ghost but no
+delete. Yeah, this is a UI thing. Should
+real lessons have both options, convert
+to ghost and delete?
+I think we need
+both. Okay, we're getting there, we're
+getting there. I think I've covered the
+main branches. Let me lay out the full
+scope as I understand it and you tell me
+if I'm missing anything. Courses file
+path becomes nullable, ghost course
+creation, a new course creation flow
+that only asks for a name, no file path,
+correct. Ghost course UI, hide the
+publish and export actions, correct.
+Create a real lesson button available in
+both real and ghost courses. In a real
+course, creates on disk immediately. In
+a ghost course, triggers modal asking
+for the file path first then cascades
+materialization. That looks good. Create
+ghost lesson works as today, available
+everywhere. Delete action for real
+lessons purges from the disk and the
+database in one step. Yes. Delete action
+for ghost lessons already unchanged. And
+finally, convert to ghost stays for real
+lessons that you want to keep planning
+but remove from the disk. Exactly. So,
+we've got that. This was essentially the
+eight bullet points that we just spent
+whoa, 22 minutes of video just uh trying
+to get. This to me feels really, really
+familiar. This is how I'm working with
+AI a lot. I, you know, block out half an
+hour in my calendar to work out exactly
+the feature I want and from here it's
+pretty much all on rails. Like we have
+done the hard bit now. We have done the
+human in the loop bit. What I do next is
+I now I've been trying this for a few
+days. I get it to update my ubiquitous
+language documents to basically just
+keep it up to date with any of the ideas
+that I've got in here. For instance,
+we've got some new terminology now.
+We've got this idea of
+ghost courses, which is new. Let's see
+what edit it decided to make In In fact,
+I'm just going to accept it and review
+it afterwards. So, there we go. We can
+see it's updated its idea of ghost
+entities here. It's got ghost lessons,
+ghost sections, and ghost courses. The
+verb materialize is now properly in
+here. The act of transitioning a ghost
+entity to a real entity by creating its
+on disk representation. I like too that
+it has this create on disk and realize
+like the aliases to avoid. That's really
+cool. And it's even got a concept for
+the materialization cascade. The chain
+reaction when materializing a lesson
+inside a ghost course. It signs file
+path to course, materializes section,
+then materializes lesson. I freaking
+love this because later on I can say,
+"Yeah, there's a bug inside the
+materialization cascade." And it knows
+exactly what I'm talking about. commit
+this. Update to the ubiquitous language
+document. Look at this. Yeah, sometimes
+I am actually committing code myself.
+Okay, so it's gone back to the grilling.
+Yeah, it's now just sort of repeated the
+eight sections. The existing plan entity
+is a separate disconnected planning
+tool. Yeah, I did used to have a
+separate planning area, but then I sort
+of used this ghost concept to integrate
+it into my actual courses thing.
+I've got it inside the ubiquitous
+language inside here down here. A plan,
+a plan section, and a plan lesson there.
+But this is basically deprecated. I am
+going to remove this at some point. And
+so, we can say plans are deprecated and
+ghost courses are the new way to do it.
+And in fact, I think I'm going to go
+ahead and say I'm satisfied. Let's and
+I'll invoke my next skill, which is
+let's write a PRD. So, if we think about
+the conversation that we've just had
+with the LLM, it's incredibly good
+fodder for just turning this into a sort
+of more
+concise summary document of everything
+that we want to build. I freaking love
+question and answer because it
+co-locates the question with the answer.
+I know that sounds like such a sort of
+basic thing to say, but the way that
+these attention mechanisms work is that
+stuff that's close together tends to
+like it sort of shows up as a hot spot
+for the LLM in terms of its attention
+mechanism, just like it does for humans.
+And what this ends up meaning is that
+this is such a rich document for it to
+pour through. Now, it's doing another
+explore phase. We should probably do
+like a cursory check on our context
+window down here. We're currently only
+at like 40K tokens, which is pretty
+impressive given how long we've spent
+with the LLM working on this stuff. A
+lot of folks have asked me why my grill
+me skill doesn't use the ask user
+question tool. Like we weren't actually
+sort of like using Claude's built-in
+mechanism for asking questions. And the
+reason for that is that I don't really
+like that UI, first of all. And second,
+like if you have a choice between
+calling a tool and not calling a tool,
+then like not calling a tool is always
+going to be more token efficient because
+every time you call a tool, you need to
+wrap it in JSON, you need to do various
+things. Okay dokey, we can see here that
+okay, it's now sketching out the major
+modules before writing the PRD. I've
+talked before on this channel on how
+important I think
+modules are and like understanding the
+modules in your code base without
+necessarily needing to look inside them.
+Like the course write service that we
+looked at before, that's a big testable
+module that I was very careful in
+designing and designing the interface
+for. And I think this is so important
+that I've baked it into my write a PRD
+skill. So, it sketches out the modules
+and surfaces them to you. I don't
+necessarily need to look inside these
+modules. I just want to know how they're
+changing. For instance, here I can see
+something that's a bit dodgy, right? It
+wants it to make a new method on the
+course write service, materialize course
+and lesson. Reuses the existing
+materialize ghost and section
+materializing logic internally. I'm
+thinking about whether it could just
+instead use the existing materialize
+ghost and pass it like an additional
+parameter,
+but I think that would be a little bit
+dodgy API API wise. So, I think it is
+probably right. I think it should have a
+new method. Notice how I'm thinking
+about the interface more than I'm
+actually thinking about the
+implementation here. The implementation
+I don't really care about, but I want to
+make sure that this is testable and um
+you know that the rest of the um
+kind of repo and any future AI agents
+can understand what it's doing. And
+again, notice how easy these functions
+are to name because we've got this
+concept of the ubiquitous language. So,
+module one is the ghost course schema DB
+operations. That seems fine. The
+materialization cascade service. That
+seems fine. It's just a new method on
+the course right service. Here we've got
+two new API routes, which makes sense
+because we're doing direct real lesson
+creation, direct real lesson deletion. I
+could um put them into like other API
+routes, but because this is just an
+internal tool, I don't really care about
+what my API like looks like from the
+outside, then I don't really care about
+um how many API routes I have or what
+they look like. It's just an
+implementation detail. Now it's talking
+about the
+ghost course UI new add ghost course
+option in the sidebar. Yep, that seems
+fine. A materialization model two lesson
+creation buttons in context menus and a
+delete action. And then module six, the
+plans deprecation. Hey, I mean I do want
+to deprecate the plans at some point,
+but I don't think I want to deprecate
+plans now, certainly not as part of this
+PRD. And it's asking me a second
+question, which modules do you want
+tests for? I want tests in the places
+that we already have test harnesses. So,
+for the course right service,
+definitely. And if we have some stuff
+for direct deletion, I think that would
+be as part of the course right service,
+too, right? So, let's see what it says
+here. Now, this is funny. It's saying
+there's no existing test harness for
+course right service. The tests in the
+repo are mostly for pure functions and
+reducers. That is rubbish. So, I'm going
+to do a Rafiki and I'm going to say,
+"Look harder." And there we go. There
+they are, a whole suite of them split by
+concern.
+Okay, and it's satisfied it has
+everything it's needed. It's now going
+to write the PRD and submit it as a
+GitHub issue. This is what I do with my
+PRDs. This is what I do with all of my
+issues. I stick them in GitHub because
+then when we go to actually implement
+this with an AFK agent, the AFK agent is
+going to pull down all of the GitHub
+issues, choose the one it's going to
+work on, and then just work on that one.
+Now, a question becomes, am I going to
+review this PRD? And no, I'm not going
+to. LLMs are really, really good at
+summarizing things. And so, I know that
+this PRD will probably be a pretty good
+summarization of this conversation. So,
+I'm just going to accept it on faith,
+and I'm then going to say, "PRD to
+issues." So, it's now time to break this
+PRD down into individual issues. The
+benefit of doing this is that this now,
+the PRD is already in its context from
+having written it, and so we get to just
+break the issues down straight from
+there. These all have blocking
+relationships in, so it's blocked by
+nothing. This one's blocked by number
+one. This one's also blocked by nothing.
+That's cool. Now, let's just see how
+many there are here. Six does feel about
+right, I think. And what I mean by that
+is this is going to get picked up by a
+Ralph loop. And so, it's going to just
+sort of work through each of these tasks
+sequentially. And so, I want to pick
+tasks that are not too big and not too
+small because if they're too small, then
+we pay the cost of like having to kick
+up an entire agent just to do like
+number two here, hide the publish export
+UI on ghost courses. This is a tiny task
+and it can be melded in with something
+else. But maybe ghost course creation,
+maybe no, that seems like decently sized
+because it touches the UI, it touches
+the schema, it touches the API. Two
+lesson creation buttons, create ghost
+lesson and create real lesson. This
+seems super small. And actually, I think
+it has broken them down a little bit too
+far except maybe the materialization
+cascade. That needs to live in its own.
+So, I think maybe we just merge two and
+three together and I think we'll be
+happy. So, let's go down to the bottom.
+Let's say merge two and three together.
+Okay, now we got four slices. There goes
+course creation, the UI stuff, the
+direct delete action, and the
+materialization cascade. Good stuff.
+Let's go. Let's create the issues. Am I
+going to review these issues? Absolutely
+not. I understand like I've already sort
+of pre-reviewed them. It's just
+expanding out stuff that's in the PRD
+and then, you know, putting them in
+issues. This will be fine. just show you
+one of them just to sort of see what
+they look like. It links to the parent
+PRD. It says exactly what to build. It
+gives some acceptance criteria. Says
+what it's blocked by and it also says
+the user stories that are addressed in
+the parent PRD. If the parent PRD is the
+kind of destination, then these things
+are the journey to get there. And notice
+the PRD just has a bunch of user
+stories, some implementation decisions,
+and testing decisions as well. All of
+this stuff essentially just comes from
+the skills that I've put together and I
+found that they're good enough to keep
+the LLM on rails. I really like adding
+in the testing decisions because it
+means that it's more likely to follow
+TDD and do some
+um kind of create some feedback loops as
+it's going, which is great. So, all
+right. We have now set everything up so
+make our AFK agent to give it the best
+chance possible to produce good work.
+Now, I've been like cooking my setup for
+this a little bit over the last 24 hours
+and I've sort of built like a mini
+library to um
+make it work better than I had it
+before. The provisional name for this is
+Sandcastle and we have a like a
+Dockerfile here. It's going to spin up a
+Docker container. It's going to mount
+the
+working directory inside this
+Dockerfile. And then it's going to any
+commits that are made then inside the
+Dockerfile by Claude, which is going to
+run in there, it's then going to patch
+those out. So, pull out those commits as
+patches and apply them to my local
+repo. I found that this setup is just
+like super flexible. I have a Dockerfile
+and a prompt here and I can just run a
+Ralph loop again and again and again,
+passing in a bunch of issues and passing
+in like the last X number of commits.
+But, you can check out the repo to sort
+of see the most up-to-date file on this.
+I'm going to run, where is it? I think
+it's PNPM Ralph. So, I'll run PNPM
+Ralph. This is going to now spin up my
+AFK agent with a max number of
+iterations of 100. What it should do is
+it will run out of GitHub issues because
+it's going to close the GitHub issues as
+it creates commits for them. But, at
+this point, I can essentially just walk
+away because, you know, we can see it's
+like doing things in the terminal. It's
+saying looking at the issues, directed
+lead to action for Ralph, blah blah blah
+blah. But, I can now have a cup of tea,
+or I can go make a coffee or something,
+or have my lunch. Or more likely, I can
+just open up another terminal and enter
+another grilling session. So, for folks
+who say this approach seems really,
+really slow, what you need to understand
+is that it's slow because you're trying
+to extract ideas out of your human
+brain. And while this is happening,
+you've got AFK agents running in the
+background implementing your previous
+grilling sessions. This is why this is
+revolutionary because, like, once we've
+completed thinking through the idea, our
+work is kind of done until we actually
+QA the outputs. My friend Jaman on
+Twitter called this the day shift and
+the night shift, where I'm doing the day
+shift, I'm like, you know, thinking of
+ideas, I'm grilling with the LM, I'm
+turning this into PRDs, and turning
+those PRDs into issues. And then the LM
+takes the night shift. Claude goes and
+actually implements this stuff AFK. So,
+I'm going to take a little break. I
+might even go for a little walk, and I'm
+going to just wait and check back in
+with this once it's done.
+Okay, we are back. It is like an hour
+and a half later. I, you know, went for
+a walk. I went and had a cup of tea with
+my parents. Uh, yeah. Let's see what
+it's done. So, we can see that the agent
+signaled completion after five
+iterations. So, we essentially ran
+cleared Claude code agent five times in
+the repo, and it should have produced
+for us, yeah, I think six commits here.
+I think those commits, one of them might
+be one that I just haven't pushed up
+yet. Yeah, we can see the entire like
+commit history here. It's been leaving
+really nice detailed commit messages for
+us, and it should be yeah. I think this
+was the update that I pushed before or
+haven't pushed so far. So, at this point
+in the process, I need to um kind of
+look back over these commits. I'm kind
+of tempting to look over the code, but I
+think I just want to review the
+implementation first. going to open up a
+new Claude session, and I haven't come
+up with a skill for this yet. I so, I'm
+just going to sort of free blast it. So,
+I'm going to say, "Take the last five
+commits and create a QA plan for me.
+Save that QA plan in a GitHub issue. The
+QA plan should give me a step-by-step
+guide on how to test every single part
+of the new implementation." This is
+something I've been sort of playing
+around with adding into my skills
+because I think it does make sense
+almost in every single sort of uh
+user-facing change. And while it's doing
+this, I'm going to rebuild the
+application and rerun it locally so that
+we can see exactly what's happening with
+it. Okay, so it has created for us a QA
+plan. Beautiful. Now, I have to say
+there is nothing more boring than
+watching else or watching someone else
+do QA. So, what I'm going to do is just
+walk through this um myself, and I will
+come back to you if I have any issues.
+Okay, the first one actually came super
+early on, which is pressing this add
+course modal. I can see now there's two
+tabs in here. I actually really hate
+this. Like, I just want uh every time
+you add a new course, it should be a
+ghost course, and I don't really like
+the ghost course terminology appearing
+in the UI. So, what I'm going to do is
+exit out of this, and I'm I've got a
+little feedback button here, which you
+can see if I just remove myself there.
+This feedback button, I can just
+describe my feedback in detail, and then
+it will create a GitHub issue for me,
+which can then be picked up by the Ralph
+loop. So, I'm going to say, "When I open
+the add course modal, I want the only
+option to be to add a ghost course. And
+I don't want the ghost course to appear
+in the UI. It should just look like
+we're creating a course and then it
+creates a ghost course. So, I'll submit
+this and when I go to the GitHub issues,
+we can see that we've now got a new
+issue saying hide ghost course option
+and add course model create ghost course
+silently. So, I actually used high code
+to generate me a title here and then
+we've got the route it was submitted
+from and then what I said in the
+feedback button. This is how I do QA.
+This information is enough for Ralph
+[snorts] to do a really nice job here.
+So, I'm actually going to start my Ralph
+loop as I'm going here. I'm going to go
+back to the QA plan and I'm just going
+to add a comment to this and I'm going
+to say Ralph loops should not work on
+this one. This is a human in the loop
+task only. Well, in fact, I'm just going
+to rename that first one to AFK in fact.
+I've got something in my prompt that
+says if there's a human in the loop like
+label on it or it looks like it's for
+humans, don't work on it. And so, let's
+go back in here. Let's run PNPM Ralph
+again and it's going to actually work on
+that issue while we're QAing other
+stuff. So, I'll go back to doing a bit
+of QA and I'll see you in a second.
+Okay, a new thing is when I create a
+ghost course here and I say new fun
+course for instance, then when I press
+create ghost course, nothing appears to
+happen. But actually, as you can see in
+the top left, oh, first of all, we get
+the weird minified React error. So, I'll
+just copy and paste that for the
+feedback form later. It does actually
+create the course, but we don't go to
+the course and the model doesn't close.
+So, let's add this back into feedback.
+When I create a ghost course, it doesn't
+direct me to the new page and it shows
+this error. There's also no loading
+state present on the button, which looks
+confusing uh from the user's
+perspective. So, let's submit that
+again. The agent that we kicked off to
+fix the previous bug is actually already
+finished, so let's just kick it off
+again and I'll keep QAing. This time I
+won't interrupt. I'll just kind of keep
+going through the issues and uh
+attempting to fix them with Ralph in the
+background.
+Okay, this one I did think was showing
+off here or worth showing off rather.
+When I see a new ghost section inside a
+ghost course and I right click here,
+this create ghost lesson and create real
+lesson doesn't seem right to me. I feel
+like when I go into like create ghost
+lesson here or create I just want an add
+lesson kind of thing. We've already got
+a modal here. What we should do is just
+have a checkbox that says also create
+this on the file system. So this is
+something that came up in our early
+discussions about this feature that kind
+of like I couldn't get of sense for
+which way to go until I saw it in
+reality. So that's the way that
+something's go sometimes. We could have
+had an extra design phase or we could
+have had an extra prototype phase, but
+you know, I don't mind just jumping to
+code and fixing it there. So I will add
+some feedback for that, but I'll spare
+you hearing my dictation.
+All right then, I've walked through the
+QA plan and I have created uh seven
+issues here over the last uh or six
+issues over the last 8 minutes. We can
+see that while I've been QAing, Ralph
+has been going in the background and is
+fixing the issues. Most of these issues
+are bugs, but some of them are features
+that we just didn't think about. So for
+instance, when we're deleting real
+lessons, we want to add a confirmation
+model to make sure that it doesn't just,
+you know, like um
+we don't accidentally click it and it
+deletes or whatever. There were
+certainly some showstopper bugs here.
+For instance, if there's if it's not a
+Git repo, uh then it gets into a super
+weird state. Yeah, if the course repo's
+not a Git repository and anything about
+that fails, then we should walk back the
+creation of the directory inside it
+since the directory and file system and
+the database will then be out of sync.
+something again we didn't think about in
+the grill me session at the start, so
+we're now having to find out about it in
+QA. It's this kind of stuff this kind of
+stuff that makes me think that like the
+specs to code approach is just never
+going to work because when you're in
+there, when you're in the QA loop, when
+you're iterating towards something, you
+are going to find little weird edge
+cases like this that is really hard to
+plan for before. Anyway, rant's over.
+The point here is that I've now done a
+extra QA step. Uh Ralph is now going to
+chew through these issues. I can
+probably actually close this QA plan. on
+I might want to reopen it if I like um
+sort of want to redo it, let's say, but
+the behavior has slightly changed. So,
+I'm closing it to take it out of Ralph's
+or or rather the agent that I'm using's
+context, so it doesn't look at this as
+like the the source of truth for what
+it's supposed to be building. Either
+way, I'm going to go do something else,
+and then we'll see what happens to Ralph
+when it comes back.
+Okay, we're back, and we've got
+iteration eight, which is very nearly
+complete. This looks like the final
+issue here where it's just adding the
+confirmation modal with file details
+when deleting real lessons. We can see
+we're up to 14 commits that have been
+added kind of in this entire feature
+build as we've been going along. And the
+issues here are very nearly closed. You
+can see I last opened this one 30
+minutes ago, so that's how long it's
+been running kind of. One thing I would
+like to add here is potentially
+parallelizing these Ralph loops and sort
+of having like a team of agents working
+on it at once. But to be honest, it's
+quite nice having these gaps because it
+means that I get to do some deep focus
+on something, for instance, like
+grilling me on something, and then later
+I can come back and sort of come back to
+code and do a big QA session, send it
+off again, you know, you get the idea.
+Something that's crucial to the success
+of these Ralph loops is making sure it
+runs tests and types on every single
+commit. We can see that in most of these
+loops it's adding tests, too, so it's
+updating the reducer test to cover the
+new action. Now, it's committing and
+closing the issue, so we should be
+nearly there. Okay, and we are good to
+go. I'm going to
+rerun the build, and let's do a little
+bit more QA. And I'll spare you the
+extra QA step here, but suffice to say
+what I would do from this point on is I
+would go back here and I would continue
+QAing it, find more bugs, and at some
+point I would call this done, and I
+would stop working on it. One thing
+that's great about having this really
+flexible backlog approach is that
+anytime I could just queue up a bunch of
+bug fixes, and it would go in and fix
+them. Let's just check one thing, which
+is we can see that the add lesson now it
+no longer says ghost lesson and real
+lesson and we can see here it's saying
+create on file system in a little
+checkbox. If I go foobar and I say
+create on file system, then it's going
+to add the lesson and we should be able
+to see once that's done. It's quite slow
+that, isn't it? I'm interested in why
+that's quite slow, especially because
+this is all local. It should now be
+complete and it creates that foobar as
+the second lesson. So there we go. We
+are, by my count, which is not entirely
+accurate, it'll be about 42 minutes into
+the video at this point.
+If you're here, thank you so much for
+watching all the way to the end. What I
+hope you take out of this video, I'm not
+sure to be honest. Like this is so much
+looser than the videos I usually put
+together, which are usually fairly
+tight, focused on a specific goal. I
+hope that you're able to pick up some
+vibes from me in terms of how much
+detail and how in-depth I look at the
+stuff that I'm producing. You can also
+notice how little I looked at the code
+really. Like what I'm doing here is I'm
+reviewing inputs and outputs. I'm
+interested in the code, absolutely. I'm
+interested in how the interfaces are
+changing, I'm interested in how the
+modules what the modules are sort of
+looking like. And every so often I'll go
+and have a little poke around in the
+code just to make sure it's on the right
+track. But for me really, what I'm doing
+is reviewing the outputs that come from
+AI, passing more information to it and
+getting into a tight loop with it. And
+crucially, because I'm able to run the
+run Claude AFK, I'm able to parallelize
+my own QA with the fixing of the bugs,
+you know, which is just amazing. I
+imagine though you have just dozens and
+dozens of questions. Um feel free to
+ping them into the comments below. Or if
+you want to learn this from the ground
+up instead of just diving through this
+messy video, then the cohort is the
+place. This one starts on March 30th,
+but if you're seeing this sometime in
+the future, then there'll probably be a
+place you can sign up for the next one,
+too. This has been the last kind of two
+months of my life really, full-time
+working on this. And I'm so proud of how
+it's come together because everything
+that you see here in this sort of big
+video has come from me thinking about
+this stuff deeply and the cohort is the
+kind of perfect encapsulation, the
+easiest way to learn this from the
+ground up. Anyway, thank you so, so much
+for watching. Thank you for getting to
+this point, and I'll see you in the next
+one.

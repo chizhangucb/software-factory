@@ -1,0 +1,348 @@
+One of my goals for the last 6 months
+have been trying to get my agents, my
+coding agents to run totally AFK. These
+AFK agents have been picking up backlog
+tasks, have been implementing features
+for me, have been doing QA, and
+crucially they have been running in
+parallel. So, I've had lots of them
+running at the same time. However, in
+order to get them to run properly, you
+need to handle the permissions requests
+that they make. And a question that you
+probably have right now is how do I get
+my agent to run without it constantly
+battering me with requests for
+permissions. course you could just go
+into Yolo mode and have it totally
+bypass any permissions requests. But, if
+you do that, Claude will do mad things
+on your system like delete your home
+directory. Or, if you're in an
+enterprise setup, then it might be
+concerned about, you know, it
+exfiltrating data or sending your code
+off to a random third party. So, in
+order to get agents to run properly AFK,
+you need them to be sandboxed. And there
+are a bunch of solutions for this.
+However, I was not particularly happy
+with any of them. The one I really tried
+to use and try to make work was Docker
+sandboxes. However, there were just so
+many problems with running it AFK that I
+won't bore you with now. What I wanted
+was a simple TypeScript function that I
+could run and just say, "Run this prompt
+inside this sandbox using this agent."
+And all the tools that I found were
+trying to sell me some third party
+service. So, I realized I needed to
+build something here. And that thing is
+Sandcastle, a TypeScript library for
+orchestrating AI coding agents in
+isolated sandboxes. You can use this to
+build TypeScript scripts here where you
+simply say run, passing in the agent,
+passing in the sandbox, and passing in
+the prompt. If you look in any one of my
+open source repos, you'll see this
+little Sandcastle or dot Sandcastle
+directory here, which has a main.ts
+file. And this is full of these
+Sandcastle.run
+little functions here. With this simple
+function, you can build really, really
+complex systems. You can build systems
+that parallelize agents running side by
+side. You can have systems that review
+their own code and then merge it in.
+I've been really, really enjoying using
+this and now I think it's time to make a
+video on it. Let me show you how to get
+this set up inside a repo. We first run
+npm install AI hero Sandcastle. Once
+that's done, we can run npx Sandcastle
+in it and you'll first be asked to
+select an agent. Let's select Claude
+code, why not? You can then select
+between one of the first class sandbox
+providers that we provide. My plan in
+the future is to add many, many more of
+these but and you can also implement
+your own if you like. For now, let's
+just choose Docker. Sandcastle also uses
+a backlog manager because AFK agents
+need some way of picking up tickets and
+knowing what to do next. My preferred
+way of doing this is GitHub issues. We
+also ship with five templates here
+currently. I mean, there may be many
+more by the time you run this. Let's
+actually max out here. Let's go for a
+parallel planner with a review step. And
+since we've chosen GitHub issues, we're
+going to create a Sandcastle GitHub
+label. The issues will be filtered by
+this label and it means that only things
+with the Sandcastle label on our GitHub
+issue list will be picked up by the
+agents. We can see at this stage that a
+bunch of stuff has been thrown into a
+dot Sandcastle directory just up here.
+The thing to know about now is this
+Dockerfile here, which is essentially
+the Docker container or the instructions
+for setting up the Docker container that
+we're going to be using. Sandcastle runs
+inside this Docker container and it
+means that you can just install anything
+you like inside here. We're installing
+some important system dependencies.
+We're installing the GitHub CLI. We're
+doing a little bit of setup to rename
+the um home directory to agent. We're
+installing Claude code and then we're
+just ready to go. So, let's go ahead and
+build this default Docker image now.
+That was really fast and it has now
+completed. Our next steps are we need to
+set the required environment variables
+in dot Sandcastle {forward slash} dot
+env. If we have a look in dot
+Sandcastle, where it is dot Sandcastle
+{forward slash} dot env dot example, we
+can see that we have an Anthropic API
+key and a GitHub token required. If you
+want to use your Claude subscription
+instead of an API key, then you can head
+to this issue here that will tell you
+more about it. If you don't know,
+Anthropic is a little bit funny about
+people using their subscription for
+these kind of things, and so there's
+some up-to-date advice there. For me,
+I'm going to copy over some environment
+variables that I've had already. Once
+that's done, I'm going to go into my
+source control, I'm going to commit this
+code, and I'm going to push it up
+because I'm going to show you how we can
+use GitHub issues to schedule some work
+for this agent that we've created. So,
+let's go to our repo and create a new
+issue. Let's say, "Scaffold me a basic
+TypeScript template in the repo. Give me
+a basic TypeScript application that uses
+Vitest, that uses type checking, that
+has a very very simple CLI that I can
+call. Use Commander for the CLI. Add a
+CI script that does type checking and
+runs the tests." So, now I'm going to
+create that issue, and we can now run
+our agent to see what happens. So, after
+that, it should be ready to be picked
+up. First, I'm going to add this little
+piece of code to my package.json here,
+which is just going to allow me to run a
+script here. So, let's say scripts, and
+then add this sandcastle script here.
+This is just going to run NPX TSX, and
+TSX is just a way that you can run
+TypeScript as a script, and it's going
+to run this file dot sandcastle
+{forward-slash} main.mts. So, let's
+actually go ahead and run this and see
+what happens. We can see immediately
+that it's kicked off a planner agent
+here, and we can control-click these
+logs to see what it's up to. We can see
+that it's successfully set up the
+sandbox. It's the planner agent running
+on Docker, and it's looking at the open
+issues here, and it sees that there's
+only one open issue. It then spits out
+this plan here, which is a set of issues
+which are going to be worked on.
+Finally, at the bottom here, it shows
+the amount of context window that it
+used. If we zoom back to our terminal
+here, we can see that an implementer
+agent was kicked off, too. Let's
+control-click these logs and take a look
+at them, and we can see that it called
+GitHub issue view one. It has a clear
+picture and it asked for a basic
+TypeScript script out V test for
+testing, type checking, simple CLI using
+commander. Great. We can see that it's
+running bash commands inside here. It's
+uh doing Okay, good dependencies
+installed. And I've even got it prompted
+so it's doing a little bit of red green
+refactor here where it's writing the
+test first, V test run, etc. We can see
+it all happening. It's now moved on a
+little bit further and we can sit and
+watch this if we want to or, you know,
+we can go and have a cup of tea, we can
+relax and uh this will just do its work
+without us.
+So while this is running, why don't we
+go and have a look at the main.mts file
+here? We can see the planner that we saw
+earlier is just down here where we have
+a sandcastle.run command that takes in a
+name of planner. It takes in an agent
+here so we can just change this if we
+want to. If we want to do planning with
+Codex, let's say, instead of Claude
+code, we totally can. And it's also
+using this prompt file here. So plan
+prompt in here. This is scaffolded by
+the template and you can totally edit
+this as much as you want to to run
+anything inside a sandbox. This one is
+taking all of the open issues from the
+repo that have the label sandcastle.
+It's grabbing all of the labels, all the
+comments, grabbing all of the comments
+body as well. And then it's working out
+which ones can be done right now. So
+it's only looking for unblocked issues
+here. And finally we tell it to output
+its plan in a JSON object wrapped in
+plan tags. If we go back to main.mts, we
+can see that this then gets picked up
+here. We then grab the JSON out of the
+plan here and figure out the issues. And
+then for each of the issues we run a a
+separate sandbox here. We run an
+implementer. And this one has an
+implement prompt that's just inside
+here. So implement prompt. This one
+takes in some prompt arguments here. So
+it takes in an issue title. It takes in
+the task ID, which is the issue ID. Then
+it says you're going to be working on a
+specific branch. Again, all of this is
+just a setup that I cooked up, really.
+This is not Sandcastle giving you any
+kind of prescription on how you want to
+run it. This is just a really cool
+workflow that I tend to use in my repos,
+so I figured it belonged in a template.
+If we zoom back to main.mts, we can see
+that the result here is captured in a
+variable, and if there are more than one
+commits here, we then run a reviewer.
+This pattern has been incredibly
+powerful because the implementer can
+make mistakes, but the reviewer
+generally picks it up. And of course, if
+you want to do an adversarial review
+where you have one agent run another or
+review another agent's code, then you
+can just do suncastle.codex. If you want
+to have multiple different agents spawn
+at the same time, come up with an
+implementation, and then some other
+reviewer takes all of those branches,
+chooses the best one, or makes a like a
+mix of them, you can. That's the power
+of having a totally agnostic setup to
+what agent you're running. That's the
+power of using your owning your own
+process. Anyway, let's take a look at
+the review prompt here. It's worth
+noting this little syntax here because
+this is really nice. This is something I
+copied from Claude Skills, where if you
+specify an exclamation mark before a
+bunch of backticks here, it will run
+this when it's resolving the prompt. And
+so it will actually execute git diff
+source branch branch here. This review
+prompt just uses a very basic process,
+understands the change, analyze it for
+improvements, check correctness,
+maintain balance, and crucially it's a
+great step for like adding your own
+project standards. So for instance, I've
+added this coding standards in here that
+you can fill in with any project
+standards that you want to be added.
+Let's look back at main.mts, can see
+what happens after all of these branches
+get created. We can see that they then
+get passed into a merger agent down the
+bottom. And this one takes all of the
+branches, takes all of the resulting
+issues, so it understands the changes
+that were made, and then merges them
+back to the main branch. The reason we
+use an agent for this is that there
+might be merge conflicts between them.
+And I usually like to have a really
+powerful agent handling those merge
+conflicts for me because they can
+sometimes be pretty gnarly. And so at
+the end of this, we have had multiple
+agents running at the same time, all
+committing to their branches, and then
+we get a like a senior merger developer
+to pull them back into main. Just this
+setup has massively increased my
+velocity, and it works super duper well.
+And again, Sandcastle is not opinionated
+here. If you wanted to make these into
+PR branches, you totally could. Okay,
+let's go and check in with our running
+process, and let's see what happened.
+All right, we can see that we had an
+implementer kick off here, then a
+reviewer. Let's check the logs for the
+reviewer. We can see that it found that
+the code was already clean and
+well-structured. Minimal scaffold naming
+is clear. Then, let's see what happened
+in the merge. So, we can just pull up
+the merger here, and the merger ran the
+type checks, it merged in the branch,
+and it also closed the issue with a
+comment. Beautiful. We can see too that
+if we go and have a look at the rest of
+our code base here, whoa, we now have a
+bit more code going on. We have a
+tsconfig.json, we have a
+vitest.config.ts,
+and we have a few files knocking about
+inside the CLI here. So, you can start
+to see how Sandcastle is working here.
+You can build these relatively
+complicated flows using
+really nice ergonomic markdown prompts.
+You can get it to run on different
+branches, and just merge that back into
+main, or you can get it to do really
+nice PR flows as well. You know, it's
+just code. It is a programmatic way to
+run Claude code, to run Codex, and to
+build these workflows that turn into
+these mini software factories. I've been
+incredibly happy with it, and I'm really
+excited to see what you build with it,
+too. If you're thinking about these hard
+problems, too, then you should check out
+my newsletter for AI skills for real
+engineers. These follow the skills repo
+that went absolutely viral a few days
+ago, and I also post tips and tricks
+there for getting the most out of agents
+using good old software fundamentals.
+So, thanks for watching, folks. I'm
+really excited about this tool. I think
+it's going to be a really nice
+contribution to the ecosystem, and I've
+been loving using it. So, nice work, and
+I'll see you in the next one.

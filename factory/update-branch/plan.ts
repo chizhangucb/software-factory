@@ -14,6 +14,13 @@
 
 export const BLOCKED_LABEL = "agent:blocked";
 export const VERDICT_CONTEXT = "factory/verdict";
+/**
+ * Posted on a head the moment the factory's update-branch call is accepted.
+ * GitHub commits as web-flow for a conflict a person resolves in the web
+ * editor too, so a merge only counts as an update when its first parent
+ * carries this marker.
+ */
+export const UPDATE_MARKER_CONTEXT = "factory/update-branch";
 
 /** The login GitHub commits under when it makes a merge commit itself (update-branch, the merge button). */
 export const GITHUB_COMMITTER = "web-flow";
@@ -33,7 +40,8 @@ export type CommitStatus = {
 
 /** The factory/verdict that governs a head, and the commit it sits on (see findVerdict). */
 export type Verdict = {
-  state: CommitStatus["state"] | "none";
+  /** `exhausted`: the walk hit its hop limit before finding one. */
+  state: CommitStatus["state"] | "none" | "exhausted";
   sha: string;
 };
 
@@ -60,22 +68,29 @@ export type Plan = {
 };
 
 /**
- * An update-branch merge commit: two parents, committed by GitHub itself.
- * Its first parent is the head the reviewer judged; its second is main. A
+ * A merge commit GitHub made itself: two parents, committed by web-flow. The
+ * shape of an update-branch merge, and also of a conflict resolved in the
+ * web editor; `requestedByFactory` on the first parent tells them apart. A
  * merge a person or an agent pushed does not qualify, whatever its shape.
  */
 export const isUpdateMerge = (head: HeadCommit): boolean =>
   head.parents.length === 2 && head.committerLogin === GITHUB_COMMITTER;
 
-const verdictState = (statuses: readonly CommitStatus[]): Verdict["state"] =>
+/** Whether the factory asked GitHub to update the branch from this head. */
+export const requestedByFactory = (statuses: readonly CommitStatus[]): boolean =>
+  statuses.some((s) => s.context === UPDATE_MARKER_CONTEXT && s.state === "success");
+
+const verdictState = (statuses: readonly CommitStatus[]): CommitStatus["state"] | "none" =>
   statuses.find((s) => s.context === VERDICT_CONTEXT)?.state ?? "none";
 
 /**
  * The verdict that governs a head: the one on the head itself, else the one
  * on the head the reviewer judged, reached by walking first parents through
- * update merges only. Each hop is GitHub merging main into the branch, which
- * leaves the PR's diff as it was; the walk stops at the first commit a
- * person or an agent made. Lookups are injected so the rule is pure.
+ * update merges only. Each hop is GitHub merging main into the branch at the
+ * factory's request, which leaves the PR's diff as it was; the walk stops
+ * at the first commit a person or an agent made, and at a GitHub merge the
+ * factory did not ask for (a conflict resolved in the web editor changes
+ * the diff). Lookups are injected so the rule is pure.
  */
 export const findVerdict = (
   head: HeadCommit,
@@ -83,14 +98,19 @@ export const findVerdict = (
   commitOf: (sha: string) => HeadCommit,
   maxHops = 10,
 ): Verdict => {
+  const headState = verdictState(statusesOf(head.sha));
+  if (headState !== "none") return { state: headState, sha: head.sha };
   let commit = head;
-  for (let hop = 0; hop <= maxHops; hop++) {
-    const state = verdictState(statusesOf(commit.sha));
-    if (state !== "none") return { state, sha: commit.sha };
-    if (!isUpdateMerge(commit) || hop === maxHops) break;
-    commit = commitOf(commit.parents[0]!);
+  for (let hop = 1; ; hop++) {
+    if (!isUpdateMerge(commit)) return { state: "none", sha: head.sha };
+    if (hop > maxHops) return { state: "exhausted", sha: head.sha };
+    const parentSha = commit.parents[0]!;
+    const parentStatuses = statusesOf(parentSha);
+    if (!requestedByFactory(parentStatuses)) return { state: "none", sha: head.sha };
+    const state = verdictState(parentStatuses);
+    if (state !== "none") return { state, sha: parentSha };
+    commit = commitOf(parentSha);
   }
-  return { state: "none", sha: head.sha };
 };
 
 export const planUpdate = (pr: OpenPr): Plan => {
@@ -109,6 +129,10 @@ export const planUpdate = (pr: OpenPr): Plan => {
   // A failed verdict cannot merge whatever main does; the re-review's dispatch brings it back.
   if (verdict.state === "failure" || verdict.state === "error") {
     return plan("skip", `verdict ${verdict.state} on ${verdict.sha.slice(0, 7)}, waiting for a re-review`);
+  }
+  // Another update would only deepen the chain; a re-review puts a verdict back on the head.
+  if (verdict.state === "exhausted") {
+    return plan("skip", "no verdict within the update-merge walk limit; re-add agent:review to judge this head");
   }
   // A passing verdict that sits below the head (a poll that timed out, a race with the
   // reviewer): carry before anything else, so a further update finds it on the parent.

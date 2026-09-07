@@ -5,8 +5,10 @@
  * GitHub's update-branch call with FACTORY_PAT, so the target's CI and the
  * gate re-run on the new head and auto-merge lands it on the latest main.
  * A passing factory/verdict is carried onto the merge commit GitHub made
- * (see plan.ts). A conflict the API cannot resolve is commented and labeled
- * agent:blocked; escalation proper is #16. No agent runs here.
+ * (see plan.ts); the old head gets a factory/update-branch status the moment
+ * the call is accepted, so a later run can tell that merge from one a person
+ * made in the web editor. A conflict the API cannot resolve is commented and
+ * labeled agent:blocked; escalation proper is #16. No agent runs here.
  *
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT, for the update call,
  * comments, and labels), STATUS_TOKEN (GITHUB_TOKEN, for reading and
@@ -27,6 +29,7 @@ import {
   type HeadCommit,
   type OpenPr,
   type Plan,
+  UPDATE_MARKER_CONTEXT,
   VERDICT_CONTEXT,
   carriedVerdict,
   findVerdict,
@@ -154,13 +157,35 @@ const escalate = (number: number): void => {
   gh(["pr", "edit", String(number), "--repo", repo, "--add-label", BLOCKED_LABEL]);
 };
 
+/** Mark the head the factory asked GitHub to update from; findVerdict trusts only merges made on such a head. */
+const markRequested = (number: number, headSha: string): void => {
+  postStatus(headSha, {
+    context: UPDATE_MARKER_CONTEXT,
+    state: "success",
+    description: `update-branch requested for #${number} by the factory`,
+    target_url: runUrl || null,
+  });
+};
+
 type Outcome = Plan & { oldHead?: string; newHead?: string; verdictCarried?: boolean; note?: string; error?: string };
 
 const raws = openPrs();
-const prs = raws.map(toOpenPr);
-const plans = planUpdates(prs);
 const outcomes: Outcome[] = [];
 let failed = 0;
+
+// Each PR's lookups (compare, commit, statuses) fail on their own; one unreadable PR must not stall the rest.
+const prs: OpenPr[] = [];
+for (const raw of raws) {
+  try {
+    prs.push(toOpenPr(raw));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    outcomes.push({ number: raw.number, action: "skip", carry: false, reason: "could not read the PR", oldHead: raw.headRefOid, error: message });
+    console.error(`#${raw.number} (${raw.headRefName} @ ${raw.headRefOid.slice(0, 7)}): could not read the PR: ${message}`);
+    failed++;
+  }
+}
+const plans = planUpdates(prs);
 
 for (const plan of plans) {
   const pr = prs.find((p) => p.number === plan.number)!;
@@ -198,7 +223,8 @@ for (const plan of plans) {
       console.log(`#${plan.number}: ${outcome.reason}.`);
       continue;
     }
-    console.log(`update-branch accepted for #${plan.number}; waiting for the new head.`);
+    markRequested(plan.number, pr.head.sha);
+    console.log(`update-branch accepted for #${plan.number}, ${UPDATE_MARKER_CONTEXT} posted on ${pr.head.sha.slice(0, 7)}; waiting for the new head.`);
     const newHead = await waitForNewHead(plan.number, pr.head.sha);
     if (!newHead) {
       outcome.note = "head did not move within two minutes; the next run carries the verdict";

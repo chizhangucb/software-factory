@@ -37,7 +37,7 @@ Run the repo's typecheck and its full test suite before committing, using the re
 
 If you change code, commit with a conventional commit message.
 
-Do not push.
+Do not push. You have no GitHub credentials during this run: `git fetch`, `git pull`, `git push`, and every `gh` call fail, so work from the checkout and the context you were given.
 Do not edit labels.
 Do not resolve review threads.
 Do not create GitHub comments yourself.

@@ -51,6 +51,7 @@ The target's own test command, run by the workflow on this exact head before you
 
 Do not edit any file.
 Do not `git add`, `git commit`, `git stash`, `git checkout`, or `git push`.
+You have no GitHub credentials during this run: `git fetch` and every `gh` call fail, so judge from the checkout and the context you were given.
 Do not install packages or write to the repo.
 Do not edit labels, resolve threads, or create GitHub comments yourself; the workflow posts your output.
 

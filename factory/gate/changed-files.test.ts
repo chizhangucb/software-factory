@@ -8,14 +8,14 @@ import {
   parseNameStatus,
 } from "./changed-files";
 
-test("test files are found by directory or by name, code extensions only", () => {
+test("test files are found by name (or under __tests__), code extensions only", () => {
   for (const p of [
     "test/slugify.test.js",
-    "tests/unit/x.js",
+    "tests/unit/x.spec.js",
     "src/__tests__/y.ts",
     "src/thing.test.ts",
     "lib/thing.spec.mjs",
-    "pkg/a/b/test/deep.py",
+    "pkg/a/b/test/test_deep.py",
     "pkg/x_test.go",
     "app/test_models.py",
   ]) {
@@ -31,6 +31,12 @@ test("test files are found by directory or by name, code extensions only", () =>
   ]) {
     assert.equal(isTestFile(p), false, p);
   }
+});
+
+test("a helper under test/ is a source change, not a test to run", () => {
+  assert.equal(isTestFile("test/helpers.js"), false);
+  assert.equal(isTestFile("tests/unit/setup.ts"), false);
+  assert.equal(classifyFile("test/helpers.js"), "source");
 });
 
 test("doc files are markdown, text, license files, and anything under docs/", () => {

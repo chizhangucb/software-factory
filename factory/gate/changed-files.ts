@@ -14,7 +14,8 @@ export interface ChangedFile {
   readonly kind: FileKind;
 }
 
-const TEST_DIRS = new Set(["test", "tests", "__tests__"]);
+/** Jest runs every file under __tests__; test/ and tests/ also hold helpers and fixtures, so a file there counts by name only. */
+const TEST_ONLY_DIRS = new Set(["__tests__"]);
 const CODE_EXTENSIONS = new Set([
   "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx",
   "py", "go", "rb", "rs", "java", "kt", "swift", "cs", "php", "ex", "exs",
@@ -28,11 +29,17 @@ const extensionOf = (p: string): string => {
   return dot <= 0 ? "" : base.slice(dot + 1).toLowerCase();
 };
 
+/**
+ * A file the gate runs as a test: `*.test.*`, `*.spec.*`, Go and Python
+ * test names, or anything under `__tests__`. A helper or fixture under
+ * `test/` is a source change: running it as a test proves nothing, and a
+ * PR that only touches it still needs a real test.
+ */
 export const isTestFile = (p: string): boolean => {
   if (!CODE_EXTENSIONS.has(extensionOf(p))) return false;
   const segments = p.split("/");
   const base = segments[segments.length - 1];
-  if (segments.slice(0, -1).some((s) => TEST_DIRS.has(s))) return true;
+  if (segments.slice(0, -1).some((s) => TEST_ONLY_DIRS.has(s))) return true;
   return /\.(test|spec)\.[^.]+$/.test(base) || /_test\.go$/.test(base) || /^test_.*\.py$|_test\.py$/.test(base);
 };
 

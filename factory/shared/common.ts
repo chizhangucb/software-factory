@@ -40,6 +40,7 @@ export const gh = (args: string[]): string =>
   execFileSync("gh", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
   });
 
 export const writeJson = (filename: string, value: unknown): void => {

@@ -48,7 +48,7 @@ const dryRun = process.env.DRY_RUN === "1";
 const runUrl = process.env.RUN_URL ?? "";
 
 const gh = (args: string[], env: NodeJS.ProcessEnv = process.env): string =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env });
+  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env, maxBuffer: 64 * 1024 * 1024 });
 
 const statusEnv = { ...process.env, GH_TOKEN: process.env.STATUS_TOKEN || process.env.GH_TOKEN };
 

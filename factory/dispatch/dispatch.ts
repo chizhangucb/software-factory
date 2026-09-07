@@ -38,7 +38,7 @@ if (!repo) {
 const dryRun = process.env.DRY_RUN === "1";
 
 const gh = (args: string[]): string =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 });
 
 const openIssues = (): unknown[] =>
   JSON.parse(

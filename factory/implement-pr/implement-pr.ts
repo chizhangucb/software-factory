@@ -93,6 +93,16 @@ try {
   );
   const hasCommits = result.commits.length > 0;
 
+  // A conflict the agent left in place must fail the run, or the hand-off would loop:
+  // review passes the unchanged head, update-branch conflicts again, hands off again.
+  if (conflicts.length > 0) {
+    const remaining = detectConflicts();
+    if (remaining.length > 0) {
+      fail(`Branch still conflicts with ${BASE_BRANCH} after the run (${remaining.join(", ")}); the merge was not resolved.`);
+    }
+    console.log(`Conflict with ${BASE_BRANCH} resolved on the branch.`);
+  }
+
   if (
     !hasCommits &&
     threadReplies.length === 0 &&

@@ -191,29 +191,28 @@ test("the forced event has the exact shape isRateLimited detects", () => {
 });
 
 test("parseForcedAccounts reads a comma-separated list and is off by default", () => {
-  assert.deepEqual([...parseForcedAccounts(undefined)], []);
-  assert.deepEqual([...parseForcedAccounts("")], []);
-  assert.deepEqual([...parseForcedAccounts("1")], [1]);
-  assert.deepEqual([...parseForcedAccounts(" 2, 3 ")], [2, 3]);
-  assert.deepEqual([...parseForcedAccounts("x")], []);
+  assert.deepEqual([...parseForcedAccounts(undefined).forced], []);
+  assert.deepEqual([...parseForcedAccounts("").forced], []);
+  assert.deepEqual([...parseForcedAccounts("1").forced], [1]);
+  assert.deepEqual([...parseForcedAccounts(" 2, 3 ").forced], [2, 3]);
+  assert.deepEqual([...parseForcedAccounts("x").forced], []);
 });
 
 test("parseForcedAccounts scopes an <index>@<run> entry to that run only", () => {
-  assert.deepEqual([...parseForcedAccounts("1@implement-65", "implement-65")], [1]);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65", "review-72")], []);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65", "implement-650")], []);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65")], [], "no run name, scoped entry is off");
-  assert.deepEqual([...parseForcedAccounts(" 1 @ implement-65 , 2", "implement-65")], [1, 2]);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65,2", "audit-73")], [2], "unscoped entries still apply everywhere");
-  assert.deepEqual([...parseForcedAccounts("@implement-65", "implement-65")], []);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65", "implement-65").forced], [1]);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65", "review-72").forced], []);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65", "implement-650").forced], []);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65").forced], [], "no run name, scoped entry is off");
+  assert.deepEqual([...parseForcedAccounts(" 1 @ implement-65 , 2", "implement-65").forced], [1, 2]);
+  assert.deepEqual([...parseForcedAccounts("1@implement-65,2", "audit-73").forced], [2], "unscoped entries still apply everywhere");
+  assert.deepEqual([...parseForcedAccounts("@implement-65", "implement-65").forced], []);
 });
 
 test("parseForcedAccounts reports malformed entries instead of dropping them silently", () => {
-  const bad: string[] = [];
-  const report = (entry: string) => bad.push(entry);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65@review-70", "implement-65", report)], []);
-  assert.deepEqual([...parseForcedAccounts("one@implement-65, 2, x, 1@", "implement-65", report)], [2]);
-  assert.deepEqual(bad, ["1@implement-65@review-70", "one@implement-65", "x", "1@"]);
+  assert.deepEqual(parseForcedAccounts("1@implement-65@review-70", "implement-65").invalid, ["1@implement-65@review-70"]);
+  const mixed = parseForcedAccounts("one@implement-65, 2, x, 1@", "implement-65");
+  assert.deepEqual([...mixed.forced], [2]);
+  assert.deepEqual(mixed.invalid, ["one@implement-65", "x", "1@"]);
 });
 
 test("parseAccounts validates the workflow's file and sorts by index", () => {

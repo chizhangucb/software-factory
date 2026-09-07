@@ -24,6 +24,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import {
+  HANDED_OFF_LABELS,
   IMPLEMENT_LABEL,
   type CommitStatus,
   type HeadCommit,
@@ -206,14 +207,21 @@ for (const plan of plans) {
       );
     }
     if (plan.action === "skip") continue;
-    if (plan.action === "resolve") {
+    if (plan.action === "hand-off") {
       handOff(plan.number);
       console.log(`Handed off #${plan.number}: commented and labeled ${IMPLEMENT_LABEL}.`);
       continue;
     }
     const result = requestUpdate(plan.number, pr.head.sha);
     if (result === "conflict") {
-      outcome.action = "resolve";
+      const held = pr.labels.find((l) => HANDED_OFF_LABELS.includes(l));
+      if (held) {
+        outcome.action = "skip";
+        outcome.reason = `update-branch refused: conflicts with main, already ${held}`;
+        console.log(`update-branch refused #${plan.number} (conflict); already ${held}, left alone.`);
+        continue;
+      }
+      outcome.action = "hand-off";
       outcome.reason = "update-branch refused: conflicts with main; handing the PR to the implementer";
       handOff(plan.number);
       console.log(`update-branch refused #${plan.number} (conflict); commented and labeled ${IMPLEMENT_LABEL}.`);
@@ -263,7 +271,7 @@ if (outputDir) {
 }
 
 const updated = outcomes.filter((o) => o.newHead).length;
-const handedOff = outcomes.filter((o) => o.action === "resolve").length;
+const handedOff = outcomes.filter((o) => o.action === "hand-off").length;
 const carried = outcomes.filter((o) => o.verdictCarried).length;
 console.log(
   `${prs.length} open PR(s) on ${base}, ${updated} updated, ${carried} verdict(s) carried, ${handedOff} handed to the implementer, ${failed} failed${dryRun ? " (dry run)" : ""}.`,

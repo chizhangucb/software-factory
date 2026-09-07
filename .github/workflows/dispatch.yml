@@ -17,7 +17,7 @@ on:
         default: main
     secrets:
       FACTORY_PAT:
-        description: Personal access token that adds the label. GITHUB_TOKEN must not be used here, a label it adds fires no `issues: labeled` event and the implementer never starts.
+        description: Personal access token that adds the label. GITHUB_TOKEN must not be used here; a label it adds fires no labeled event, so the implementer never starts.
         required: true
 
 jobs:

@@ -5,7 +5,7 @@
  * - retry: post the failing output as a marker comment on the ticket, add
  *   `factory:retry-<n>`, and label `agent:implement` (on the PR when one is
  *   open, so implement-pr runs on the branch; on the ticket otherwise).
- * - escalate: agent:* labels off, needs-human on, the draft PR closed, the
+ * - escalate: agent:* labels off, needs-human on, the PR closed, the
  *   branch kept, a comment on the ticket linking the run and its log.
  *
  * Runs with FACTORY_PAT so the labels it adds fire events.

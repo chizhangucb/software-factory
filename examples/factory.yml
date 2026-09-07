@@ -1,4 +1,6 @@
 # Copy to .github/workflows/factory.yml in the target repo. This is the only factory file a target carries.
+# factory_ref must equal the ref in each `uses:` (the scripts are checked out at factory_ref; GitHub does
+# not tell a cross-repo reusable workflow which ref it came from). Change both together.
 name: factory
 
 on:
@@ -34,35 +36,47 @@ jobs:
       (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.label.name == 'ready-for-agent'))
     uses: chizhangucb/software-factory/.github/workflows/dispatch.yml@main
     secrets: inherit
+    with:
+      factory_ref: main
   implement:
     if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/implement.yml@main
     secrets: inherit
-    # Optional, same on every job: raise the per-account concurrency cap (default 3).
-    # with:
-    #   per_account_slots: 5
+    with:
+      factory_ref: main
+      # Optional, same on every job: raise the per-account concurrency cap (default 3).
+      # per_account_slots: 5
   review:
     if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:review'
     uses: chizhangucb/software-factory/.github/workflows/review.yml@main
     secrets: inherit
+    with:
+      factory_ref: main
   implement-pr:
     if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/implement-pr.yml@main
     secrets: inherit
+    with:
+      factory_ref: main
   gate:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     uses: chizhangucb/software-factory/.github/workflows/gate.yml@main
     secrets: inherit
+    with:
+      factory_ref: main
   audit:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged
     uses: chizhangucb/software-factory/.github/workflows/audit.yml@main
     secrets: inherit
-    # Optional: the strongest model the subscription serves (see README, Audit).
-    # with:
-    #   audit_model: claude-fable-5-1
+    with:
+      factory_ref: main
+      # Optional: the strongest model the subscription serves (see README, Audit).
+      # audit_model: claude-fable-5-1
   update-branch:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'factory-update-branch')
     uses: chizhangucb/software-factory/.github/workflows/update-branch.yml@main
     secrets: inherit
+    with:
+      factory_ref: main

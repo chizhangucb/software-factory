@@ -46,6 +46,7 @@ The target's own test command, run by the workflow on the merge commit before yo
 
 Do not edit any file.
 Do not `git add`, `git commit`, `git stash`, `git checkout`, `git reset`, or `git push`.
+You have no GitHub credentials during this run: `git fetch` and every `gh` call fail, so judge from the checkout and the context you were given.
 Do not install packages or write to the repo.
 Do not create GitHub comments, issues, or PRs yourself; the workflow posts your output.
 

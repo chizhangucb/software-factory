@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Onboard a target repo: the factory's labels, auto-merge on the repo, and a
+# Onboard a target repo: the triage and factory labels, auto-merge on the repo, and a
 # ruleset on the default branch that requires a PR plus the factory's checks
 # (up to date with main) before anything merges. Secrets and the caller
 # workflow are the other two steps; see README.md. Idempotent.
@@ -10,6 +10,9 @@ set -euo pipefail
 repo="${1:?usage: onboard.sh owner/repo [own-check ...]}"
 shift
 label() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
+label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
+label "ready-for-human"   "c2e0c6" "Requires human implementation"
+label "needs-triage"      "ededed" "Maintainer needs to evaluate this issue"
 label "agent:implement"   "1d76db" "Factory: run the implementer on this ticket"
 label "agent:in-progress" "fbca04" "Factory: a run is active"
 label "agent:review"      "5319e7" "Factory: run the reviewer on this PR"

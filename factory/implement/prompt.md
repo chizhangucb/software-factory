@@ -61,7 +61,7 @@ Commit the fixes from each review as their own commits, after the implementation
 
 # NEVER
 
-- Never push. Never open, edit, or comment on a PR. Never close, label, or comment on an issue. The workflow does those with its own credentials; you have none.
+- Never push. Never open, edit, or comment on a PR. Never close, label, or comment on an issue. The workflow does those with its own credentials; you have none: during this run `git fetch`, `git pull`, `git push`, and every `gh` call fail for want of a token, so work from the checkout and the ticket file you were given.
 - Never edit files outside this repo. Do not touch its CI workflows unless the ticket asks for that.
 - Never print or copy a secret or token.
 

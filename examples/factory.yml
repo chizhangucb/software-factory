@@ -9,7 +9,8 @@ on:
   pull_request:
   schedule:
     # Dispatcher fallback for missed events. Each run bills a minute on a private repo.
-    - cron: "*/10 * * * *"
+    # Off the :00 slots; GitHub delays crons on busy minutes.
+    - cron: "4,14,24,34,44,54 * * * *"
   workflow_dispatch:
 
 permissions:

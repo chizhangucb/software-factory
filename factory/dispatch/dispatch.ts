@@ -26,6 +26,7 @@ import {
   fromGitHub,
   issuesClosedByPrs,
   selectForDispatch,
+  whyNotDispatchableNow,
   whySkipped,
 } from "./select.ts";
 
@@ -58,8 +59,13 @@ const label = (issue: DispatchIssue): void => {
   gh(["issue", "edit", String(issue.number), "--repo", repo, "--add-label", DISPATCH_LABEL]);
 };
 
-const issues = fromGitHub(openIssues(), issuesClosedByPrs(openPrs()));
+const closedByOpenPr = issuesClosedByPrs(openPrs());
+const issues = fromGitHub(openIssues(), closedByOpenPr);
 const dispatched = selectForDispatch(issues);
+
+/** Re-read the issue itself right before labeling; the listing above may be seconds stale. */
+const recheck = (number: number): string | undefined =>
+  whyNotDispatchableNow(JSON.parse(gh(["api", `repos/${repo}/issues/${number}`])), closedByOpenPr);
 
 for (const issue of issues) {
   const reason = whySkipped(issue);
@@ -67,10 +73,17 @@ for (const issue of issues) {
 }
 
 const labeled: number[] = [];
+const skipped: { number: number; reason: string }[] = [];
 const failed: { number: number; error: string }[] = [];
 for (const issue of dispatched) {
   if (dryRun) continue;
   try {
+    const stale = recheck(issue.number);
+    if (stale) {
+      skipped.push({ number: issue.number, reason: stale });
+      console.log(`#${issue.number}: not labeled, ${stale} (re-read before labeling).`);
+      continue;
+    }
     label(issue);
     labeled.push(issue.number);
     console.log(`Labeled #${issue.number} ${DISPATCH_LABEL}.`);
@@ -86,11 +99,11 @@ if (outputDir) {
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(
     path.join(outputDir, "dispatch.json"),
-    JSON.stringify({ repo, dryRun, issues, dispatched: dispatched.map((i) => i.number), labeled, failed }, null, 2),
+    JSON.stringify({ repo, dryRun, issues, dispatched: dispatched.map((i) => i.number), labeled, skipped, failed }, null, 2),
   );
 }
 
 console.log(
-  `${issues.length} open issue(s), ${dispatched.length} to dispatch, ${labeled.length} labeled${dryRun ? " (dry run)" : ""}.`,
+  `${issues.length} open issue(s), ${dispatched.length} to dispatch, ${labeled.length} labeled, ${skipped.length} changed since the snapshot${dryRun ? " (dry run)" : ""}.`,
 );
 if (failed.length > 0) process.exit(1);

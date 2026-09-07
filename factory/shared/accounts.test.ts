@@ -166,6 +166,22 @@ test("a forced rate limit skips the agent on that account's first attempt and ro
   assert.ok(!lines.some((l) => /tok-/.test(l)), "no token in any log line");
 });
 
+test("a forced index that names no configured account is logged, not silently ignored", async () => {
+  const { createLog } = fakeLogs();
+  const lines: string[] = [];
+  const outcome = await runOnAccounts({
+    name: "t",
+    accounts,
+    forced: new Set([9]),
+    agentFor: (a) => a.token,
+    run: scripted({ "tok-1": fixture("success") }),
+    createLog,
+    log: (line) => lines.push(line),
+  });
+  assert.equal(outcome.ok, true);
+  assert.ok(lines.some((l) => /FACTORY_FORCE_RATE_LIMIT_ON/.test(l) && /9/.test(l) && /no configured account/.test(l)));
+});
+
 test("the forced event has the exact shape isRateLimited detects", () => {
   const event = forcedRateLimitEvent(accounts[0]);
   assert.equal(isRateLimited(event), true);

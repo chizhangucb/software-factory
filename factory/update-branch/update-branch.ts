@@ -8,9 +8,11 @@
  * (see plan.ts). A conflict the API cannot resolve is commented and labeled
  * agent:blocked; escalation proper is #16. No agent runs here.
  *
- * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT), optional BASE_BRANCH
- * (default main), optional OUTPUT_DIR for update-branch.json, optional
- * DRY_RUN=1 to plan without writing.
+ * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT, for the update call,
+ * comments, and labels), STATUS_TOKEN (GITHUB_TOKEN, for the carried
+ * status: a fine-grained PAT cannot write statuses; defaults to GH_TOKEN),
+ * optional BASE_BRANCH (default main), optional OUTPUT_DIR for
+ * update-branch.json, optional DRY_RUN=1 to plan without writing.
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine.
@@ -40,8 +42,10 @@ const base = process.env.BASE_BRANCH || "main";
 const dryRun = process.env.DRY_RUN === "1";
 const runUrl = process.env.RUN_URL ?? "";
 
-const gh = (args: string[]): string =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+const gh = (args: string[], env: NodeJS.ProcessEnv = process.env): string =>
+  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env });
+
+const statusEnv = { ...process.env, GH_TOKEN: process.env.STATUS_TOKEN || process.env.GH_TOKEN };
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -101,7 +105,7 @@ const postStatus = (sha: string, status: CommitStatus): void => {
     "-f", `state=${status.state}`, "-f", `context=${status.context}`,
     "-f", `description=${status.description ?? ""}`, "-f", `target_url=${status.target_url ?? runUrl}`,
     "--silent",
-  ]);
+  ], statusEnv);
 };
 
 /** Post the first parent's passing verdict on this update merge commit; true when one was posted. */

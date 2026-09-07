@@ -9,7 +9,8 @@ on:
   pull_request:
   push:
     branches: [main] # update-branch: bring stale auto-merge PRs up to date when main moves
-  status: # update-branch again when a verdict passes on a head that fell behind main
+  repository_dispatch:
+    types: [factory-update-branch] # sent by the review workflow on a passing verdict
   schedule:
     # Dispatcher fallback for missed events. Each run bills a minute on a private repo.
     # Off the :00 slots; GitHub delays crons on busy minutes.
@@ -52,6 +53,6 @@ jobs:
   update-branch:
     if: >-
       github.event_name == 'push' ||
-      (github.event_name == 'status' && github.event.context == 'factory/verdict' && github.event.state == 'success')
+      (github.event_name == 'repository_dispatch' && github.event.action == 'factory-update-branch')
     uses: chizhangucb/software-factory/.github/workflows/update-branch.yml@main
     secrets: inherit

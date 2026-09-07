@@ -1,0 +1,27 @@
+# Copy to .github/workflows/factory.yml in the target repo. This is the only factory file a target carries.
+name: factory
+
+on:
+  issues:
+    types: [labeled]
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  implement:
+    if: github.event_name == 'issues' && github.event.label.name == 'agent:implement'
+    uses: chizhangucb/software-factory/.github/workflows/implement.yml@main
+    secrets: inherit
+  review:
+    if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:review'
+    uses: chizhangucb/software-factory/.github/workflows/review.yml@main
+    secrets: inherit
+  implement-pr:
+    if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:implement'
+    uses: chizhangucb/software-factory/.github/workflows/implement-pr.yml@main
+    secrets: inherit

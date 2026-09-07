@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Vendored tarball matches the pinned package
+        run: |
+          set -euo pipefail
+          expected=$(node -p "require('./package-lock.json').packages['node_modules/@ai-hero/sandcastle'].integrity")
+          actual="sha512-$(openssl dgst -sha512 -binary vendor/ai-hero-sandcastle-0.12.0.tgz | base64 -w0)"
+          [ "$expected" = "$actual" ] || { echo "vendor tarball integrity $actual != lockfile $expected"; exit 1; }

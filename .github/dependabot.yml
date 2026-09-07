@@ -1,0 +1,15 @@
+# Watches the sandcastle pin. Dependabot opens a PR when Matt publishes a new
+# version; nothing merges on its own (ADR 0002). A bump is a deliberate
+# commit plus a proof run.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: "@ai-hero/sandcastle"
+      - dependency-name: "@anthropic-ai/claude-code"
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies

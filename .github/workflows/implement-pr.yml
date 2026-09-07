@@ -1,0 +1,228 @@
+# Reusable: address review feedback on a PR labeled agent:implement.
+# Called from a target repo's thin factory workflow on `pull_request_target: labeled`.
+# Vendored from sandcastle's agent-implement-pr.yml (v0.12.0), edited for the factory.
+name: factory implement-pr
+
+on:
+  workflow_call:
+    inputs:
+      implementer_model:
+        description: Default model for the implementer. A model:<name> label on the PR overrides it for that run.
+        type: string
+        default: claude-opus-5
+      factory_repo:
+        description: Repo holding the factory scripts (this repo).
+        type: string
+        default: chizhangucb/software-factory
+    secrets:
+      FACTORY_PAT:
+        required: true
+
+jobs:
+  implement-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: factory-mutate-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      BRANCH: ${{ github.event.pull_request.head.ref }}
+      BRANCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR_OPEN: ${{ github.event.pull_request.state == 'open' }}
+
+    steps:
+      - name: Refuse closed PR
+        if: env.PR_OPEN != 'true'
+        run: |
+          gh pr edit "$PR_NUMBER" --remove-label "agent:implement" || true
+          gh pr comment "$PR_NUMBER" --body "Refused to run: PR #${PR_NUMBER} is not open."
+
+      - name: Transition labels
+        if: env.PR_OPEN == 'true'
+        run: |
+          gh pr edit "$PR_NUMBER" --remove-label "agent:implement" || true
+          gh pr edit "$PR_NUMBER" --remove-label "agent:blocked" || true
+          gh pr edit "$PR_NUMBER" --add-label "agent:in-progress"
+
+      - name: Pick account
+        if: env.PR_OPEN == 'true'
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: |
+          set -euo pipefail
+          names=$(jq -r 'keys[] | select(test("^CLAUDE_CODE_OAUTH_TOKEN_[0-9]+$"))' <<<"$SECRETS_JSON" | sort -t_ -k5 -n)
+          first=$(printf '%s\n' "$names" | head -n1)
+          if [ -z "$first" ]; then
+            echo "No CLAUDE_CODE_OAUTH_TOKEN_<n> secret is available. Pass secrets: inherit from the caller." >&2
+            exit 1
+          fi
+          n="${first##*_}"
+          token=$(jq -r --arg k "$first" '.[$k]' <<<"$SECRETS_JSON")
+          echo "::add-mask::$token"
+          echo "CLAUDE_CODE_OAUTH_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "CLAUDE_ACCOUNT=$n" >> "$GITHUB_ENV"
+          label=$(jq -r --arg k "CLAUDE_ACCOUNT_$n" '.[$k] // empty' <<<"$VARS_JSON")
+          echo "Account $n${label:+ ($label)} selected from $(printf '%s\n' "$names" | wc -l | tr -d ' ') configured."
+
+      - name: Checkout PR branch
+        if: env.PR_OPEN == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: target
+          token: ${{ secrets.FACTORY_PAT }}
+
+      - name: Checkout factory
+        if: env.PR_OPEN == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ github.job_workflow_sha }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+
+      - name: Prepare branch
+        if: env.PR_OPEN == 'true'
+        working-directory: target
+        run: |
+          git fetch origin main:main || git fetch origin main
+          git checkout "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH"
+          git config user.name "factory-agent[bot]"
+          git config user.email "factory-agent[bot]@users.noreply.github.com"
+
+      - name: Setup Node.js
+        if: env.PR_OPEN == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install factory (pinned sandcastle, tsx, Claude Code)
+        if: env.PR_OPEN == 'true'
+        working-directory: factory
+        run: |
+          npm ci
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "Claude Code $(node_modules/.bin/claude --version)"
+
+      - name: Run implement-PR agent
+        if: env.PR_OPEN == 'true'
+        working-directory: target
+        env:
+          IMPLEMENTER_MODEL: ${{ inputs.implementer_model }}
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-config-${{ env.CLAUDE_ACCOUNT }}
+        run: tsx ../factory/factory/implement-pr/implement-pr.ts
+
+      - name: Upload run log
+        if: always() && env.PR_OPEN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-implement-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/factory-out/logs
+          if-no-files-found: ignore
+
+      - name: Push branch
+        if: env.PR_OPEN == 'true' && success()
+        working-directory: target
+        run: |
+          if [ "$(cat "${RUNNER_TEMP}/factory-out/has_commits.txt")" != "true" ]; then
+            echo "No commits to push."
+            exit 0
+          fi
+          set +e
+          git push --force-with-lease="refs/heads/$BRANCH:$BRANCH_HEAD_SHA" origin "$BRANCH" 2> push_err.txt
+          status=$?
+          set -e
+          if [ $status -ne 0 ]; then
+            if grep -qiE "non-fast-forward|rejected|fetch first|stale info" push_err.txt; then
+              echo "Branch advanced during implement-PR run." > "${RUNNER_TEMP}/factory-out/failure_reason.txt"
+              cat push_err.txt
+              exit 1
+            fi
+            cat push_err.txt
+            exit $status
+          fi
+
+      - name: Post thread replies
+        if: env.PR_OPEN == 'true' && success()
+        env:
+          REPLIES: ${{ runner.temp }}/factory-out/implement_thread_replies.json
+        run: |
+          count=$(jq 'length' "$REPLIES")
+          if [ "$count" -eq 0 ]; then
+            exit 0
+          fi
+          for i in $(seq 0 $((count - 1))); do
+            commentId=$(jq -r ".[$i].commentId" "$REPLIES")
+            body=$(jq -r ".[$i].body" "$REPLIES")
+            rest_id=$(gh api graphql -f query="query(\$id:ID!){ node(id:\$id){ ... on PullRequestReviewComment { databaseId } } }" -F id="$commentId" --jq '.data.node.databaseId')
+            if [ -z "$rest_id" ] || [ "$rest_id" = "null" ]; then
+              echo "Could not resolve REST id for $commentId; skipping" >&2
+              continue
+            fi
+            gh api --method POST "repos/{owner}/{repo}/pulls/${PR_NUMBER}/comments/${rest_id}/replies" -f body="$body"
+          done
+
+      - name: Post inline comments
+        if: env.PR_OPEN == 'true' && success()
+        working-directory: target
+        env:
+          COMMENTS: ${{ runner.temp }}/factory-out/implement_new_inline_comments.json
+        run: |
+          count=$(jq 'length' "$COMMENTS")
+          if [ "$count" -eq 0 ]; then
+            exit 0
+          fi
+          head_sha=$(git rev-parse HEAD)
+          for i in $(seq 0 $((count - 1))); do
+            path=$(jq -r ".[$i].path" "$COMMENTS")
+            line=$(jq -r ".[$i].line" "$COMMENTS")
+            body=$(jq -r ".[$i].body" "$COMMENTS")
+            gh api --method POST "repos/{owner}/{repo}/pulls/${PR_NUMBER}/comments" \
+              -f commit_id="$head_sha" \
+              -f path="$path" \
+              -F line="$line" \
+              -f side="RIGHT" \
+              -f body="$body"
+          done
+
+      - name: Post top-level comments
+        if: env.PR_OPEN == 'true' && success()
+        env:
+          COMMENTS: ${{ runner.temp }}/factory-out/implement_top_level_comments.json
+        run: |
+          count=$(jq 'length' "$COMMENTS")
+          if [ "$count" -eq 0 ]; then
+            exit 0
+          fi
+          for i in $(seq 0 $((count - 1))); do
+            body=$(jq -r ".[$i].body" "$COMMENTS")
+            gh pr comment "$PR_NUMBER" --body "$body"
+          done
+
+      - name: Mark blocked on failure
+        if: env.PR_OPEN == 'true' && failure()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          reason="(no reason file written; check workflow logs)"
+          if [ -f "${RUNNER_TEMP}/factory-out/failure_reason.txt" ]; then
+            reason=$(cat "${RUNNER_TEMP}/factory-out/failure_reason.txt")
+          fi
+          body_file="${RUNNER_TEMP}/failure-comment.md"
+          printf '`agent:implement` PR run failed.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:implement` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
+          gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
+          gh pr comment "$PR_NUMBER" --body-file "$body_file"
+
+      - name: Always remove in-progress
+        if: always() && env.PR_OPEN == 'true'
+        run: gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true

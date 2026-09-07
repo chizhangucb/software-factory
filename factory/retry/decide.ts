@@ -205,7 +205,7 @@ export const renderEscalationComment = (input: EscalationInput): string => {
     `- Run log: ${input.logUrl ?? "see the run"}`,
     `- ${branchLine} ${prLine}`,
     "",
-    `To hand it back to the factory: fix the ticket, then remove \`${ESCALATION_LABEL}\` and \`${retryLabel(MAX_RETRIES)}\`. The dispatcher picks it up on the next event and the new run starts from main again; the kept branch is for reading.`,
+    `To hand it back to the factory: fix the ticket, then remove \`${ESCALATION_LABEL}\` and \`${retryLabel(MAX_RETRIES)}\`. The dispatcher picks it up on the next event and the new run starts from main again${input.branchExists ? "; the kept branch is for reading" : ""}.`,
   ];
   if (input.output.trim().length > 0) {
     lines.push(

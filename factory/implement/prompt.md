@@ -48,7 +48,7 @@ The gate around this PR checks that new tests fail on `main` and pass on the bra
 After the implementation is committed and green, run two reviews and fix what they find. Both must appear in this run.
 
 1. Invoke the skill `mattpocock-skills:code-review` with the fixed point `main` and the spec path `{{TICKET_FILE}}`, for example with args `main {{TICKET_FILE}}`. It reviews the diff on two axes, standards and spec. Fix every finding on both axes. Where a finding is wrong, say why in your final message; do not skip it silently.
-2. Invoke the bundled skill `code-review` with args `main medium --fix`. It hunts bugs and simplifications and applies the fixes to the working tree. Check what it changed and keep the tests green.
+2. Invoke the bundled skill `code-review` with args `medium --fix`, so it reviews this branch's changes since `main` and applies its findings to the working tree. It hunts bugs and simplifications. Check what it changed and keep the tests green.
 
 Commit the fixes from each review as their own commits, after the implementation commits, with messages starting `review:`. A review with nothing to fix gets no commit; say in your final message that it ran clean.
 

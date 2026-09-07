@@ -17,6 +17,7 @@ on:
         type: string
         default: npm ci
       node_version:
+        description: The Node the target's own tests and tooling run on. Match the target's own CI.
         type: string
         default: "22"
       factory_repo:

@@ -10,7 +10,8 @@
  * never start.
  *
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT), optional OUTPUT_DIR for
- * dispatch.json, optional DRY_RUN=1 to select without labeling.
+ * dispatch.json, optional DRY_RUN=1 to select without labeling, optional
+ * TRUSTED_AUTHOR_ASSOCIATIONS (default OWNER) naming whose tickets run.
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine: the
@@ -26,6 +27,7 @@ import {
   type DispatchIssue,
   fromGitHub,
   issuesClosedByPrs,
+  parseTrustedAuthors,
   selectForDispatch,
   whyNotDispatchableNow,
   whySkipped,
@@ -37,6 +39,7 @@ if (!repo) {
   process.exit(1);
 }
 const dryRun = process.env.DRY_RUN === "1";
+const trustedAuthors = parseTrustedAuthors(process.env.TRUSTED_AUTHOR_ASSOCIATIONS);
 
 const gh = (args: string[]): string =>
   execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: GH_MAX_BUFFER });
@@ -62,15 +65,20 @@ const label = (issue: DispatchIssue): void => {
 
 const closedByOpenPr = issuesClosedByPrs(openPrs());
 const issues = fromGitHub(openIssues(), closedByOpenPr);
-const dispatched = selectForDispatch(issues);
+const dispatched = selectForDispatch(issues, trustedAuthors);
 
 /** Re-read the issue itself right before labeling; the listing above may be seconds stale, and so may the PR list. */
 const closedByOpenPrNow = dispatched.length > 0 && !dryRun ? issuesClosedByPrs(openPrs()) : closedByOpenPr;
 const recheck = (number: number): string | undefined =>
-  whyNotDispatchableNow(JSON.parse(gh(["api", `repos/${repo}/issues/${number}`])), closedByOpenPrNow);
+  whyNotDispatchableNow(
+    JSON.parse(gh(["api", `repos/${repo}/issues/${number}`])),
+    closedByOpenPrNow,
+    trustedAuthors,
+  );
 
+console.log(`Trusted ticket authors: ${trustedAuthors.join(", ")}.`);
 for (const issue of issues) {
-  const reason = whySkipped(issue);
+  const reason = whySkipped(issue, trustedAuthors);
   console.log(`#${issue.number}: ${reason ?? "dispatch"}`);
 }
 
@@ -101,7 +109,7 @@ if (outputDir) {
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(
     path.join(outputDir, "dispatch.json"),
-    JSON.stringify({ repo, dryRun, issues, dispatched: dispatched.map((i) => i.number), labeled, skipped, failed }, null, 2),
+    JSON.stringify({ repo, dryRun, trustedAuthors, issues, dispatched: dispatched.map((i) => i.number), labeled, skipped, failed }, null, 2),
   );
 }
 

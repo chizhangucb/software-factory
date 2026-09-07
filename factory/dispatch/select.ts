@@ -12,6 +12,13 @@
  * --experimental-strip-types` without installing the engine.
  */
 
+import {
+  DEFAULT_TRUSTED_AUTHORS,
+  isTrustedAuthor,
+} from "../shared/trusted-authors.ts";
+
+export { DEFAULT_TRUSTED_AUTHORS, parseTrustedAuthors } from "../shared/trusted-authors.ts";
+
 export const READY_LABEL = "ready-for-agent";
 export const DISPATCH_LABEL = "agent:implement";
 
@@ -39,10 +46,15 @@ export type DispatchIssue = {
   subIssues?: number;
   /** An open PR already says it closes this issue. */
   hasOpenPr: boolean;
+  /** GitHub's `author_association` for whoever opened the issue. */
+  authorAssociation: string;
 };
 
 /** The reason an issue is not dispatched, or undefined when it is. */
-export const whySkipped = (issue: DispatchIssue): string | undefined => {
+export const whySkipped = (
+  issue: DispatchIssue,
+  trustedAuthors: readonly string[] = DEFAULT_TRUSTED_AUTHORS,
+): string | undefined => {
   const has = (label: string) => issue.labels.includes(label);
   if (issue.state === "closed") return "closed since the snapshot";
   if (!has(READY_LABEL)) return `no ${READY_LABEL}`;
@@ -50,6 +62,11 @@ export const whySkipped = (issue: DispatchIssue): string | undefined => {
   if (refused) return `refused: ${refused}`;
   const state = FACTORY_STATE_LABELS.find(has);
   if (state) return `already in the factory: ${state}`;
+  // After the label checks: a skipped ticket gets no comment, so its one log
+  // line should name the state a human can act on, not the author.
+  if (!isTrustedAuthor(issue.authorAssociation, trustedAuthors)) {
+    return `untrusted author: ${issue.authorAssociation}`;
+  }
   if (issue.assigned) return "assigned";
   if (issue.openBlockers > 0) {
     return `${issue.openBlockers} open blocker${issue.openBlockers === 1 ? "" : "s"}`;
@@ -61,7 +78,9 @@ export const whySkipped = (issue: DispatchIssue): string | undefined => {
 
 export const selectForDispatch = (
   issues: readonly DispatchIssue[],
-): DispatchIssue[] => issues.filter((issue) => whySkipped(issue) === undefined);
+  trustedAuthors: readonly string[] = DEFAULT_TRUSTED_AUTHORS,
+): DispatchIssue[] =>
+  issues.filter((issue) => whySkipped(issue, trustedAuthors) === undefined);
 
 /**
  * Issue numbers that open PRs claim to close, from their bodies. Same
@@ -101,6 +120,8 @@ export const fromGitHub = (
       openBlockers: Number(r.issue_dependencies_summary?.blocked_by ?? 0),
       subIssues: Number(r.sub_issues_summary?.total ?? 0),
       hasOpenPr: closedByOpenPr.has(Number(r.number)),
+      // Absent only on a payload GitHub no longer sends; read as an outsider.
+      authorAssociation: String(r.author_association ?? "NONE").toUpperCase(),
     });
   }
   return issues;
@@ -116,7 +137,8 @@ export const fromGitHub = (
 export const whyNotDispatchableNow = (
   raw: unknown,
   closedByOpenPr: ReadonlySet<number>,
+  trustedAuthors: readonly string[] = DEFAULT_TRUSTED_AUTHORS,
 ): string | undefined => {
   const [issue] = fromGitHub([raw], closedByOpenPr);
-  return issue ? whySkipped(issue) : "not an issue";
+  return issue ? whySkipped(issue, trustedAuthors) : "not an issue";
 };

@@ -27,6 +27,23 @@ on:
         required: true
 
 jobs:
+  refuse-fork:
+    # pull_request_target runs with secrets: the factory never runs a fork's code. Say so on the PR
+    # and drop the trigger label, instead of skipping in silence.
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      LABEL: agent:implement
+    steps:
+      - run: |
+          gh pr edit "$PR_NUMBER" --remove-label "$LABEL" || true
+          gh pr comment "$PR_NUMBER" --body "Refused to run: the factory does not run on PRs from forks (\`$LABEL\` removed). Push the branch to this repo instead."
+
   slot:
     # Per-account concurrency cap (#17): N named slots, account-slot-0 .. account-slot-(N-1), shared by
     # implement, review, and implement-pr in the target repo. A run takes slot (number mod N), so
@@ -75,6 +92,8 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       PR_OPEN: ${{ github.event.pull_request.state == 'open' }}
+      # The push step puts FACTORY_PAT in front of it; the agent never sees the token.
+      PUSH_URL: ${{ github.server_url }}/${{ github.repository }}.git
 
     steps:
       - name: Refuse closed PR
@@ -189,6 +208,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Push branch
+        # refs/heads/$BRANCH, not HEAD: the branch the run collected commits on, whatever the agent left checked out.
         if: env.PR_OPEN == 'true' && success()
         working-directory: target
         env:
@@ -198,18 +218,12 @@ jobs:
             echo "No commits to push."
             exit 0
           fi
-          set +e
-          git push --force-with-lease="refs/heads/$BRANCH:$BRANCH_HEAD_SHA" "https://x-access-token:${FACTORY_PAT}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$BRANCH" 2> push_err.txt
-          status=$?
-          set -e
-          if [ $status -ne 0 ]; then
+          if ! git push --force-with-lease="refs/heads/$BRANCH:$BRANCH_HEAD_SHA" "https://x-access-token:${FACTORY_PAT}@${PUSH_URL#*://}" "refs/heads/$BRANCH:refs/heads/$BRANCH" 2> push_err.txt; then
+            cat push_err.txt
             if grep -qiE "non-fast-forward|rejected|fetch first|stale info" push_err.txt; then
               echo "Branch advanced during implement-PR run." > "${RUNNER_TEMP}/factory-out/failure_reason.txt"
-              cat push_err.txt
-              exit 1
             fi
-            cat push_err.txt
-            exit $status
+            exit 1
           fi
 
       - name: Post thread replies

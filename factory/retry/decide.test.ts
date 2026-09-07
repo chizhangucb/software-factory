@@ -7,6 +7,7 @@ import {
   latestRetryContext,
   parseRetryComment,
   renderEscalationComment,
+  renderRequeueComment,
   renderRetryComment,
   retriesUsed,
   retryLabel,
@@ -41,6 +42,30 @@ test("decide does nothing on a ticket that is already escalated", () => {
     action: "none",
     reason: "already escalated: needs-human is on the ticket",
   });
+});
+
+test("decide requeues a run rate limited on every account without spending the retry", () => {
+  const decision = decide({ retriesUsed: 0, kind: "implement", rateLimited: true });
+  assert.equal(decision.action, "requeue");
+  // The retry already used stays used, and the rate limit still does not count as the second failure.
+  assert.equal(decide({ retriesUsed: 1, kind: "implement", rateLimited: true }).action, "requeue");
+  assert.equal(decide({ retriesUsed: 0, kind: "implement", rateLimited: true, escalated: true }).action, "none");
+});
+
+test("decide escalates at once on a failure a retry cannot fix", () => {
+  assert.deepEqual(
+    decide({ retriesUsed: 0, kind: "verdict", unretryable: "the ticket has no acceptance criteria" }),
+    { action: "escalate", reason: "the ticket has no acceptance criteria" },
+  );
+});
+
+test("the requeue comment says what moves the ticket or PR next", () => {
+  const onTicket = renderRequeueComment({ reason: "r", runUrl: "u", onPr: false });
+  assert.match(onTicket, /No retry was spent/);
+  assert.match(onTicket, /dispatcher/);
+  const onPr = renderRequeueComment({ reason: "r", runUrl: "u", onPr: true });
+  assert.match(onPr, /agent:blocked/);
+  assert.match(onPr, /Re-add `agent:implement`/);
 });
 
 test("escalationLabels lists every agent:* label to remove and needs-human to add", () => {

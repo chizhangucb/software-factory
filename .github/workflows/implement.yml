@@ -76,6 +76,8 @@ jobs:
       ISSUE_TITLE: ${{ github.event.issue.title }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
+      # Push steps put FACTORY_PAT in front of it; the agent never sees the token.
+      PUSH_URL: ${{ github.server_url }}/${{ github.repository }}.git
 
     steps:
       - name: Detect issue shape
@@ -99,30 +101,28 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" --add-label "agent:blocked" || true
           gh issue comment "$ISSUE_NUMBER" --body "Refused to run: issue #${ISSUE_NUMBER} has sub-issues. The factory implements tickets, not specs."
 
+      - name: Checkout factory
+        if: steps.shape.outputs.proceed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        if: steps.shape.outputs.proceed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Preflight existing PR
+        # The same closing-keyword test as the reviewer, the gate, and the retry handler
+        # (factory/shared/linked-issue.ts). Builtins only: runs before the engine is installed.
         if: steps.shape.outputs.proceed == 'true'
         id: preflight
-        run: |
-          set -euo pipefail
-          existing=$(gh pr list \
-            --state open \
-            --search "in:body \"#${ISSUE_NUMBER}\"" \
-            --json number,url,body,author \
-            --jq "[.[] | select(.body | test(\"(?i)(closes|fixes|resolves)\\\\s+#${ISSUE_NUMBER}\\\\b\"))]")
-          count=$(echo "$existing" | jq 'length')
-          refused=false
-          existing_pr_url=""
-          for i in $(seq 0 $((count - 1))); do
-            author=$(echo "$existing" | jq -r ".[$i].author.login")
-            # Only PRs from collaborators block the agent; outside contributors don't count.
-            if gh api "repos/${GH_REPO}/collaborators/${author}" --silent 2>/dev/null; then
-              refused=true
-              existing_pr_url=$(echo "$existing" | jq -r ".[$i].url")
-              break
-            fi
-          done
-          echo "refused=$refused" >> "$GITHUB_OUTPUT"
-          echo "existing_pr_url=$existing_pr_url" >> "$GITHUB_OUTPUT"
+        run: node --experimental-strip-types factory/factory/implement/preflight.ts
 
       - name: Refuse existing PR
         if: steps.preflight.outputs.refused == 'true'
@@ -179,16 +179,6 @@ jobs:
           token: ${{ secrets.FACTORY_PAT }}
           persist-credentials: false
 
-      - name: Checkout factory
-        if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.factory_repo }}
-          ref: ${{ inputs.factory_ref }}
-          path: factory
-          token: ${{ secrets.FACTORY_PAT }}
-          persist-credentials: false
-
       - name: Compute branch name
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
         id: branch
@@ -199,6 +189,7 @@ jobs:
 
       - name: Create branch
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
+        id: create
         working-directory: target
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
@@ -210,16 +201,12 @@ jobs:
           retrying=$(gh issue view "$ISSUE_NUMBER" --json labels --jq '[.labels[].name | select(startswith("factory:retry-"))] | length')
           if [ "$retrying" != "0" ] && git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
             git checkout -b "$BRANCH" "origin/$BRANCH"
+            echo "resumed=true" >> "$GITHUB_OUTPUT"
             echo "Continuing on origin/$BRANCH, $(git rev-list --count main..HEAD) commit(s) ahead of main."
           else
             git checkout -b "$BRANCH"
+            echo "resumed=false" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Setup Node.js
-        if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
 
       - name: Install factory (pinned sandcastle, tsx, Claude Code)
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
@@ -251,12 +238,13 @@ jobs:
           if-no-files-found: ignore
 
       - name: Push branch
+        # refs/heads/$BRANCH, not HEAD: the branch the run collected commits on, whatever the agent left checked out.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
         working-directory: target
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
           FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
-        run: git push --force "https://x-access-token:${FACTORY_PAT}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$BRANCH"
+        run: git push --force "https://x-access-token:${FACTORY_PAT}@${PUSH_URL#*://}" "refs/heads/$BRANCH:refs/heads/$BRANCH"
 
       - name: Open PR
         # Not a draft: GitHub refuses auto-merge on drafts, and the required factory/verdict
@@ -315,18 +303,27 @@ jobs:
         run: bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-implementer.md"
 
       - name: Keep partial work on failure
-        # The branch is what a retry continues on and what an escalation keeps for the human.
+        # The branch is what a retry continues on and what an escalation keeps for the human. A first
+        # attempt that committed nothing deletes a stale origin branch left by an earlier cycle, so the
+        # retry starts from main as its prompt says, instead of resuming work nobody in this cycle made.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && failure() && steps.branch.outputs.name != ''
         working-directory: target
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
+          RESUMED: ${{ steps.create.outputs.resumed }}
           FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
         run: |
-          if [ "$(git rev-list --count main..HEAD 2>/dev/null || echo 0)" = "0" ]; then
-            echo "No commits on $BRANCH; nothing to keep."
+          url="https://x-access-token:${FACTORY_PAT}@${PUSH_URL#*://}"
+          if [ "$(git rev-list --count "main..refs/heads/$BRANCH" 2>/dev/null || echo 0)" = "0" ]; then
+            if [ "$RESUMED" = "false" ] && git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+              git push "$url" --delete "refs/heads/$BRANCH"
+              echo "No commits on $BRANCH; deleted stale origin/$BRANCH from an earlier cycle so a retry starts from main."
+            else
+              echo "No commits on $BRANCH; nothing to keep."
+            fi
           else
-            git push --force "https://x-access-token:${FACTORY_PAT}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$BRANCH"
-            echo "Pushed $(git rev-list --count main..HEAD) commit(s) to $BRANCH."
+            git push --force "$url" "refs/heads/$BRANCH:refs/heads/$BRANCH"
+            echo "Pushed $(git rev-list --count "main..refs/heads/$BRANCH") commit(s) to $BRANCH."
           fi
 
       - name: Retry or escalate

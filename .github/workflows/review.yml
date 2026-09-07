@@ -20,6 +20,10 @@ on:
         description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
         type: number
         default: 3
+      checks_timeout_minutes:
+        description: How long the retry handler waits after the verdict for the head's gate and CI to settle; a check still pending then counts as failed.
+        type: number
+        default: 15
       factory_repo:
         description: Repo holding the factory scripts (this repo).
         type: string
@@ -33,6 +37,23 @@ on:
         required: true
 
 jobs:
+  refuse-fork:
+    # pull_request_target runs with secrets: the factory never runs a fork's code. Say so on the PR
+    # and drop the trigger label, instead of skipping in silence.
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      LABEL: agent:review
+    steps:
+      - run: |
+          gh pr edit "$PR_NUMBER" --remove-label "$LABEL" || true
+          gh pr comment "$PR_NUMBER" --body "Refused to run: the factory does not run on PRs from forks (\`$LABEL\` removed). Push the branch to this repo instead."
+
   slot:
     # Per-account concurrency cap (#17): N named slots, account-slot-0 .. account-slot-(N-1), shared by
     # implement, review, and implement-pr in the target repo. A run takes slot (number mod N), so
@@ -298,6 +319,7 @@ jobs:
         env:
           FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
           FAILURE_KIND: checks
+          CHECKS_TIMEOUT_MINUTES: ${{ inputs.checks_timeout_minutes }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           ARTIFACT_NAME: factory-review-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out

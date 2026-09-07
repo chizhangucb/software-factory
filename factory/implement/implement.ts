@@ -72,7 +72,8 @@ try {
 
   // Against main, not this run's start: a retry that inherits the previous
   // attempt's commits and rightly changes nothing still has a branch to judge.
-  const commitsAhead = Number(sh("git rev-list --count main..HEAD").trim());
+  // On the branch by name, which is what the workflow pushes, not on HEAD.
+  const commitsAhead = Number(sh(`git rev-list --count "main..refs/heads/${BRANCH}"`).trim());
   if (!Number.isFinite(commitsAhead) || commitsAhead === 0) {
     fail("Agent finished but no commits were made on the branch.");
   }

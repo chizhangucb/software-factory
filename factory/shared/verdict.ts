@@ -107,10 +107,13 @@ export const resolveVerdict = (
   };
 };
 
+/** The status description of a verdict that failed for want of criteria; the retry handler matches on it. */
+export const NO_CRITERIA_DESCRIPTION = "no acceptance criteria on the ticket";
+
 /** Short enough for a commit status description (140 chars max). */
 export const verdictDescription = (verdict: Verdict): string => {
   const total = verdict.criteria.length;
-  if (total === 0) return "no acceptance criteria on the ticket";
+  if (total === 0) return NO_CRITERIA_DESCRIPTION;
   const met = verdict.criteria.filter((c) => c.met).length;
   return `${met}/${total} acceptance criteria met`;
 };

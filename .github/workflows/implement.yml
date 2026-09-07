@@ -204,8 +204,10 @@ jobs:
         run: |
           git config user.name "factory-agent[bot]"
           git config user.email "factory-agent[bot]@users.noreply.github.com"
-          # A retry (#16) continues on the branch the failed attempt pushed; a first attempt starts from main.
-          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+          # A retry (#16) continues on the branch the failed attempt pushed. Any other run, a first
+          # attempt or a ticket handed back after an escalation, starts from main.
+          retrying=$(gh issue view "$ISSUE_NUMBER" --json labels --jq '[.labels[].name | select(startswith("factory:retry-"))] | length')
+          if [ "$retrying" != "0" ] && git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
             git checkout -b "$BRANCH" "origin/$BRANCH"
             echo "Continuing on origin/$BRANCH, $(git rev-list --count main..HEAD) commit(s) ahead of main."
           else
@@ -228,6 +230,7 @@ jobs:
 
       - name: Run implementer
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
+        id: run
         working-directory: target
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
@@ -318,8 +321,9 @@ jobs:
           fi
 
       - name: Retry or escalate
-        # One informed retry, then needs-human (#16). FACTORY_PAT so the label that starts the retry fires its event.
-        # Before the factory is installed there is no handler; that failure gets the plain blocked comment.
+        # One informed retry, then needs-human (#16), for a failure of the implementer itself. FACTORY_PAT so
+        # the label that starts the retry fires its event. A failure elsewhere in the job (checkout, push, PR),
+        # or a handler that cannot reach GitHub, gets the plain blocked comment instead of burning the retry.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && failure()
         env:
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
@@ -328,19 +332,19 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ARTIFACT_NAME: factory-implement-issue-${{ github.event.issue.number }}-run-${{ github.run_attempt }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
+          IMPLEMENTER_OUTCOME: ${{ steps.run.outcome }}
         run: |
-          if [ -x factory/node_modules/.bin/tsx ] && [ -n "$BRANCH" ]; then
-            factory/node_modules/.bin/tsx factory/factory/retry/retry.ts
-          else
-            reason="(no reason file written; check workflow logs)"
-            if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then
-              reason=$(cat "${OUTPUT_DIR}/failure_reason.txt")
-            fi
-            body_file="${RUNNER_TEMP}/failure-comment.md"
-            printf '`agent:implement` run failed before the implementer started.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:implement` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
-            gh issue edit "$ISSUE_NUMBER" --add-label "agent:blocked" || true
-            gh issue comment "$ISSUE_NUMBER" --body-file "$body_file"
+          if [ "$IMPLEMENTER_OUTCOME" = "failure" ] && factory/node_modules/.bin/tsx factory/factory/retry/retry.ts; then
+            exit 0
           fi
+          reason="(no reason file written; check workflow logs)"
+          if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then
+            reason=$(cat "${OUTPUT_DIR}/failure_reason.txt")
+          fi
+          body_file="${RUNNER_TEMP}/failure-comment.md"
+          printf '`agent:implement` run failed outside the implementer, or the retry handler could not run.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:implement` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
+          gh issue edit "$ISSUE_NUMBER" --add-label "agent:blocked" || true
+          gh issue comment "$ISSUE_NUMBER" --body-file "$body_file"
 
       - name: Always remove the accounts file
         if: always()

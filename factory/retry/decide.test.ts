@@ -27,7 +27,7 @@ test("retryLabel names the label the workflow adds", () => {
 
 test("decide retries once on every failure kind, then escalates", () => {
   for (const kind of ["implement", "gate", "ci", "verdict"] as const) {
-    assert.deepEqual(decide({ retriesUsed: 0, kind }), { action: "retry", attempt: 2 });
+    assert.deepEqual(decide({ retriesUsed: 0, kind }), { action: "retry", retry: 1 });
     assert.deepEqual(decide({ retriesUsed: 1, kind }), {
       action: "escalate",
       reason: "the retry failed too (2 attempts, 1 retry allowed)",
@@ -55,17 +55,17 @@ const runUrl = "https://github.com/o/r/actions/runs/1";
 
 test("a retry comment round-trips through its marker", () => {
   const body = renderRetryComment({
-    attempt: 2,
+    retry: 1,
     kind: "verdict",
     runUrl,
     output: "## Verdict: fail\n\n- [ ] the helper exists. Evidence: no file",
   });
-  assert.match(body, /^<!-- factory:retry attempt=2 kind=verdict -->\n/);
+  assert.match(body, /^<!-- factory:retry retry=1 kind=verdict -->\n/);
   assert.match(body, /Retry 1 of 1/);
   assert.match(body, /Attempt 1 failed \(verdict\)\. Run: https:\/\/github\.com\/o\/r\/actions\/runs\/1/);
   const parsed = parseRetryComment(body);
   assert.ok(parsed);
-  assert.equal(parsed.attempt, 2);
+  assert.equal(parsed.retry, 1);
   assert.equal(parsed.kind, "verdict");
   assert.equal(parsed.runUrl, runUrl);
   assert.match(parsed.output, /- \[ \] the helper exists/);
@@ -78,30 +78,38 @@ test("parseRetryComment ignores comments without the marker", () => {
 
 test("a retry comment bounds long output and keeps its tail", () => {
   const output = `${"a".repeat(30_000)}\nTHE END`;
-  const body = renderRetryComment({ attempt: 2, kind: "implement", runUrl, output });
+  const body = renderRetryComment({ retry: 1, kind: "implement", runUrl, output });
   assert.ok(body.length < 20_000, `comment is ${body.length} chars`);
   assert.match(body, /characters cut/);
   assert.match(body, /THE END/);
 });
 
-test("latestRetryContext picks the newest marker comment and skips the rest", () => {
-  const first = renderRetryComment({ attempt: 2, kind: "gate", runUrl, output: "old" });
-  const second = renderRetryComment({ attempt: 2, kind: "verdict", runUrl, output: "new" });
-  assert.equal(latestRetryContext([]), undefined);
-  assert.equal(latestRetryContext(["hello", "world"]), undefined);
-  assert.equal(latestRetryContext([first, "chatter", second])?.output.trim(), "new");
-  assert.equal(latestRetryContext([second, first])?.kind, "gate");
+test("latestRetryContext picks the newest marker comment while the retry label matches it", () => {
+  const first = renderRetryComment({ retry: 1, kind: "gate", runUrl, output: "old" });
+  const second = renderRetryComment({ retry: 1, kind: "verdict", runUrl, output: "new" });
+  const labels = ["ready-for-agent", "factory:retry-1"];
+  assert.equal(latestRetryContext([], labels), undefined);
+  assert.equal(latestRetryContext(["hello", "world"], labels), undefined);
+  assert.equal(latestRetryContext([first, "chatter", second], labels)?.output.trim(), "new");
+  assert.equal(latestRetryContext([second, first], labels)?.kind, "gate");
+});
+
+test("latestRetryContext is empty once the retry label is gone or names another cycle", () => {
+  const marker = renderRetryComment({ retry: 1, kind: "verdict", runUrl, output: "stale" });
+  assert.equal(latestRetryContext([marker], ["ready-for-agent"]), undefined, "handed back: fresh first attempt");
+  assert.equal(latestRetryContext([marker], ["factory:retry-2"]), undefined, "marker from an older retry");
 });
 
 test("retryPromptSection is empty without a context and names the failure with it", () => {
   assert.equal(retryPromptSection(undefined), "");
   const section = retryPromptSection({
-    attempt: 2,
+    retry: 1,
     kind: "gate",
     runUrl,
     output: "factory/red-green: no test failed on main",
   });
   assert.match(section, /^# RETRY: THE PREVIOUS ATTEMPT FAILED/);
+  assert.match(section, /retry 1 of 1/);
   assert.match(section, /attempt 2 of 2/);
   assert.match(section, /failing check/);
   assert.match(section, /factory\/red-green: no test failed on main/);
@@ -110,7 +118,6 @@ test("retryPromptSection is empty without a context and names the failure with i
 test("renderEscalationComment links the run and the log, keeps the branch, names the closed PR", () => {
   const body = renderEscalationComment({
     issueNumber: "7",
-    kind: "verdict",
     reason: "the retry failed too (2 attempts, 1 retry allowed)",
     summary: "verdict: 1/3 acceptance criteria met",
     runUrl,
@@ -132,7 +139,6 @@ test("renderEscalationComment links the run and the log, keeps the branch, names
 test("renderEscalationComment says when there is no branch and no PR", () => {
   const body = renderEscalationComment({
     issueNumber: "7",
-    kind: "implement",
     reason: "the retry failed too (2 attempts, 1 retry allowed)",
     summary: "implement: no commits",
     runUrl,

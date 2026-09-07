@@ -16,7 +16,9 @@
  *   OUTPUT_DIR/failure_reason.txt plus the tail of the newest run log.
  * - `checks`: a verdict was just posted on HEAD_SHA; wait for the head's
  *   other checks to settle (CHECKS_TIMEOUT_MINUTES, default 15), then fail
- *   on any failing status or check run. No failure means nothing to do.
+ *   on any failing status or check run. A check still pending at the
+ *   deadline is a failure too, so a PR never sits unjudged. No failure
+ *   means nothing to do.
  * Optional: ARTIFACT_NAME for the log link, GITHUB_RUN_ID and
  * GITHUB_WORKFLOW (set by the runner) to ignore the factory's own check runs.
  */
@@ -24,7 +26,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { gh, outputDir, required, writeJson } from "../shared/common";
+import { gh, outputDir, required } from "../shared/common";
+import { linkedIssueNumber } from "../shared/linked-issue";
 import { SECTION_END, SECTION_START, boundOutput } from "../shared/verdict";
 import {
   type CheckFailure,
@@ -41,6 +44,7 @@ import {
   ESCALATION_LABEL,
   escalationLabels,
   type FailureKind,
+  MAX_RETRIES,
   renderEscalationComment,
   renderRetryComment,
   retriesUsed,
@@ -63,7 +67,6 @@ const LOG_TAIL_LINES = 120;
 const LOG_LIMITS = { head: 2_000, tail: 8_000 };
 
 const IMPLEMENT_LABEL = "agent:implement";
-const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/i;
 
 const readIf = (file: string): string | undefined =>
   fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined;
@@ -93,14 +96,14 @@ const resolveTarget = (): Target => {
     const pr = ghJson<{ state: string; body: string | null }>([
       "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body",
     ]);
-    const issue = ISSUE_INPUT ?? (pr.body ?? "").match(CLOSES)?.[1];
-    return { issue, pr: pr.state === "OPEN" ? PR_INPUT : undefined };
+    const issue = ISSUE_INPUT ?? linkedIssueNumber(pr.body) ?? undefined;
+    return { issue: issue || undefined, pr: pr.state === "OPEN" ? PR_INPUT : undefined };
   }
   const issue = required("ISSUE_NUMBER");
   const open = ghJson<{ number: number; body: string | null }[]>([
     "pr", "list", "--repo", REPO, "--state", "open", "--search", `in:body "#${issue}"`, "--json", "number,body",
   ]);
-  const pr = open.find((p) => (p.body ?? "").match(CLOSES)?.[1] === issue);
+  const pr = open.find((p) => linkedIssueNumber(p.body) === issue);
   return { issue, pr: pr ? String(pr.number) : undefined };
 };
 
@@ -178,20 +181,34 @@ const findFile = (dir: string, name: string): string | undefined => {
 const gateOutputs = new Map<string, string>();
 
 /** The gate run's artifact (gate.json plus the red-green logs), or its log when that fails. Both gate contexts share one run. */
-const gateOutput = (url: string | null): string => {
+const gateOutput = async (url: string | null): Promise<string> => {
   const runId = runIdFromUrl(url);
   if (!runId) return `(no gate run: ${url ?? "no url"})`;
   const cached = gateOutputs.get(runId);
   if (cached) return cached;
-  const output = readGateArtifact(runId, url);
+  const output = await readGateArtifact(runId, url);
   gateOutputs.set(runId, output);
   return output;
 };
 
-const readGateArtifact = (runId: string, url: string | null): string => {
+/** The artifact lands a few seconds after the statuses: try a few times. */
+const downloadArtifacts = async (runId: string, dir: string): Promise<void> => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      gh(["run", "download", runId, "--repo", REPO, "--dir", dir]);
+      return;
+    } catch (error) {
+      if (attempt >= 6) throw error;
+      console.log(`Artifact of run ${runId} not downloadable yet (try ${attempt}); waiting.`);
+      await sleep(10_000);
+    }
+  }
+};
+
+const readGateArtifact = async (runId: string, url: string | null): Promise<string> => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-artifact-"));
   try {
-    gh(["run", "download", runId, "--repo", REPO, "--dir", dir]);
+    await downloadArtifacts(runId, dir);
     const gateFile = findFile(dir, "gate.json");
     if (!gateFile) return `(the gate run ${runId} uploaded no gate.json)
 ${failedLog(url)}`;
@@ -224,8 +241,14 @@ const headChecks = (sha: string) => {
   return evaluateChecks({ statuses, checkRuns: runs, own: { workflowName: WORKFLOW, runId: RUN_ID } });
 };
 
+const failureOutput = async (f: CheckFailure): Promise<string> => {
+  const detail =
+    f.kind === "verdict" ? verdictOutput() : f.kind === "gate" ? await gateOutput(f.url) : failedLog(f.url);
+  return `## ${f.name}: ${f.kind} failure${f.description ? ` (${f.description})` : ""}\n${f.url ?? ""}\n\n${detail}`;
+};
+
 /** Wait for the head's checks to settle, then the failures among them. */
-const checksFailure = async (): Promise<{ failures: CheckFailure[]; failure: Failure | undefined }> => {
+const checksFailure = async (): Promise<Failure | undefined> => {
   const sha = required("HEAD_SHA");
   const deadline = Date.now() + CHECKS_TIMEOUT_MS;
   let state = headChecks(sha);
@@ -234,18 +257,20 @@ const checksFailure = async (): Promise<{ failures: CheckFailure[]; failure: Fai
     await sleep(POLL_MS);
     state = headChecks(sha);
   }
-  if (state.pending.length > 0) {
-    console.log(`Still pending after the wait, judged as not failed: ${state.pending.join(", ")}.`);
-  }
-  if (state.failures.length === 0) return { failures: [], failure: undefined };
-  const output = state.failures
-    .map((f) => `## ${f.name}: ${f.kind} failure${f.description ? ` (${f.description})` : ""}\n${f.url ?? ""}\n\n${f.kind === "verdict" ? verdictOutput() : f.kind === "gate" ? gateOutput(f.url) : failedLog(f.url)}`)
-    .join("\n\n");
-  const first = state.failures[0] as CheckFailure;
-  return {
-    failures: state.failures,
-    failure: { kind: first.kind, summary: summariseFailures(state.failures), output },
-  };
+  const failures: CheckFailure[] = [
+    ...state.failures,
+    ...state.pending.map((name) => ({
+      name,
+      kind: "ci" as const,
+      description: `not finished after ${CHECKS_TIMEOUT_MS / 60_000} minutes`,
+      url: null,
+    })),
+  ];
+  if (failures.length === 0) return undefined;
+  const parts: string[] = [];
+  for (const f of failures) parts.push(await failureOutput(f));
+  const first = failures[0] as CheckFailure;
+  return { kind: first.kind, summary: summariseFailures(failures), output: parts.join("\n\n") };
 };
 
 const artifactUrl = (): string | undefined => {
@@ -271,9 +296,9 @@ const commentOn = (kind: "issue" | "pr", number: string, body: string): void => 
   gh([kind, "comment", number, "--repo", REPO, "--body-file", file]);
 };
 
-const retry = (target: Target, attempt: number, failure: Failure): void => {
-  const label = retryLabel(attempt - 1);
-  const comment = renderRetryComment({ attempt, kind: failure.kind, runUrl: RUN_URL, output: failure.output });
+const retry = (target: Target, retryNumber: number, failure: Failure): void => {
+  const label = retryLabel(retryNumber);
+  const comment = renderRetryComment({ retry: retryNumber, kind: failure.kind, runUrl: RUN_URL, output: failure.output });
   const on: ["issue" | "pr", string] = target.issue ? ["issue", target.issue] : ["pr", target.pr as string];
   commentOn(on[0], on[1], comment);
   ensureRetryLabel(label);
@@ -282,7 +307,7 @@ const retry = (target: Target, attempt: number, failure: Failure): void => {
   const trigger: ["issue" | "pr", string] = target.pr ? ["pr", target.pr] : ["issue", target.issue as string];
   gh([trigger[0], "edit", trigger[1], "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
   console.log(
-    `Retry ${attempt - 1} of ${attempt - 1}: ${label} on ${on[0]} #${on[1]}, ${IMPLEMENT_LABEL} on ${trigger[0]} #${trigger[1]} (${failure.summary}).`,
+    `Retry ${retryNumber} of ${MAX_RETRIES}: ${label} on ${on[0]} #${on[1]}, ${IMPLEMENT_LABEL} on ${trigger[0]} #${trigger[1]} (${failure.summary}).`,
   );
 };
 
@@ -304,7 +329,6 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
     on[1],
     renderEscalationComment({
       issueNumber: target.issue ?? `PR ${target.pr}`,
-      kind: failure.kind,
       reason,
       summary: failure.summary,
       runUrl: RUN_URL,
@@ -323,17 +347,15 @@ const main = async (): Promise<void> => {
   console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr ?? "(none)"}, branch ${BRANCH}.`);
 
   let failure: Failure | undefined;
-  let checkFailures: CheckFailure[] = [];
   if (FAILURE_MODE === "implement") {
     failure = implementFailure();
   } else if (FAILURE_MODE === "checks") {
-    ({ failures: checkFailures, failure } = await checksFailure());
+    failure = await checksFailure();
   } else {
     throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_MODE}`);
   }
   if (!failure) {
     console.log("Every check on the head passed; nothing to retry.");
-    writeJson("retry.json", { action: "none", reason: "all checks passed", target });
     return;
   }
 
@@ -342,17 +364,8 @@ const main = async (): Promise<void> => {
   const decision = decide({ retriesUsed: used, kind: failure.kind, escalated: labels.includes(ESCALATION_LABEL) });
   console.log(`Failure: ${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);
 
-  if (decision.action === "retry") retry(target, decision.attempt, failure);
+  if (decision.action === "retry") retry(target, decision.retry, failure);
   else if (decision.action === "escalate") escalate(target, decision.reason, failure);
-
-  writeJson("retry.json", {
-    ...decision,
-    target,
-    retriesUsed: used,
-    kind: failure.kind,
-    summary: failure.summary,
-    failures: checkFailures.map(({ name, kind, description, url }) => ({ name, kind, description, url })),
-  });
 };
 
 main().catch((error) => {

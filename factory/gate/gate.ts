@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { gh, required, safeSh, sh, writeJson, writeText } from "../shared/common";
+import { linkedIssueNumber } from "../shared/linked-issue";
 import { parseNameStatus, type ChangedFile } from "./changed-files";
 import { parseRemoves } from "./removes";
 import { redGreenPlan, redGreenVerdict, type RedGreenResults, type TestResult } from "./red-green";
@@ -25,10 +26,10 @@ const installCommand = process.env.INSTALL_COMMAND?.trim() ?? "npm ci";
 
 const linkedIssueBody = (): { issueNumber: string; body: string | null } => {
   const prBody = gh(["pr", "view", prNumber, "--json", "body", "--jq", ".body"]);
-  const issueMatch = prBody.match(/(?:closes|fixes|resolves)\s+#(\d+)/i);
-  if (!issueMatch) return { issueNumber: "", body: null };
-  const body = safeSh(`gh issue view ${issueMatch[1]} --json body --jq .body`);
-  return { issueNumber: issueMatch[1], body };
+  const issueNumber = linkedIssueNumber(prBody);
+  if (!issueNumber) return { issueNumber: "", body: null };
+  const body = safeSh(`gh issue view ${issueNumber} --json body --jq .body`);
+  return { issueNumber, body };
 };
 
 const run = (cwd: string, cmd: string, args: string[] = []): TestResult => {

@@ -94,10 +94,16 @@ export const runFailure = (
   }
   const bad = events.find((event) => event.is_error === true);
   if (!bad) return undefined;
+  // A turn cap or budget stop puts its message in `errors`, not `result`.
+  const errors = Array.isArray(bad.errors)
+    ? bad.errors.filter((e): e is string => typeof e === "string" && e.trim().length > 0)
+    : [];
   const detail =
     typeof bad.result === "string" && bad.result.trim().length > 0
       ? bad.result.trim()
-      : JSON.stringify(bad);
+      : errors.length > 0
+        ? errors.join("; ")
+        : JSON.stringify(bad);
   return `Agent reported an error (${bad.subtype ?? "unknown"}): ${detail}`;
 };
 

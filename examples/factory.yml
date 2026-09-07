@@ -3,10 +3,14 @@ name: factory
 
 on:
   issues:
-    types: [labeled]
+    types: [closed, labeled]
   pull_request_target:
     types: [labeled]
   pull_request:
+  schedule:
+    # Dispatcher fallback for missed events. Each run bills a minute on a private repo.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,8 +19,15 @@ permissions:
   statuses: write # factory/verdict, factory/red-green, factory/test-integrity
 
 jobs:
+  dispatch:
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.label.name == 'ready-for-agent'))
+    uses: chizhangucb/software-factory/.github/workflows/dispatch.yml@main
+    secrets: inherit
   implement:
-    if: github.event_name == 'issues' && github.event.label.name == 'agent:implement'
+    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/implement.yml@main
     secrets: inherit
   review:

@@ -1,0 +1,63 @@
+# Reusable: the dispatcher. Moves tickets labeled ready-for-agent with no open
+# blockers, no assignee, and no factory state into the factory by adding
+# agent:implement. Called from a target repo's thin factory workflow on
+# `issues: [closed, labeled]`, a schedule fallback, and workflow_dispatch.
+name: factory dispatch
+
+on:
+  workflow_call:
+    inputs:
+      factory_repo:
+        description: Repo holding the factory scripts (this repo).
+        type: string
+        default: chizhangucb/software-factory
+      factory_ref:
+        description: Ref of the factory scripts to run. Keep it equal to the ref in the caller's `uses:`; GitHub does not expose that ref to the called workflow.
+        type: string
+        default: main
+    secrets:
+      FACTORY_PAT:
+        description: Personal access token that adds the label. GITHUB_TOKEN must not be used here, a label it adds fires no `issues: labeled` event and the implementer never starts.
+        required: true
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # One dispatcher at a time per repo so two runs never race on the same ticket.
+    concurrency:
+      group: factory-dispatch
+      cancel-in-progress: false
+    permissions: {}
+
+    steps:
+      - name: Checkout factory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+          sparse-checkout: factory/dispatch
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dispatch ready tickets
+        # No npm install: the script is builtins only and runs on strip-types.
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
+        run: node --experimental-strip-types factory/factory/dispatch/dispatch.ts
+
+      - name: Upload decisions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-dispatch-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/factory-out/dispatch.json
+          if-no-files-found: ignore

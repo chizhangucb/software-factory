@@ -8,7 +8,7 @@ import {
   MAX_PAGES,
   PER_PAGE,
   PROJECTIONS,
-  type Page,
+  type PageRead,
   describeGhFailure,
   nextPage,
   pageUrl,
@@ -18,9 +18,20 @@ import { marksFromTimeline, roleFromJobs, runFromGitHub, stateSinceFromTimeline,
 const pagesDir = path.join(import.meta.dirname, "fixtures", "pages");
 const page = (name: string): string => fs.readFileSync(path.join(pagesDir, `${name}.json`), "utf8");
 
-/** What `gh api --jq <projection>` prints for a page: the same jq program over the same JSON. */
-const project = (projection: keyof typeof PROJECTIONS, name: string): any[] =>
-  JSON.parse(execFileSync("jq", [PROJECTIONS[projection]], { input: page(name), encoding: "utf8" }));
+/**
+ * What `gh api --jq <projection>` prints for a page: the same jq program over
+ * the same JSON. The projections are jq, so the one honest test runs jq; this
+ * is the only test in the repo that spawns a process (still no network). The
+ * ubuntu runner and macOS ship jq.
+ */
+const project = (projection: keyof typeof PROJECTIONS, name: string): any[] => {
+  try {
+    return JSON.parse(execFileSync("jq", [PROJECTIONS[projection]], { input: page(name), encoding: "utf8" }));
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") assert.fail("jq is not installed; these tests run the projections through jq");
+    throw error;
+  }
+};
 
 test("runs projection keeps what runFromGitHub reads and drops the rest of the payload", () => {
   const runs = project("runs", "runs");
@@ -62,7 +73,7 @@ test("statuses projection keeps context and state only", () => {
 });
 
 test("a full page asks for the next one, a short page ends the walk", () => {
-  const full: Page = { page: 1, received: PER_PAGE };
+  const full: PageRead = { page: 1, received: PER_PAGE };
   assert.deepEqual(nextPage(full), { next: 2 });
   assert.deepEqual(nextPage({ page: 3, received: PER_PAGE - 1 }), { done: "short page" });
   assert.deepEqual(nextPage({ page: 1, received: 0 }), { done: "short page" });

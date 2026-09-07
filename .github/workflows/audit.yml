@@ -271,7 +271,7 @@ jobs:
             echo "::warning::git revert did not apply cleanly: $out"
             exit 0
           fi
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "HEAD:refs/heads/$branch"
+          git push --force "https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#*://}/${GH_REPO}.git" "refs/heads/$branch:refs/heads/$branch"
           body="$RUNNER_TEMP/factory-out/audit-revert-body.md"
           sed -i "s|{{AUDIT_COMMENT_URL}}|${AUDIT_COMMENT_URL}|g" "$body"
           url=$(gh pr list --head "$branch" --base "$BASE_BRANCH" --state open --json url --jq '.[0].url // empty')

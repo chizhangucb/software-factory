@@ -7,6 +7,9 @@
  *   open, so implement-pr runs on the branch; on the ticket otherwise).
  * - escalate: agent:* labels off, needs-human on, the PR closed, the
  *   branch kept, a comment on the ticket linking the run and its log.
+ * - requeue (rate limited on every account, #17): no retry spent. A ticket
+ *   gets a comment and is left for the dispatcher; a PR gets the comment
+ *   and `agent:blocked`, since nothing re-dispatches a PR.
  *
  * Two tokens: reads (statuses, check runs, run logs and artifacts, labels)
  * use GH_TOKEN, the job's GITHUB_TOKEN, which needs checks: read and
@@ -17,6 +20,7 @@
  * ISSUE_NUMBER or PR_NUMBER, and FAILURE_KIND:
  * - `implement`: the run in this job failed; the output is
  *   OUTPUT_DIR/failure_reason.txt plus the tail of the newest run log.
+ *   OUTPUT_DIR/rate_limited.txt present means every account was rate limited.
  * - `checks`: a verdict was just posted on HEAD_SHA; wait for the head's
  *   other checks to settle (CHECKS_TIMEOUT_MINUTES, default 15), then fail
  *   on any failing status or check run. A check still pending at the
@@ -29,7 +33,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { gh, outputDir, required } from "../shared/common";
+import { RATE_LIMITED_FILE } from "../shared/accounts";
+import { errorMessage, gh, outputDir, required } from "../shared/common";
 import { linkedIssueNumber } from "../shared/linked-issue";
 import { SECTION_END, SECTION_START, boundOutput } from "../shared/verdict";
 import {
@@ -41,6 +46,7 @@ import {
   renderGateOutput,
   runIdFromUrl,
   summariseFailures,
+  unretryableReason,
 } from "./checks";
 import {
   decide,
@@ -49,6 +55,7 @@ import {
   type FailureKind,
   MAX_RETRIES,
   renderEscalationComment,
+  renderRequeueComment,
   renderRetryComment,
   retriesUsed,
   retryLabel,
@@ -71,6 +78,7 @@ const LOG_TAIL_LINES = 120;
 const LOG_LIMITS = { head: 2_000, tail: 8_000 };
 
 const IMPLEMENT_LABEL = "agent:implement";
+const BLOCKED_LABEL = "agent:blocked";
 
 const readIf = (file: string): string | undefined =>
   fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined;
@@ -91,7 +99,7 @@ const attempt = (call: () => string, label: string): string | undefined => {
   try {
     return call();
   } catch (error) {
-    console.log(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(`${label} failed: ${errorMessage(error)}`);
     return undefined;
   }
 };
@@ -142,6 +150,10 @@ interface Failure {
   readonly kind: FailureKind;
   readonly summary: string;
   readonly output: string;
+  /** Every account was rate limited: requeue, do not count the attempt. */
+  readonly rateLimited?: boolean;
+  /** Why a retry cannot fix it; escalate at once. */
+  readonly unretryable?: string;
 }
 
 const implementFailure = (): Failure => {
@@ -150,8 +162,10 @@ const implementFailure = (): Failure => {
     kind: "implement",
     summary: `implement: ${reason.split("\n")[0]}`,
     output: [`Reason: ${reason}`, boundOutput(runLogTail(), LOG_LIMITS)].filter(Boolean).join("\n\n"),
+    rateLimited: fs.existsSync(path.join(outputDir(), RATE_LIMITED_FILE)),
   };
 };
+
 
 /** The verdict this job just produced, as the reviewer wrote it. */
 const verdictOutput = (): string => {
@@ -175,7 +189,7 @@ const failedLog = (url: string | null): string => {
     });
     return boundOutput(log.trim() || "(the run has no failed step log)", LOG_LIMITS);
   } catch (error) {
-    return `(could not read the log of run ${runId}: ${error instanceof Error ? error.message : String(error)})`;
+    return `(could not read the log of run ${runId}: ${errorMessage(error)})`;
   }
 };
 
@@ -230,7 +244,7 @@ ${failedLog(url)}`;
     const gate = JSON.parse(fs.readFileSync(gateFile, "utf8")) as GateArtifact;
     return renderGateOutput(gate, { base: next("red-green-base.log"), head: next("red-green-head.log") });
   } catch (error) {
-    return `(could not read the gate artifact of run ${runId}: ${error instanceof Error ? error.message : String(error)})
+    return `(could not read the gate artifact of run ${runId}: ${errorMessage(error)})
 ${failedLog(url)}`;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -284,7 +298,12 @@ const checksFailure = async (): Promise<Failure | undefined> => {
   const parts: string[] = [];
   for (const f of failures) parts.push(await failureOutput(f));
   const first = failures[0] as CheckFailure;
-  return { kind: first.kind, summary: summariseFailures(failures), output: parts.join("\n\n") };
+  return {
+    kind: first.kind,
+    summary: summariseFailures(failures),
+    output: parts.join("\n\n"),
+    unretryable: unretryableReason(failures),
+  };
 };
 
 const artifactUrl = (): string | undefined => {
@@ -322,6 +341,17 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   ghWrite([trigger[0], "edit", trigger[1], "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
   console.log(
     `Retry ${retryNumber} of ${MAX_RETRIES}: ${label} on ${on[0]} #${on[1]}, ${IMPLEMENT_LABEL} on ${trigger[0]} #${trigger[1]} (${failure.summary}).`,
+  );
+};
+
+const requeue = (target: Target, reason: string): void => {
+  const on: ["issue" | "pr", string] = target.pr ? ["pr", target.pr] : ["issue", target.issue as string];
+  const onPr = on[0] === "pr";
+  commentOn(on[0], on[1], renderRequeueComment({ reason, runUrl: RUN_URL, onPr }));
+  if (onPr) ghWrite(["pr", "edit", on[1], "--repo", REPO, "--add-label", BLOCKED_LABEL]);
+  console.log(
+    `Requeued ${on[0]} #${on[1]} without spending a retry: ${reason}` +
+      (onPr ? `; ${BLOCKED_LABEL} on, a human re-adds ${IMPLEMENT_LABEL}.` : "; the dispatcher re-dispatches it."),
   );
 };
 
@@ -375,14 +405,21 @@ const main = async (): Promise<void> => {
 
   const labels = target.issue ? labelsOf("issue", target.issue) : labelsOf("pr", target.pr as string);
   const used = retriesUsed(labels);
-  const decision = decide({ retriesUsed: used, kind: failure.kind, escalated: labels.includes(ESCALATION_LABEL) });
+  const decision = decide({
+    retriesUsed: used,
+    kind: failure.kind,
+    escalated: labels.includes(ESCALATION_LABEL),
+    rateLimited: failure.rateLimited,
+    unretryable: failure.unretryable,
+  });
   console.log(`Failure: ${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);
 
   if (decision.action === "retry") retry(target, decision.retry, failure);
   else if (decision.action === "escalate") escalate(target, decision.reason, failure);
+  else if (decision.action === "requeue") requeue(target, decision.reason);
 };
 
 main().catch((error) => {
-  console.error(`Retry handler failed: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`Retry handler failed: ${errorMessage(error)}`);
   process.exit(1);
 });

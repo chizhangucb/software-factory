@@ -41,20 +41,35 @@ export const retriesUsed = (labels: readonly string[]): number =>
 export type Decision =
   | { readonly action: "retry"; readonly retry: number }
   | { readonly action: "escalate"; readonly reason: string }
+  /** Not the ticket's failure: hand it back to the queue without counting an attempt. */
+  | { readonly action: "requeue"; readonly reason: string }
   | { readonly action: "none"; readonly reason: string };
 
 /**
  * Retry or escalate. Every failure kind gets the same one retry; the kind
  * shapes the prompt and the escalation comment, not the count. An escalated
- * ticket is left alone so two failure handlers cannot escalate it twice.
+ * ticket is left alone so two failure handlers cannot escalate it twice. A
+ * run rate limited on every account is requeued, not retried: the quota is
+ * the problem, rotation (#17) is the answer, and the attempt does not count.
+ * A failure a retry cannot fix (the ticket has no acceptance criteria)
+ * escalates at once.
  */
 export const decide = (input: {
   readonly retriesUsed: number;
   readonly kind: FailureKind;
   readonly escalated?: boolean;
+  readonly rateLimited?: boolean;
+  /** Why another implementer run cannot fix this failure; undefined when it might. */
+  readonly unretryable?: string;
 }): Decision => {
   if (input.escalated) {
     return { action: "none", reason: `already escalated: ${ESCALATION_LABEL} is on the ticket` };
+  }
+  if (input.rateLimited) {
+    return { action: "requeue", reason: "rate limited on every account; not the ticket's failure" };
+  }
+  if (input.unretryable) {
+    return { action: "escalate", reason: input.unretryable };
   }
   if (input.retriesUsed < MAX_RETRIES) {
     return { action: "retry", retry: input.retriesUsed + 1 };
@@ -172,6 +187,23 @@ export const retryPromptSection = (context: RetryContext | undefined): string =>
     "",
   ].join("\n");
 };
+
+/** The comment on a requeued ticket or PR: what happened and what moves it next. */
+export const renderRequeueComment = (input: {
+  readonly reason: string;
+  readonly runUrl: string;
+  /** The PR path has no dispatcher: a human re-adds the label once quota is back. */
+  readonly onPr: boolean;
+}): string =>
+  [
+    "### Rate limited on every account",
+    "",
+    `${input.reason}. No retry was spent. Run: ${input.runUrl}`,
+    "",
+    input.onPr
+      ? "Labeled `agent:blocked`. Re-add `agent:implement` once the accounts have quota again; the retry count is unchanged."
+      : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the schedule) once `agent:in-progress` is gone.",
+  ].join("\n");
 
 export interface EscalationInput {
   readonly issueNumber: string;

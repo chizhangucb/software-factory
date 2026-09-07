@@ -11,6 +11,7 @@
  * they appear they are pending too, since the gate run may still be queued
  * when the review starts.
  */
+import { NO_CRITERIA_DESCRIPTION } from "../shared/verdict";
 import type { FailureKind } from "./decide";
 
 export interface CommitStatus {
@@ -102,6 +103,16 @@ export const evaluateChecks = (input: {
   failures.sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
   return { pending, failures };
 };
+
+/**
+ * Why no implementer run can fix these failures, or undefined. A verdict
+ * that failed for want of acceptance criteria is the ticket's fault: a
+ * retry would burn a run and fail the same way.
+ */
+export const unretryableReason = (failures: readonly CheckFailure[]): string | undefined =>
+  failures.some((f) => f.kind === "verdict" && f.description === NO_CRITERIA_DESCRIPTION)
+    ? `the ticket has no acceptance criteria (${NO_CRITERIA_DESCRIPTION}), so no implementer run can pass the verdict; add an "Acceptance criteria" checklist to the ticket`
+    : undefined;
 
 export const summariseFailures = (failures: readonly CheckFailure[]): string =>
   failures

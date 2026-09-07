@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluateChecks, renderGateOutput, runIdFromUrl, summariseFailures } from "./checks";
+import { evaluateChecks, renderGateOutput, runIdFromUrl, summariseFailures, unretryableReason } from "./checks";
 
 const own = { workflowName: "factory", runId: "500" };
 
@@ -147,4 +147,13 @@ test("renderGateOutput lists each check's reasons and the tails of the red-green
 test("renderGateOutput without a red-green run shows only the verdicts", () => {
   const out = renderGateOutput({ testIntegrity: { ok: false, reasons: ["test/a.test.js was deleted"] } }, {});
   assert.equal(out, "factory/red-green: (not in gate.json)\nfactory/test-integrity: fail\n- test/a.test.js was deleted");
+});
+
+test("a verdict that failed for want of acceptance criteria is not worth a retry", () => {
+  const noCriteria = { name: "factory/verdict", kind: "verdict" as const, description: "no acceptance criteria on the ticket", url: null };
+  const unmet = { name: "factory/verdict", kind: "verdict" as const, description: "2/3 acceptance criteria met", url: null };
+  const gate = { name: "factory/red-green", kind: "gate" as const, description: "source changed, no test", url: null };
+  assert.match(unretryableReason([gate, noCriteria]) ?? "", /no acceptance criteria/);
+  assert.equal(unretryableReason([gate, unmet]), undefined);
+  assert.equal(unretryableReason([]), undefined);
 });

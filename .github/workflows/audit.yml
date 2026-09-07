@@ -1,6 +1,6 @@
 # Reusable: the first-20 audit (#18, ADR 0003). Called from a target repo's thin
 # factory workflow on `pull_request: closed`. For each of the first 20 merged
-# factory PRs (counted in the repo variable FACTORY_AUDITED_MERGES) the reviewer
+# factory PRs (counted in .factory/state.json on the target's factory-state branch) the reviewer
 # prompt runs in audit mode with the strongest configured model against the
 # merged diff and the ticket's acceptance criteria, read-only, and comments the
 # result on the PR. A miss opens a revert PR (not auto-merged) and a needs-human
@@ -36,7 +36,7 @@ on:
         default: main
     secrets:
       FACTORY_PAT:
-        description: Reads and writes the audit counter (repo variable), pushes the revert branch, opens the revert PR so the target's CI runs on it.
+        description: Reads and writes the audit counter (.factory/state.json on the factory-state branch), pushes the revert branch, opens the revert PR so the target's CI runs on it.
         required: true
 
 jobs:
@@ -69,7 +69,7 @@ jobs:
           sparse-checkout: factory/audit
 
       - name: Decide
-        # Factory state: the repo variable FACTORY_AUDITED_MERGES, absent means 0.
+        # Factory state: .factory/state.json on the target's factory-state branch (state.sh), absent means 0.
         # The decision is plan.ts, pure and unit tested; no install, strip-types only.
         id: plan
         env:
@@ -78,8 +78,8 @@ jobs:
           AUDIT_LIMIT: ${{ inputs.audit_limit }}
         run: |
           set -euo pipefail
-          audited=$(gh variable get FACTORY_AUDITED_MERGES 2>/dev/null || echo 0)
-          echo "FACTORY_AUDITED_MERGES=$audited"
+          audited=$(bash factory/factory/audit/state.sh get)
+          echo "audited merges so far: $audited"
           gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
           AUDITED="$audited" PR_BODY_FILE="$RUNNER_TEMP/pr-body.md" \
             node --experimental-strip-types factory/factory/audit/decide.ts
@@ -89,9 +89,7 @@ jobs:
         if: steps.plan.outputs.audit == 'true'
         env:
           NEXT: ${{ steps.plan.outputs.next }}
-        run: |
-          gh variable set FACTORY_AUDITED_MERGES --body "$NEXT"
-          echo "FACTORY_AUDITED_MERGES -> $NEXT"
+        run: bash factory/factory/audit/state.sh set "$NEXT"
 
       - name: Pick the account slot
         # Same per-account cap as implement, review, and implement-pr (#17).

@@ -1,0 +1,128 @@
+# Reusable: the factory's two gate checks on a PR, posted as commit statuses
+# `factory/red-green` and `factory/test-integrity` so a target can require
+# them by name. Called from a target repo's thin factory workflow on
+# `pull_request`. No agent runs here; the decisions are pure functions in
+# factory/gate, the script only gathers the diff and the linked ticket body.
+name: factory gate
+
+on:
+  workflow_call:
+    inputs:
+      test_command:
+        description: Command that runs the test files passed as its arguments, from the target's root.
+        type: string
+        default: node --test
+      install_command:
+        description: Command run in each checkout before the tests. Empty skips it.
+        type: string
+        default: npm ci
+      node_version:
+        type: string
+        default: "22"
+      factory_repo:
+        description: Repo holding the factory scripts (this repo).
+        type: string
+        default: chizhangucb/software-factory
+      factory_ref:
+        description: Ref of the factory scripts to run. Keep it equal to the ref in the caller's `uses:`; GitHub does not expose that ref to the called workflow.
+        type: string
+        default: main
+    secrets:
+      FACTORY_PAT:
+        required: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: write
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      OUTPUT_DIR: ${{ runner.temp }}/factory-out
+
+    steps:
+      - name: Mark both checks pending
+        run: |
+          for ctx in factory/red-green factory/test-integrity; do
+            gh api --method POST "repos/{owner}/{repo}/statuses/$HEAD_SHA" \
+              -f state=pending -f context="$ctx" -f target_url="$RUN_URL" -f description="running" >/dev/null
+          done
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: target
+
+      - name: Checkout factory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install factory
+        working-directory: factory
+        run: |
+          npm ci
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Run gate checks
+        working-directory: target
+        env:
+          TEST_COMMAND: ${{ inputs.test_command }}
+          INSTALL_COMMAND: ${{ inputs.install_command }}
+        run: tsx ../factory/factory/gate/gate.ts
+
+      - name: Post statuses
+        if: always()
+        run: |
+          set -euo pipefail
+          post() {
+            gh api --method POST "repos/{owner}/{repo}/statuses/$HEAD_SHA" \
+              -f state="$2" -f context="$1" -f target_url="$RUN_URL" -f description="$(printf '%s' "$3" | cut -c1-140)" >/dev/null
+            echo "$1: $2 ($3)"
+          }
+          if [ ! -f "$OUTPUT_DIR/gate.json" ]; then
+            post factory/red-green error "gate did not run; see the workflow log"
+            post factory/test-integrity error "gate did not run; see the workflow log"
+            exit 0
+          fi
+          for key in redGreen:factory/red-green testIntegrity:factory/test-integrity; do
+            field="${key%%:*}"; ctx="${key#*:}"
+            ok=$(jq -r ".$field.ok" "$OUTPUT_DIR/gate.json")
+            if [ "$ok" = "true" ]; then
+              post "$ctx" success "$(jq -r ".$field.plan.reason // \"clean\"" "$OUTPUT_DIR/gate.json")"
+            else
+              post "$ctx" failure "$(jq -r ".$field.reasons[0]" "$OUTPUT_DIR/gate.json")"
+            fi
+          done
+
+      - name: Upload gate output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-gate-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/factory-out
+          if-no-files-found: ignore
+
+      - name: Fail the job when a check failed
+        run: jq -e '.redGreen.ok and .testIntegrity.ok' "$OUTPUT_DIR/gate.json" >/dev/null

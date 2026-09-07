@@ -8,6 +8,7 @@ Reusable GitHub Actions workflows that turn a labeled ticket into a draft PR, re
 2. Add secrets: `FACTORY_PAT` (a classic PAT with `repo` and `workflow`, so pushes trigger CI) and one `CLAUDE_CODE_OAUTH_TOKEN_<n>` per account from `claude setup-token`. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account for the logs.
 3. Run `scripts/onboard.sh owner/repo` to create the `agent:*` and `needs-human` labels.
 4. Label a ticket `agent:implement`. A draft PR with `Closes #N` appears on `agent/issue-N-<slug>`, then the reviewer runs.
+5. Require the two gate statuses on `main`: `factory/red-green` and `factory/test-integrity`. They post on every `pull_request` event next to the target's own checks.
 
 Models per role are inputs on each reusable workflow (`implementer_model`, `reviewer_model`, defaults `claude-opus-5`). A `model:<name>` label on a ticket overrides the implementer model for that run.
 
@@ -18,10 +19,19 @@ Models per role are inputs on each reusable workflow (`implementer_model`, `revi
 - The caller must grant `statuses: write` (see `examples/factory.yml`); a called workflow cannot exceed the caller's permissions. Targets onboarded before this need that one line added.
 - Tickets are sub-issues of their spec and are picked up as such; an issue that itself has sub-issues is refused as a spec.
 
+## Gate
+
+`gate.yml` runs no agent. It reads the PR diff and the linked ticket (`Closes #N` in the PR body) and posts two commit statuses on the PR head:
+
+- `factory/red-green`: the PR's new or changed test files (`test/`, `tests/`, `__tests__/`, `*.test.*`, `*.spec.*`, `_test.go`, `test_*.py`) are copied onto a checkout of the base branch and run alone; they must fail there and pass on the head. Passes vacuously when the diff touches only docs, or when the ticket has a `## Removes` section and the diff changes no tests. A source change with no test change fails.
+- `factory/test-integrity`: fails on a deleted test file and on a new `skip`, `only`, or `todo` marker in a test file. A ticket with a `## Removes` section may delete the tests of the subjects it lists, one per list item, matched by name (`- \`src/slugify.js\`` covers `test/slugify.test.js`).
+
+Inputs: `test_command` (default `node --test`, receives the test files as arguments), `install_command` (default `npm ci`, empty to skip), `node_version`. Decisions are pure functions in `factory/gate/` with `node --test` coverage; `gate.ts` only gathers inputs and runs tests.
+
 ## Layout
 
-- `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow.
-- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`). Treated as our code.
+- `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow. `gate.yml`: the factory's own gate checks.
+- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `gate/`). Treated as our code.
 - `vendor/`: the `@ai-hero/sandcastle@0.12.0` tarball, integrity-checked against the lockfile in CI.
 - `.github/dependabot.yml`: opens a PR when a new sandcastle or Claude Code version ships. The pin only moves by hand.
 

@@ -10,7 +10,11 @@ Reusable GitHub Actions workflows that turn a labeled ticket into a draft PR, re
 4. Label a ticket `ready-for-agent`. The dispatcher adds `agent:implement` once every blocker is closed; a draft PR with `Closes #N` appears on `agent/issue-N-<slug>`, then the reviewer runs. Labeling `agent:implement` by hand still works.
 5. Require the two gate statuses on `main`: `factory/red-green` and `factory/test-integrity`. They post on every `pull_request` event next to the target's own checks.
 
-Models per role are inputs on each reusable workflow (`implementer_model`, `reviewer_model`, defaults `claude-opus-5`). A `model:<name>` label on a ticket overrides the implementer model for that run.
+Models per role are inputs on each reusable workflow (`implementer_model`, `reviewer_model`, defaults `claude-opus-5`). A `model:<name>` label on a ticket overrides the implementer model for that run. `implementer_max_turns` (default 200) caps the implementer's turns on top of the 60 minute job timeout.
+
+## Implementer run
+
+One ticket, one branch, one PR. The script fetches the ticket and its parent spec (the agent has no GitHub token) into one file, then the agent reads the target repo's own `CLAUDE.md` or `AGENTS.md`, `CONTEXT.md`, and `docs/adr/`, which are binding, and works test-first at the seams the ticket names. Before any PR exists it runs `mattpocock-skills:code-review` (standards and spec) and fixes every finding, then the bundled `code-review` with `--fix`, then typecheck and the full suite. Implementation commits come first, `review:` commits after. The prompt forbids placeholders in plain words; the gate checks (#13) and the reviewer (#11) verify. The agent never pushes, labels, or opens PRs.
 
 ## Reviewer and verdict
 
@@ -31,7 +35,8 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 ## Layout
 
 - `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow. `gate.yml`: the factory's own gate checks. `dispatch.yml`: the dispatcher, factory-owned.
-- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `gate/`, `dispatch/`). Treated as our code.
+- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `turn-cap.ts`, `ticket-context.ts`, `plugins.ts`, `gate/`, `dispatch/`). Treated as our code.
+- `factory/plugins/`: skills the prompts call by name, vendored and pinned (`mattpocock-skills:code-review` from mattpocock-skills 1.2.3). Copied into the account's `CLAUDE_CONFIG_DIR/skills/` before each attempt, where Claude Code loads them as plugins. Bump by hand.
 - `vendor/`: the `@ai-hero/sandcastle@0.12.0` tarball, integrity-checked against the lockfile in CI.
 - `.github/dependabot.yml`: opens a PR when a new sandcastle or Claude Code version ships. The pin only moves by hand.
 
@@ -47,6 +52,8 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 - Sandcastle 0.12.0 pinned exactly, Claude Code CLI pinned in `package.json`, both installed from the lockfile on every run.
 - Every run logs to a file with the stream event hook and keeps Claude's raw `result` events. Success is decided from those (`is_error`), never from the library's return value or the CLI exit code, because a rate-limited `claude -p` exits 0.
 - Runs pass `--dangerously-skip-permissions` on a bare ephemeral runner (ADR 0002). Pushes and PR creation use `FACTORY_PAT` so the target's CI fires on the agent's work.
+- The library's Claude provider has no flag passthrough, so `turn-cap.ts` wraps it and appends `--max-turns`; hitting the cap is an `is_error` result, so the run fails instead of stalling.
+- Skill invocations (`Skill` tool uses) are echoed to the job log as `skill <name> <args>`; the library's parser only surfaces Bash, WebSearch, WebFetch, and Agent calls.
 
 ## Rotation
 

@@ -44,6 +44,43 @@ export const parseResultEvent = (line: string): ResultEvent | undefined => {
   return parsed as ResultEvent;
 };
 
+export interface SkillInvocation {
+  readonly skill: string;
+  readonly args: string;
+}
+
+/**
+ * Skill invocations on one raw stdout line. sandcastle's parser only surfaces
+ * Bash, WebSearch, WebFetch, and Agent tool calls, so the review skills the
+ * implementer must run would be invisible in the job log without this.
+ */
+export const parseSkillInvocations = (line: string): SkillInvocation[] => {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return [];
+  }
+  const content = (parsed as { type?: unknown; message?: { content?: unknown } })
+    ?.message?.content;
+  if ((parsed as { type?: unknown }).type !== "assistant" || !Array.isArray(content)) {
+    return [];
+  }
+  const invocations: SkillInvocation[] = [];
+  for (const block of content as Array<{ type?: unknown; name?: unknown; input?: unknown }>) {
+    if (block.type !== "tool_use" || block.name !== "Skill") continue;
+    const input = block.input as { skill?: unknown; args?: unknown } | undefined;
+    if (typeof input?.skill !== "string") continue;
+    invocations.push({
+      skill: input.skill,
+      args: typeof input.args === "string" ? input.args : "",
+    });
+  }
+  return invocations;
+};
+
 /**
  * The reason a run failed, or undefined when every observed result event
  * reports success. Zero result events is a failure too: the agent never
@@ -73,9 +110,9 @@ export interface RunLog {
 }
 
 /**
- * File logging for one factory run. Text and tool-call events are echoed to
- * stdout so the job log shows progress; raw `result` lines are captured for
- * the success decision and for rotation.
+ * File logging for one factory run. Text, tool-call, and skill-invocation
+ * events are echoed to stdout so the job log shows progress; raw `result`
+ * lines are captured for the success decision and for rotation.
  */
 export const createRunLog = (name: string): RunLog => {
   const logsDir = path.join(outputDir(), "logs");
@@ -87,6 +124,9 @@ export const createRunLog = (name: string): RunLog => {
     if (event.type === "raw") {
       const parsed = parseResultEvent(event.line);
       if (parsed) resultEvents.push(parsed);
+      for (const { skill, args } of parseSkillInvocations(event.line)) {
+        console.log(`[${name}] skill ${skill} ${args}`);
+      }
       return;
     }
     if (event.type === "toolCall") {

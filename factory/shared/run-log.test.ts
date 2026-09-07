@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseResultEvent, runFailure, type ResultEvent } from "./run-log";
+import {
+  parseResultEvent,
+  parseSkillInvocations,
+  runFailure,
+  type ResultEvent,
+} from "./run-log";
 
 const success: ResultEvent = {
   type: "result",
@@ -39,4 +44,35 @@ test("an error flag on any result event fails the run, exit code aside", () => {
 
 test("a run that produced no result event is a failure", () => {
   assert.match(runFailure([]) ?? "", /No result event/);
+});
+
+test("parseSkillInvocations finds Skill tool uses in an assistant line", () => {
+  const line = JSON.stringify({
+    type: "assistant",
+    message: {
+      content: [
+        { type: "text", text: "Reviewing now." },
+        {
+          type: "tool_use",
+          name: "Skill",
+          input: { skill: "mattpocock-skills:code-review", args: "main" },
+        },
+        { type: "tool_use", name: "Bash", input: { command: "ls" } },
+        { type: "tool_use", name: "Skill", input: { skill: "code-review", args: "" } },
+      ],
+    },
+  });
+  assert.deepEqual(parseSkillInvocations(line), [
+    { skill: "mattpocock-skills:code-review", args: "main" },
+    { skill: "code-review", args: "" },
+  ]);
+});
+
+test("parseSkillInvocations ignores everything else", () => {
+  assert.deepEqual(parseSkillInvocations(JSON.stringify(success)), []);
+  assert.deepEqual(
+    parseSkillInvocations(JSON.stringify({ type: "assistant", message: { content: "x" } })),
+    [],
+  );
+  assert.deepEqual(parseSkillInvocations("not json"), []);
 });

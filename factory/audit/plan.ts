@@ -1,7 +1,8 @@
 /**
  * Whether a closed PR gets the first-20 audit (#18, ADR 0003). Pure: the
- * workflow reads the counter from the target's factory state (the repo
- * variable FACTORY_AUDITED_MERGES), asks this, and writes `next` back. No
+ * workflow reads the counter from the target's factory state (state.sh:
+ * .factory/state.json on the factory-state branch), asks this, and writes
+ * `next` back. No
  * imports, so the decision step runs on `node --experimental-strip-types`
  * with no install, like the dispatcher.
  */

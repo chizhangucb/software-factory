@@ -16,6 +16,10 @@ on:
         description: The target's test command, run on the PR head before the reviewer; its output is evidence for the verdict.
         type: string
         default: npm ci && npm run typecheck --if-present && npm test
+      per_account_slots:
+        description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
+        type: number
+        default: 3
       factory_repo:
         description: Repo holding the factory scripts (this repo).
         type: string
@@ -29,13 +33,40 @@ on:
         required: true
 
 jobs:
+  slot:
+    # Per-account concurrency cap (#17): N named slots, account-slot-0 .. account-slot-(N-1), shared by
+    # implement, review, and implement-pr in the target repo. A run takes slot (number mod N), so
+    # every run on one issue or PR lands in the same slot and stays serialized. Runs fill accounts
+    # in configured order and rotate only on a rate limit, so N slots caps runs in flight on the
+    # account in use. GitHub's concurrency key has no arithmetic, hence this job.
+    # Trade-off: a concurrency group holds one running and one pending run; a third run arriving
+    # for the same slot cancels the older pending one before it transitions any label. The
+    # dispatcher's schedule fallback (#15) re-labels tickets left that way.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      index: ${{ steps.pick.outputs.index }}
+    steps:
+      - id: pick
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+          SLOTS: ${{ inputs.per_account_slots }}
+        run: |
+          case "$SLOTS" in
+            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 3." >&2; SLOTS=3 ;;
+          esac
+          index=$(( NUMBER % SLOTS ))
+          echo "index=$index" >> "$GITHUB_OUTPUT"
+          echo "Concurrency group account-slot-$index (number $NUMBER, $SLOTS slots per account)."
+
   review:
     # pull_request_target runs with secrets: never on a fork's code.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: slot
     concurrency:
-      group: factory-mutate-pr-${{ github.event.pull_request.number }}
+      group: account-slot-${{ needs.slot.outputs.index }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -67,25 +98,34 @@ jobs:
             -f description="reviewer running" -f target_url="$RUN_URL" --silent \
             || echo "::warning::Could not set factory/verdict to pending. Does the caller grant statuses: write?"
 
-      - name: Pick account
+      - name: Enumerate accounts
+        # One secret per account, CLAUDE_CODE_OAUTH_TOKEN_<n>, labeled by the CLAUDE_ACCOUNT_<n> variable.
+        # Every token is masked before anything else prints. The list goes to a file in RUNNER_TEMP for
+        # the run script, which picks the account, deletes the file, and rotates once on a rate limit
+        # (#17). Adding an account is adding one secret; nothing here changes.
         env:
           SECRETS_JSON: ${{ toJSON(secrets) }}
           VARS_JSON: ${{ toJSON(vars) }}
         run: |
           set -euo pipefail
-          names=$(jq -r 'keys[] | select(test("^CLAUDE_CODE_OAUTH_TOKEN_[0-9]+$"))' <<<"$SECRETS_JSON" | sort -t_ -k5 -n)
-          first=$(printf '%s\n' "$names" | head -n1)
-          if [ -z "$first" ]; then
+          jq -r 'to_entries[] | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[1-9][0-9]*$")) | .value' <<<"$SECRETS_JSON" \
+            | while IFS= read -r token; do echo "::add-mask::$token"; done
+          file="${RUNNER_TEMP}/factory-accounts.json"
+          jq -n --argjson secrets "$SECRETS_JSON" --argjson vars "$VARS_JSON" '
+            [ $secrets | to_entries[]
+              | select(.key | test("^CLAUDE_CODE_OAUTH_TOKEN_[1-9][0-9]*$"))
+              | (.key | sub("^CLAUDE_CODE_OAUTH_TOKEN_"; "") | tonumber) as $n
+              | ($vars["CLAUDE_ACCOUNT_\($n)"] // "") as $label
+              | { index: $n, label: (if ($label | length) > 0 then $label else "account-\($n)" end), token: .value } ]
+            | sort_by(.index)' > "$file"
+          chmod 600 "$file"
+          count=$(jq 'length' "$file")
+          if [ "$count" = "0" ]; then
             echo "No CLAUDE_CODE_OAUTH_TOKEN_<n> secret is available. Pass secrets: inherit from the caller." >&2
             exit 1
           fi
-          n="${first##*_}"
-          token=$(jq -r --arg k "$first" '.[$k]' <<<"$SECRETS_JSON")
-          echo "::add-mask::$token"
-          echo "CLAUDE_CODE_OAUTH_TOKEN=$token" >> "$GITHUB_ENV"
-          echo "CLAUDE_ACCOUNT=$n" >> "$GITHUB_ENV"
-          label=$(jq -r --arg k "CLAUDE_ACCOUNT_$n" '.[$k] // empty' <<<"$VARS_JSON")
-          echo "Account $n${label:+ ($label)} selected from $(printf '%s\n' "$names" | wc -l | tr -d ' ') configured."
+          echo "FACTORY_ACCOUNTS_FILE=$file" >> "$GITHUB_ENV"
+          echo "$count account(s) configured: $(jq -r '[.[] | "\(.index) (\(.label))"] | join(", ")' "$file")"
 
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -152,7 +192,7 @@ jobs:
           REVIEWER_MODEL: ${{ inputs.reviewer_model }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           TEST_OUTPUT_FILE: ${{ runner.temp }}/factory-out/test-output.txt
-          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-config-${{ env.CLAUDE_ACCOUNT }}
+          FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
         run: tsx ../factory/factory/review/review.ts
 
       - name: Upload run log
@@ -223,6 +263,10 @@ jobs:
           printf '`agent:review` run failed.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:review` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
           gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
           gh pr comment "$PR_NUMBER" --body-file "$body_file"
+
+      - name: Always remove the accounts file
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
 
       - name: Always remove in-progress
         if: always()

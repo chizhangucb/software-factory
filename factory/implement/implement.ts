@@ -1,9 +1,9 @@
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
-import { claudeAgent, fail, gh, required, safeSh, sh } from "../shared/common";
+import { runWithRotation } from "../shared/accounts";
+import { fail, gh, required, safeSh, sh } from "../shared/common";
 import { resolveModel } from "../shared/model";
-import { createRunLog, runOrFail } from "../shared/run-log";
 
 const ISSUE_NUMBER = required("ISSUE_NUMBER");
 const ISSUE_TITLE = required("ISSUE_TITLE");
@@ -21,10 +21,9 @@ try {
   const { model, source } = resolveModel(IMPLEMENTER_MODEL, labels);
   console.log(`Implementer model: ${model} (from ${source}).`);
 
-  const log = createRunLog(`implement-${ISSUE_NUMBER}`);
-  const result = await runOrFail(log, () => sandcastle.run({
+  const result = await runWithRotation(`implement-${ISSUE_NUMBER}`, model, (agent, log) => sandcastle.run({
     name: `implement-#${ISSUE_NUMBER}`,
-    agent: claudeAgent(model),
+    agent,
     sandbox: noSandbox(),
     logging: log.logging,
     promptFile: path.join(import.meta.dirname, "prompt.md"),

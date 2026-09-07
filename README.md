@@ -5,7 +5,7 @@ Reusable GitHub Actions workflows that turn a labeled ticket into a draft PR, re
 ## Onboard a target repo
 
 1. Copy `examples/factory.yml` to `.github/workflows/factory.yml` in the target. That file is the only factory file the target carries.
-2. Add secrets: `FACTORY_PAT` (a classic PAT with `repo` and `workflow`, so pushes trigger CI) and one `CLAUDE_CODE_OAUTH_TOKEN_<n>` per account from `claude setup-token`. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account for the logs.
+2. Add secrets: `FACTORY_PAT` (a classic PAT with `repo` and `workflow`, so pushes trigger CI) and one `CLAUDE_CODE_OAUTH_TOKEN_<n>` per account from `claude setup-token`. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account for the logs. Adding an account later is adding one more secret.
 3. Run `scripts/onboard.sh owner/repo` to create the `agent:*` and `needs-human` labels.
 4. Label a ticket `ready-for-agent`. The dispatcher adds `agent:implement` once every blocker is closed; a draft PR with `Closes #N` appears on `agent/issue-N-<slug>`, then the reviewer runs. Labeling `agent:implement` by hand still works.
 5. Require the two gate statuses on `main`: `factory/red-green` and `factory/test-integrity`. They post on every `pull_request` event next to the target's own checks.
@@ -47,6 +47,12 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 - Sandcastle 0.12.0 pinned exactly, Claude Code CLI pinned in `package.json`, both installed from the lockfile on every run.
 - Every run logs to a file with the stream event hook and keeps Claude's raw `result` events. Success is decided from those (`is_error`), never from the library's return value or the CLI exit code, because a rate-limited `claude -p` exits 0.
 - Runs pass `--dangerously-skip-permissions` on a bare ephemeral runner (ADR 0002). Pushes and PR creation use `FACTORY_PAT` so the target's CI fires on the agent's work.
+
+## Rotation
+
+- The workflow enumerates `CLAUDE_CODE_OAUTH_TOKEN_<n>` secrets, masks every token, and hands the list to the run script as a file. The script picks the lowest-indexed account, deletes the file, runs, and if the result event says rate limited it re-runs once on the next account. The job log names accounts by their `CLAUDE_ACCOUNT_<n>` label, never by token. Module: `factory/shared/rotation.ts` (`pickToken`, `isRateLimited`, pure, no network); run path: `factory/shared/accounts.ts`. Quota-aware ranking is #24.
+- `per_account_slots` (input, default 3) caps runs in flight per account as `account-slot-<i>` concurrency groups; raise it in the caller's `with:`. ADR 0004 records the one-pending-per-group trade-off.
+- Proof-run switch: set the caller repo variable `FACTORY_FORCE_RATE_LIMIT_ON=1` to make every job treat account 1's first attempt as rate limited (no agent run on it) and finish on account 2. Unset by default; `gh variable delete FACTORY_FORCE_RATE_LIMIT_ON` turns it off. Accepts a comma-separated list of indexes.
 - The private factory repo must allow its workflows to be used by other repos: Settings, Actions, General, Access.
 
 ## Develop

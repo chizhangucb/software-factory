@@ -1,0 +1,11 @@
+{
+  "_source": "Claude Code 2.1.263, HTTP 403 with a revoked OAuth token. Not a rate limit.",
+  "type": "result",
+  "subtype": "success",
+  "is_error": true,
+  "api_error_status": 403,
+  "num_turns": 1,
+  "stop_reason": null,
+  "result": "API Error: 403 {\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"OAuth token has been revoked\"}}",
+  "session_id": "00000000-0000-4000-8000-000000000006"
+}

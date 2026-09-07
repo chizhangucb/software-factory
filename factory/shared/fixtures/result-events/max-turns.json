@@ -1,0 +1,9 @@
+{
+  "_source": "Claude Code 2.1.263 hitting --max-turns. An error, not a rate limit.",
+  "type": "result",
+  "subtype": "error_max_turns",
+  "is_error": true,
+  "num_turns": 40,
+  "errors": ["Reached maximum number of turns (40)"],
+  "session_id": "00000000-0000-4000-8000-000000000007"
+}

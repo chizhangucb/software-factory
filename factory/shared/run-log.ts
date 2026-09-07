@@ -17,6 +17,10 @@ export interface ResultEvent {
   readonly is_error?: boolean;
   readonly subtype?: string;
   readonly result?: string;
+  /** Set when the final turn ended in an API error; 429 is a rate limit. */
+  readonly api_error_status?: number | null;
+  /** Error messages on the error_* subtypes. */
+  readonly errors?: readonly string[];
   readonly [key: string]: unknown;
 }
 
@@ -112,16 +116,20 @@ export const createRunLog = (name: string): RunLog => {
   };
 };
 
+export type Settled<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly failure: string };
+
 /**
  * Run the agent and always settle the log, whether the library returned or
  * threw. A result event carrying `is_error` is the reason that gets reported,
  * since the library's own error (a missing output tag, say) is usually the
  * symptom of it.
  */
-export const runOrFail = async <T>(
+export const settleRun = async <T>(
   log: RunLog,
   runAgent: () => Promise<T>,
-): Promise<T> => {
+): Promise<Settled<T>> => {
   let result: T | undefined;
   let thrown: unknown;
   try {
@@ -130,9 +138,21 @@ export const runOrFail = async <T>(
     thrown = error;
   }
   const failure = log.finish();
-  if (failure) return fail(failure);
+  if (failure) return { ok: false, failure };
   if (thrown !== undefined) {
-    return fail(thrown instanceof Error ? thrown.message : String(thrown));
+    return {
+      ok: false,
+      failure: thrown instanceof Error ? thrown.message : String(thrown),
+    };
   }
-  return result as T;
+  return { ok: true, value: result as T };
+};
+
+/** `settleRun`, then exit the process on failure. */
+export const runOrFail = async <T>(
+  log: RunLog,
+  runAgent: () => Promise<T>,
+): Promise<T> => {
+  const settled = await settleRun(log, runAgent);
+  return settled.ok ? settled.value : fail(settled.failure);
 };

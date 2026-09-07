@@ -1,14 +1,14 @@
 # software-factory
 
-Reusable GitHub Actions workflows that turn a labeled ticket into a draft PR, review it, and (soon) merge it with no human in the path. Glossary in `CONTEXT.md`, decisions in `docs/adr/`, spec in issue #9.
+Reusable GitHub Actions workflows that turn a labeled ticket into a PR, review it, and merge it with no human in the path. Glossary in `CONTEXT.md`, decisions in `docs/adr/`, spec in issue #9.
 
 ## Onboard a target repo
 
 1. Copy `examples/factory.yml` to `.github/workflows/factory.yml` in the target. That file is the only factory file the target carries.
 2. Add secrets: `FACTORY_PAT` (a classic PAT with `repo` and `workflow`, so pushes trigger CI) and one `CLAUDE_CODE_OAUTH_TOKEN_<n>` per account from `claude setup-token`. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account for the logs. Adding an account later is adding one more secret.
-3. Run `scripts/onboard.sh owner/repo` to create the `agent:*` and `needs-human` labels.
-4. Label a ticket `ready-for-agent`. The dispatcher adds `agent:implement` once every blocker is closed; a draft PR with `Closes #N` appears on `agent/issue-N-<slug>`, then the reviewer runs. Labeling `agent:implement` by hand still works.
-5. Require the two gate statuses on `main`: `factory/red-green` and `factory/test-integrity`. They post on every `pull_request` event next to the target's own checks.
+3. Run `scripts/onboard.sh owner/repo <own-check ...>` (e.g. `scripts/onboard.sh chizhangucb/factory-fixture check`). It creates the `agent:*` and `needs-human` labels, allows auto-merge on the repo, and puts a `factory` ruleset on the default branch: PR required, squash only, and `factory/verdict`, `factory/red-green`, `factory/test-integrity` plus the listed own checks required on a head that is up to date with main. Re-run it to update the ruleset.
+4. Label a ticket `ready-for-agent`. The dispatcher adds `agent:implement` once every blocker is closed; a draft PR with `Closes #N` and auto-merge enabled appears on `agent/issue-N-<slug>`, then the reviewer runs. Labeling `agent:implement` by hand still works.
+5. A passing verdict marks the PR ready; auto-merge squashes it once the required checks are green on the head. Nothing else touches the merge button.
 
 Models per role are inputs on each reusable workflow (`implementer_model`, `reviewer_model`, defaults `claude-opus-5`). A `model:<name>` label on a ticket overrides the implementer model for that run. `implementer_max_turns` (default 200) caps the implementer's turns on top of the 60 minute job timeout.
 
@@ -23,6 +23,14 @@ One ticket, one branch, one PR. The script fetches the ticket and its parent spe
 - The caller must grant `statuses: write` (see `examples/factory.yml`); a called workflow cannot exceed the caller's permissions. Targets onboarded before this need that one line added.
 - Tickets are sub-issues of their spec and are picked up as such; an issue that itself has sub-issues is refused as a spec.
 
+## Merge
+
+No merge queue in v0 (unavailable on user-owned repos; #26, #27), so ADR 0003's amendment stands in with three deterministic pieces:
+
+- Auto-merge (squash) is enabled on every factory PR the moment `implement.yml` creates it, with `FACTORY_PAT`. The PR is a draft until the reviewer's verdict passes; `review.yml` marks it ready on success and keeps the draft on failure.
+- The `factory` ruleset from `scripts/onboard.sh` requires a PR and the checks above on an up-to-date head, so a PR behind main cannot merge.
+- `update-branch.yml` runs on every `push` to main and on `pull_request_target: ready_for_review`. It calls GitHub's update-branch API for each open PR that has auto-merge enabled, is not a draft, and is behind main, then carries the passing `factory/verdict` to the new head with its provenance in the description. The merge commit is made with `FACTORY_PAT`, so the target's CI and the gate run again on the new head and auto-merge lands the PR on the latest main. A conflict the API cannot resolve gets a comment and `agent:blocked` (escalation is #16). Decisions are pure functions in `factory/update-branch/plan.ts` with `node --test` coverage; no agent, no npm install, strip-types only like the dispatcher.
+
 ## Gate
 
 `gate.yml` runs no agent. It reads the PR diff and the linked ticket (`Closes #N` in the PR body) and posts two commit statuses on the PR head:
@@ -34,8 +42,8 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 
 ## Layout
 
-- `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow. `gate.yml`: the factory's own gate checks. `dispatch.yml`: the dispatcher, factory-owned.
-- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `turn-cap.ts`, `ticket-context.ts`, `plugins.ts`, `gate/`, `dispatch/`). Treated as our code.
+- `.github/workflows/implement.yml`, `review.yml`, `implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow. `gate.yml`: the factory's own gate checks. `dispatch.yml`: the dispatcher. `update-branch.yml`: the merge-queue stand-in. All three factory-owned.
+- `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `turn-cap.ts`, `ticket-context.ts`, `plugins.ts`, `gate/`, `dispatch/`, `update-branch/`). Treated as our code.
 - `factory/plugins/`: skills the prompts call by name, vendored and pinned (`mattpocock-skills:code-review` from mattpocock-skills 1.2.3). Copied into the account's `CLAUDE_CONFIG_DIR/skills/` before each attempt, where Claude Code loads them as plugins. Bump by hand.
 - `vendor/`: the `@ai-hero/sandcastle@0.12.0` tarball, integrity-checked against the lockfile in CI.
 - `.github/dependabot.yml`: opens a PR when a new sandcastle or Claude Code version ships. The pin only moves by hand.

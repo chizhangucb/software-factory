@@ -5,8 +5,10 @@ on:
   issues:
     types: [closed, labeled]
   pull_request_target:
-    types: [labeled]
+    types: [labeled, ready_for_review]
   pull_request:
+  push:
+    branches: [main] # update-branch: bring stale auto-merge PRs up to date when main moves
   schedule:
     # Dispatcher fallback for missed events. Each run bills a minute on a private repo.
     # Off the :00 slots; GitHub delays crons on busy minutes.
@@ -45,4 +47,10 @@ jobs:
   gate:
     if: github.event_name == 'pull_request'
     uses: chizhangucb/software-factory/.github/workflows/gate.yml@main
+    secrets: inherit
+  update-branch:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request_target' && github.event.action == 'ready_for_review')
+    uses: chizhangucb/software-factory/.github/workflows/update-branch.yml@main
     secrets: inherit

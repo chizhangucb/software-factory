@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parentIssueFromGraphql, ticketDocument } from "./ticket-context";
+import { parentIssueFromGraphql, renderIssue, ticketDocument } from "./ticket-context";
 
 const withParent = JSON.stringify({
   data: {
@@ -44,4 +44,31 @@ test("ticketDocument carries the ticket and its parent spec, in that order", () 
 test("ticketDocument says so when there is no parent spec", () => {
   const doc = ticketDocument({ number: 3, issueContext: "Body", parent: undefined });
   assert.match(doc, /no parent spec/i);
+});
+
+test("renderIssue shows the body even when there are no comments", () => {
+  const text = renderIssue({
+    number: 4,
+    title: "Add a helper",
+    body: "## What to build\n\nA helper.",
+    comments: [],
+  });
+  assert.match(text, /^Issue #4: Add a helper/m);
+  assert.match(text, /A helper\./);
+  assert.doesNotMatch(text, /## Comments/);
+});
+
+test("renderIssue appends comments with their authors", () => {
+  const text = renderIssue({
+    number: 4,
+    title: "Add a helper",
+    body: "Body",
+    comments: [
+      { author: { login: "chi" }, body: "Also handle zero." },
+      { author: null, body: "Ghost note." },
+    ],
+  });
+  assert.match(text, /## Comments/);
+  assert.match(text, /### chi\n\nAlso handle zero\./);
+  assert.match(text, /### unknown\n\nGhost note\./);
 });

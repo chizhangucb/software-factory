@@ -104,7 +104,11 @@ jobs:
           STATE: ${{ steps.shape.outputs.state }}
         run: |
           gh issue edit "$ISSUE_NUMBER" --remove-label "agent:implement" || true
-          gh issue comment "$ISSUE_NUMBER" --body "Refused to run: issue #${ISSUE_NUMBER} is ${STATE}, not open. Reopen it and re-add \`agent:implement\` if it should be implemented."
+          if [ "$STATE" = "UNKNOWN" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "Refused to run: could not read issue #${ISSUE_NUMBER} (gh issue view failed). Re-add \`agent:implement\` to try again."
+          else
+            gh issue comment "$ISSUE_NUMBER" --body "Refused to run: issue #${ISSUE_NUMBER} is ${STATE}, not open. Reopen it and re-add \`agent:implement\` if it should be implemented."
+          fi
 
       - name: Refuse PRD-shaped issue
         if: steps.shape.outputs.state == 'OPEN' && steps.shape.outputs.sub_count != '0'

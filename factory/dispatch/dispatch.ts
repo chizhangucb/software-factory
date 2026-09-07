@@ -63,9 +63,10 @@ const closedByOpenPr = issuesClosedByPrs(openPrs());
 const issues = fromGitHub(openIssues(), closedByOpenPr);
 const dispatched = selectForDispatch(issues);
 
-/** Re-read the issue itself right before labeling; the listing above may be seconds stale. */
+/** Re-read the issue itself right before labeling; the listing above may be seconds stale, and so may the PR list. */
+const closedByOpenPrNow = dispatched.length > 0 && !dryRun ? issuesClosedByPrs(openPrs()) : closedByOpenPr;
 const recheck = (number: number): string | undefined =>
-  whyNotDispatchableNow(JSON.parse(gh(["api", `repos/${repo}/issues/${number}`])), closedByOpenPr);
+  whyNotDispatchableNow(JSON.parse(gh(["api", `repos/${repo}/issues/${number}`])), closedByOpenPrNow);
 
 for (const issue of issues) {
   const reason = whySkipped(issue);

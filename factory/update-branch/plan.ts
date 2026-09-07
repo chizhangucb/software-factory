@@ -15,8 +15,8 @@
 export const BLOCKED_LABEL = "agent:blocked";
 /** Put on a conflicting PR so implement-pr.yml merges the base into the branch and resolves. */
 export const IMPLEMENT_LABEL = "agent:implement";
-/** Labels that say the implementer already holds the PR (running or queued) or that it is parked. */
-export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, "agent:in-progress", BLOCKED_LABEL];
+/** Labels that say an agent already holds the PR (implementer or reviewer, running or queued) or that it is parked. */
+export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, "agent:in-progress", "agent:review", BLOCKED_LABEL];
 export const VERDICT_CONTEXT = "factory/verdict";
 /**
  * Posted on a head the moment the factory's update-branch call is accepted.
@@ -61,7 +61,7 @@ export type OpenPr = {
   verdict: Verdict;
 };
 
-export type PlanAction = "update" | "resolve" | "skip";
+export type PlanAction = "update" | "hand-off" | "skip";
 
 export type Plan = {
   number: number;
@@ -126,7 +126,7 @@ export const planUpdate = (pr: OpenPr): Plan => {
     const held = pr.labels.find((l) => HANDED_OFF_LABELS.includes(l));
     return held
       ? plan("skip", `conflicts with main, already ${held}`)
-      : plan("resolve", "conflicts with main; handing the PR to the implementer");
+      : plan("hand-off", "conflicts with main; handing the PR to the implementer");
   }
   const { verdict } = pr;
   // The reviewer is on this PR; moving the head now would strand the verdict on the

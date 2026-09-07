@@ -62,12 +62,12 @@ test("a PR whose verdict failed is not updated, wherever that verdict sits; it c
 
 test("a stale PR that conflicts with main is handed to the implementer, not updated", () => {
   const conflicting = pr(7, { mergeable: "CONFLICTING" });
-  assert.deepEqual(actions([conflicting]), ["7:resolve"]);
+  assert.deepEqual(actions([conflicting]), ["7:hand-off"]);
   assert.match(planUpdate(conflicting).reason, /conflicts with main; handing/);
 });
 
 test("a conflicting PR the implementer already holds, or that is parked, is not handed off twice", () => {
-  for (const label of [IMPLEMENT_LABEL, "agent:in-progress", BLOCKED_LABEL]) {
+  for (const label of [IMPLEMENT_LABEL, "agent:in-progress", "agent:review", BLOCKED_LABEL]) {
     const already = pr(7, { mergeable: "CONFLICTING", labels: [label] });
     assert.deepEqual(actions([already]), ["7:skip"], label);
     assert.equal(planUpdate(already).reason, `conflicts with main, already ${label}`);

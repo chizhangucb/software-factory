@@ -29,6 +29,8 @@ export const FACTORY_STATE_LABELS = [
 
 export type DispatchIssue = {
   number: number;
+  /** Absent in a listing of open issues; set from a single-issue re-read. */
+  state?: "open" | "closed";
   labels: readonly string[];
   assigned: boolean;
   /** Open blockers from `issue_dependencies_summary.blocked_by`. */
@@ -42,6 +44,7 @@ export type DispatchIssue = {
 /** The reason an issue is not dispatched, or undefined when it is. */
 export const whySkipped = (issue: DispatchIssue): string | undefined => {
   const has = (label: string) => issue.labels.includes(label);
+  if (issue.state === "closed") return "closed since the snapshot";
   if (!has(READY_LABEL)) return `no ${READY_LABEL}`;
   const refused = REFUSED_LABELS.find(has);
   if (refused) return `refused: ${refused}`;
@@ -92,6 +95,7 @@ export const fromGitHub = (
     if (r.pull_request) continue;
     issues.push({
       number: Number(r.number),
+      ...(r.state === "open" || r.state === "closed" ? { state: r.state } : {}),
       labels: (r.labels ?? []).map((label: { name: string }) => label.name),
       assigned: (r.assignees ?? []).length > 0,
       openBlockers: Number(r.issue_dependencies_summary?.blocked_by ?? 0),
@@ -113,8 +117,6 @@ export const whyNotDispatchableNow = (
   raw: unknown,
   closedByOpenPr: ReadonlySet<number>,
 ): string | undefined => {
-  const r = raw as Record<string, any>;
-  if (r.state !== "open") return "closed since the snapshot";
   const [issue] = fromGitHub([raw], closedByOpenPr);
   return issue ? whySkipped(issue) : "not an issue";
 };

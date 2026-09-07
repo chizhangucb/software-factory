@@ -273,7 +273,7 @@ jobs:
           fi
           git push --force "https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#*://}/${GH_REPO}.git" "refs/heads/$branch:refs/heads/$branch"
           body="$RUNNER_TEMP/factory-out/audit-revert-body.md"
-          sed -i "s|{{AUDIT_COMMENT_URL}}|${AUDIT_COMMENT_URL}|g" "$body"
+          tsx ../factory/factory/audit/fill-links.ts "$body"
           url=$(gh pr list --head "$branch" --base "$BASE_BRANCH" --state open --json url --jq '.[0].url // empty')
           if [ -z "$url" ]; then
             url=$(gh pr create --base "$BASE_BRANCH" --head "$branch" \
@@ -290,13 +290,9 @@ jobs:
           REVERT_FAILURE: ${{ steps.revert.outputs.revert_failure }}
         run: |
           set -euo pipefail
+          # Values go in verbatim (no sed): a `|`, `&`, or `\` in git's conflict message must not stop this step.
           body="$RUNNER_TEMP/factory-out/audit-issue-body.md"
-          sed -i "s|{{AUDIT_COMMENT_URL}}|${AUDIT_COMMENT_URL}|g" "$body"
-          if [ -n "$REVERT_PR_URL" ]; then
-            sed -i "s|{{REVERT_PR_URL}}|${REVERT_PR_URL}|g" "$body"
-          else
-            sed -i "s|^- Revert PR: .*|- Revert PR: none, \`git revert\` did not apply cleanly: ${REVERT_FAILURE:-unknown}. Revert by hand or fix forward.|" "$body"
-          fi
+          tsx factory/factory/audit/fill-links.ts "$body"
           url=$(gh issue create --title "$(cat "$RUNNER_TEMP/factory-out/audit-issue-title.txt")" \
             --label needs-human --body-file "$body")
           echo "needs-human issue: $url"

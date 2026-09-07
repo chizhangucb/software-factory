@@ -6,6 +6,7 @@ import {
   isMiss,
   missReason,
   renderAuditComment,
+  fillMissLinks,
   renderNeedsHumanIssue,
   renderRevertPrBody,
   type AuditResult,
@@ -123,4 +124,28 @@ test("when the revert did not apply the issue says so instead of linking a PR", 
     runUrl: "r",
   });
   assert.match(issue.body, /- Revert PR: none, `git revert` did not apply cleanly: conflict in src\/slugify\.js/);
+});
+
+test("fillMissLinks takes the workflow's values verbatim, sed metacharacters included", () => {
+  const issue = renderNeedsHumanIssue(unmet, {
+    prNumber: "45",
+    prTitle: "t",
+    mergeSha: "abcdef0123456789",
+    auditCommentUrl: "{{AUDIT_COMMENT_URL}}",
+    revertPrUrl: "{{REVERT_PR_URL}}",
+    runUrl: "r",
+  });
+  const filled = fillMissLinks(issue.body, {
+    auditCommentUrl: "https://example.test/pr/45#issuecomment-1",
+    revertPrUrl: "https://example.test/pr/46?a=1&b=2",
+  });
+  assert.match(filled, /- Audit comment: https:\/\/example\.test\/pr\/45#issuecomment-1$/m);
+  assert.match(filled, /- Revert PR: https:\/\/example\.test\/pr\/46\?a=1&b=2 \(not auto-merged\)$/m);
+  assert.doesNotMatch(filled, /\{\{/);
+
+  const failure = "CONFLICT (content): Merge conflict in src/a|b.js & path\\x $& $1";
+  const noRevert = fillMissLinks(issue.body, { auditCommentUrl: "u", revertFailure: failure });
+  assert.ok(noRevert.includes(`- Revert PR: none, \`git revert\` did not apply cleanly: ${failure}. Revert by hand or fix forward.`));
+  assert.doesNotMatch(noRevert, /\{\{/);
+  assert.equal(noRevert.split("\n").length, issue.body.split("\n").length, "one line replaced, none added");
 });

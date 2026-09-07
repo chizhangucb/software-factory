@@ -19,8 +19,10 @@ import { readUsageRecords } from "../shared/usage-record";
 import { boundOutput, parseAcceptanceCriteria, resolveVerdict } from "../shared/verdict";
 import { auditOutputSchema } from "./output";
 import {
+  AUDIT_COMMENT_URL_PLACEHOLDER,
   isMiss,
   missReason,
+  REVERT_PR_URL_PLACEHOLDER,
   renderAuditComment,
   renderNeedsHumanIssue,
   renderRevertPrBody,
@@ -69,7 +71,7 @@ const writeAudit = (result: AuditResult, context: { issueNumber: string; prTitle
         prNumber: PR_NUMBER,
         prTitle: context.prTitle,
         mergeSha: MERGE_SHA,
-        auditCommentUrl: "{{AUDIT_COMMENT_URL}}",
+        auditCommentUrl: AUDIT_COMMENT_URL_PLACEHOLDER,
         runUrl: RUN_URL,
       }),
     );
@@ -77,8 +79,8 @@ const writeAudit = (result: AuditResult, context: { issueNumber: string; prTitle
       prNumber: PR_NUMBER,
       prTitle: context.prTitle,
       mergeSha: MERGE_SHA,
-      auditCommentUrl: "{{AUDIT_COMMENT_URL}}",
-      revertPrUrl: "{{REVERT_PR_URL}}",
+      auditCommentUrl: AUDIT_COMMENT_URL_PLACEHOLDER,
+      revertPrUrl: REVERT_PR_URL_PLACEHOLDER,
       runUrl: RUN_URL,
     });
     writeText("audit-issue-title.txt", issue.title);

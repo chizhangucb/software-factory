@@ -100,6 +100,35 @@ export const renderRevertPrBody = (result: AuditResult, links: MissLinks): strin
     "Opened by the software factory's audit. Not auto-merged: a human decides whether to revert or to fix forward.",
   ].join("\n");
 
+const REVERT_LINE_PREFIX = "- Revert PR: ";
+
+const revertLine = (links: Pick<MissLinks, "revertPrUrl" | "revertFailure">): string =>
+  links.revertPrUrl
+    ? `${REVERT_LINE_PREFIX}${links.revertPrUrl} (not auto-merged)`
+    : `${REVERT_LINE_PREFIX}none, \`git revert\` did not apply cleanly: ${links.revertFailure ?? "unknown"}. Revert by hand or fix forward.`;
+
+/** The placeholders the audit script leaves in its bodies for the URLs only the workflow knows. */
+export const AUDIT_COMMENT_URL_PLACEHOLDER = "{{AUDIT_COMMENT_URL}}";
+export const REVERT_PR_URL_PLACEHOLDER = "{{REVERT_PR_URL}}";
+
+/**
+ * Fill a body's placeholders with the values the workflow learned, taken
+ * verbatim: a `|`, `&`, `\`, or `$` in a URL or in git's conflict message
+ * must never break the step that opens the needs-human issue. With no
+ * revert PR, the revert line becomes the "did not apply" line instead.
+ */
+export const fillMissLinks = (
+  body: string,
+  links: { readonly auditCommentUrl: string; readonly revertPrUrl?: string; readonly revertFailure?: string },
+): string => {
+  const withComment = body.split(AUDIT_COMMENT_URL_PLACEHOLDER).join(links.auditCommentUrl);
+  if (links.revertPrUrl) return withComment.split(REVERT_PR_URL_PLACEHOLDER).join(links.revertPrUrl);
+  return withComment
+    .split("\n")
+    .map((line) => (line.startsWith(REVERT_LINE_PREFIX) ? revertLine(links) : line))
+    .join("\n");
+};
+
 export const renderNeedsHumanIssue = (
   result: AuditResult,
   links: MissLinks,
@@ -110,9 +139,7 @@ export const renderNeedsHumanIssue = (
     "",
     `- PR: #${links.prNumber} (merged as ${links.mergeSha.slice(0, 7)})`,
     `- Audit comment: ${links.auditCommentUrl}`,
-    links.revertPrUrl
-      ? `- Revert PR: ${links.revertPrUrl} (not auto-merged)`
-      : `- Revert PR: none, \`git revert\` did not apply cleanly: ${links.revertFailure ?? "unknown"}. Revert by hand or fix forward.`,
+    revertLine(links),
     `- Run: ${links.runUrl}`,
     "",
     "Decide: merge the revert, or fix forward and close it. Close this issue when done.",

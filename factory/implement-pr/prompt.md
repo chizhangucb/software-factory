@@ -5,9 +5,9 @@ Address unresolved review feedback on PR #{{PR_NUMBER}} on branch `{{BRANCH}}`.
 PR title: {{PR_TITLE}}
 Linked issue: #{{ISSUE_NUMBER}} {{ISSUE_TITLE}}
 
-This is not a fresh review. Focus on the PR conversation and unresolved feedback.
+This is not a fresh review. Focus on the PR conversation and unresolved feedback. When a CONFLICT section is present, resolving the conflict with the base branch comes first and may be the whole task.
 
-{{RETRY_SECTION}}
+{{CONFLICT_SECTION}}{{RETRY_SECTION}}
 # LINKED ISSUE
 
 {{LINKED_ISSUE}}

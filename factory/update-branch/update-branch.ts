@@ -24,7 +24,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import {
-  BLOCKED_LABEL,
+  IMPLEMENT_LABEL,
   type CommitStatus,
   type HeadCommit,
   type OpenPr,
@@ -146,15 +146,17 @@ const waitForNewHead = async (number: number, oldHead: string): Promise<string |
   return undefined;
 };
 
-const escalate = (number: number): void => {
+/** No API call resolves a conflict: label the PR for implement-pr.yml, which merges the base on the branch and resolves. */
+const handOff = (number: number): void => {
   const body = [
     "update-branch could not bring this PR up to date with `" + base + "`: the merge conflicts.",
     "",
-    "Auto-merge stays enabled but cannot fire until the conflict is resolved. Labeled `" + BLOCKED_LABEL + "`.",
+    "Handing it to the implementer: labeled `" + IMPLEMENT_LABEL + "`. Its run merges `" + base +
+      "` into the branch, resolves the conflicts, and pushes; the review then judges the new head and auto-merge lands it.",
     runUrl ? `\nRun: ${runUrl}` : "",
   ].join("\n");
   gh(["pr", "comment", String(number), "--repo", repo, "--body", body]);
-  gh(["pr", "edit", String(number), "--repo", repo, "--add-label", BLOCKED_LABEL]);
+  gh(["pr", "edit", String(number), "--repo", repo, "--add-label", IMPLEMENT_LABEL]);
 };
 
 /** Mark the head the factory asked GitHub to update from; findVerdict trusts only merges made on such a head. */
@@ -204,17 +206,17 @@ for (const plan of plans) {
       );
     }
     if (plan.action === "skip") continue;
-    if (plan.action === "escalate") {
-      escalate(plan.number);
-      console.log(`Escalated #${plan.number}: commented and labeled ${BLOCKED_LABEL}.`);
+    if (plan.action === "resolve") {
+      handOff(plan.number);
+      console.log(`Handed off #${plan.number}: commented and labeled ${IMPLEMENT_LABEL}.`);
       continue;
     }
     const result = requestUpdate(plan.number, pr.head.sha);
     if (result === "conflict") {
-      outcome.action = "escalate";
-      outcome.reason = "update-branch refused: conflicts with main";
-      escalate(plan.number);
-      console.log(`update-branch refused #${plan.number} (conflict); commented and labeled ${BLOCKED_LABEL}.`);
+      outcome.action = "resolve";
+      outcome.reason = "update-branch refused: conflicts with main; handing the PR to the implementer";
+      handOff(plan.number);
+      console.log(`update-branch refused #${plan.number} (conflict); commented and labeled ${IMPLEMENT_LABEL}.`);
       continue;
     }
     if (result === "head moved") {
@@ -261,9 +263,9 @@ if (outputDir) {
 }
 
 const updated = outcomes.filter((o) => o.newHead).length;
-const escalated = outcomes.filter((o) => o.action === "escalate").length;
+const handedOff = outcomes.filter((o) => o.action === "resolve").length;
 const carried = outcomes.filter((o) => o.verdictCarried).length;
 console.log(
-  `${prs.length} open PR(s) on ${base}, ${updated} updated, ${carried} verdict(s) carried, ${escalated} escalated, ${failed} failed${dryRun ? " (dry run)" : ""}.`,
+  `${prs.length} open PR(s) on ${base}, ${updated} updated, ${carried} verdict(s) carried, ${handedOff} handed to the implementer, ${failed} failed${dryRun ? " (dry run)" : ""}.`,
 );
 if (failed > 0) process.exit(1);

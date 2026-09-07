@@ -6,13 +6,17 @@
  * queue is unavailable on user-owned repos, so the factory requires
  * up-to-date branches and calls the update-branch API itself. Pure: PR
  * state in, an action per PR out. No LLM anywhere in this path; a conflict
- * the API cannot resolve is escalated for #16.
+ * the API cannot resolve is handed to the implementer (implement-pr.yml).
  *
  * Imports use explicit `.ts` so the job can run on bare
  * `node --experimental-strip-types` without installing the engine.
  */
 
 export const BLOCKED_LABEL = "agent:blocked";
+/** Put on a conflicting PR so implement-pr.yml merges the base into the branch and resolves. */
+export const IMPLEMENT_LABEL = "agent:implement";
+/** Labels that say the implementer already holds the PR (running or queued) or that it is parked. */
+export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, "agent:in-progress", BLOCKED_LABEL];
 export const VERDICT_CONTEXT = "factory/verdict";
 /**
  * Posted on a head the moment the factory's update-branch call is accepted.
@@ -57,7 +61,7 @@ export type OpenPr = {
   verdict: Verdict;
 };
 
-export type PlanAction = "update" | "escalate" | "skip";
+export type PlanAction = "update" | "resolve" | "skip";
 
 export type Plan = {
   number: number;
@@ -117,10 +121,12 @@ export const planUpdate = (pr: OpenPr): Plan => {
   const plan = (action: PlanAction, reason: string, carry = false): Plan =>
     ({ number: pr.number, action, carry, reason });
   if (!pr.autoMerge) return plan("skip", "auto-merge not enabled");
+  // No API call resolves a conflict; the implementer does, on the branch (implement-pr.yml).
   if (pr.mergeable === "CONFLICTING") {
-    return pr.labels.includes(BLOCKED_LABEL)
-      ? plan("skip", `conflicts with main, already ${BLOCKED_LABEL}`)
-      : plan("escalate", "conflicts with main");
+    const held = pr.labels.find((l) => HANDED_OFF_LABELS.includes(l));
+    return held
+      ? plan("skip", `conflicts with main, already ${held}`)
+      : plan("resolve", "conflicts with main; handing the PR to the implementer");
   }
   const { verdict } = pr;
   // The reviewer is on this PR; moving the head now would strand the verdict on the

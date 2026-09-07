@@ -222,19 +222,26 @@ const recordingLog = (
       ...log,
       finish(result) {
         const failure = log.finish(result);
-        appendUsageRecord(
-          {
-            role,
-            name: logName.replace(/\.account-\d+$/, ""),
-            model,
-            account: account.label,
-            attempt,
-            wallMs: log.wallMs(),
-            ...summarizeResultEvents(log.resultEvents),
-            ...(failure ? { failure } : {}),
-          },
-          { runUrl },
-        );
+        try {
+          appendUsageRecord(
+            {
+              role,
+              name: logName.replace(/\.account-\d+$/, ""),
+              model,
+              account: account.label,
+              attempt,
+              wallMs: log.wallMs(),
+              ...summarizeResultEvents(log.resultEvents),
+              ...(failure ? { failure } : {}),
+            },
+            { runUrl },
+          );
+        } catch (error) {
+          // Usage is a report, never a reason to fail the run.
+          console.warn(
+            `::warning::Could not record usage for ${logName}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         return failure;
       },
     };

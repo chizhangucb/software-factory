@@ -53,19 +53,8 @@
     "assignee": null,
     "author_association": "OWNER",
     "active_lock_reason": null,
-    "sub_issues_summary": {
-      "total": 0,
-      "completed": 0,
-      "percent_completed": 0
-    },
     "parent_issue_url": "https://api.github.com/repos/chizhangucb/software-factory/issues/9",
-    "issue_dependencies_summary": {
-      "blocked_by": 0,
-      "total_blocked_by": 0,
-      "blocking": 1,
-      "total_blocking": 1
-    },
-    "body": "## Parent\n\nSpec: #9 (software factory v0 on chronicle). Glossary: CONTEXT.md.\n\n## What to build\n\nThe factory must never wait forever on a lost event. Today every transition is event-driven (a label, a PR event, a push) and a missed or cancelled event leaves a ticket or PR stranded until a human notices. The dispatcher's schedule job becomes a reconciler: on every sweep it reads real state and repairs anything past its deadline, so a lost event costs at most one sweep.\n\nStuck states to detect, each with a deadline and a repair, all as a pure unit-tested decision over fixture data (labels, run list, PR checks, timestamps in; actions out):\n\n- A ticket carrying `agent:implement` or `agent:in-progress` with no live or recent run: re-add `agent:implement` (with FACTORY_PAT so the event fires); after a second miss, escalate to `needs-human` with a comment.\n- A PR carrying `agent:review` with no live or recent review run: re-add the label; second miss escalates.\n- An open factory PR with auto-merge armed and no `factory/verdict` status after its deadline: re-add `agent:review`.\n- An open factory PR whose head is behind main and whose update-branch never ran: call update-branch.\n- A ticket in `agent:in-progress` whose only run was cancelled by slot contention: re-add `agent:implement`.\n\nDeadlines are inputs with defaults. Each repair is logged with the reason so the run log reads as a list of decisions. Repairs are idempotent: running the sweep twice changes nothing the second time.\n\nGitHub's cron is unreliable on this account (the fixture saw a seven hour gap on 2026-09-07). Add a documented external trigger: the sweep also runs on `repository_dispatch` with a named event type, and the README shows a one-line `gh api` call a cron on any machine can send, so the sweep does not depend on GitHub's scheduler.\n\n## Acceptance criteria\n\n- [ ] A fixture ticket left in `agent:in-progress` with no run is re-dispatched by the next sweep, and escalated to `needs-human` after the second miss\n- [ ] A fixture PR with `agent:review` and no run is re-reviewed by the next sweep\n- [ ] A fixture PR with auto-merge armed and no verdict past the deadline gets a review run from the sweep\n- [ ] A sweep over a healthy fixture makes no changes, and running it twice in a row makes none\n- [ ] The decision function has node --test unit tests over fixture states, no network\n- [ ] The sweep runs on `repository_dispatch` from outside GitHub, proven with one call from a local machine\n- [ ] Every repair is a logged decision naming the state, the deadline, and the action\n\n## Blocked by\n\n- None (can start immediately). Recommended before #20.",
+    "body": "## Parent\n\nSpec: #9 (software factory v0 on chronicle). Glossary: CONTEXT.md.\n\n## What to build\n\nThe factory must never wait forever on a lost event. Today every transition is event-driven (a label, a PR event, a push) and a missed or cancelled event leaves a ticket or PR stranded until a human noti",
     "closed_by": {
       "login": "chizhangucb",
       "id": 8743300,
@@ -87,20 +76,7 @@
       "user_view_type": "public",
       "site_admin": false
     },
-    "reactions": {
-      "url": "https://api.github.com/repos/chizhangucb/software-factory/issues/35/reactions",
-      "total_count": 0,
-      "+1": 0,
-      "-1": 0,
-      "laugh": 0,
-      "hooray": 0,
-      "confused": 0,
-      "heart": 0,
-      "rocket": 0,
-      "eyes": 0
-    },
     "timeline_url": "https://api.github.com/repos/chizhangucb/software-factory/issues/35/timeline",
-    "performed_via_github_app": null,
     "state_reason": "completed",
     "pinned_comment": null
   },
@@ -166,22 +142,9 @@
       "patch_url": "https://github.com/chizhangucb/software-factory/pull/41.patch",
       "merged_at": null
     },
-    "body": "During the #19 attempt-2 run the cron sweep (factory-fixture run 34158133968, 20:06Z) failed in the reconciler with `Error: spawnSync gh ENOBUFS`: the paginated runs listing for a repo with 80+ runs in the window passed Node's 1 MB default maxBuffer. The dispatcher half had finished; the event path drove every state, so the proof was unaffected, but the safety net was down.\n\n- 64 MB maxBuffer on the four `gh` helpers (sweep, dispatch, update-branch, shared common)\n- no behaviour change otherwise; 227 tests green\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+    "body": "During the #19 attempt-2 run the cron sweep (factory-fixture run 34158133968, 20:06Z) failed in the reconciler with `Error: spawnSync gh ENOBUFS`: the paginated runs listing for a repo with 80+ runs in the window passed Node's 1 MB default maxBuffer. The dispatcher half had finished; the event path ",
     "closed_by": null,
-    "reactions": {
-      "url": "https://api.github.com/repos/chizhangucb/software-factory/issues/41/reactions",
-      "total_count": 0,
-      "+1": 0,
-      "-1": 0,
-      "laugh": 0,
-      "hooray": 0,
-      "confused": 0,
-      "heart": 0,
-      "rocket": 0,
-      "eyes": 0
-    },
     "timeline_url": "https://api.github.com/repos/chizhangucb/software-factory/issues/41/timeline",
-    "performed_via_github_app": null,
     "state_reason": null
   }
 ]

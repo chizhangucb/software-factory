@@ -43,3 +43,16 @@ The decision above says "a lockfile and a committed tarball". The tarball is no 
 - The live check is `package-lock.json`: the `integrity` field for `node_modules/@ai-hero/sandcastle` is what `npm ci` verifies on every run, in CI and in every factory job. A second hash comparison in CI checked a file nothing installed from.
 - The release asset is cold storage, in case the registry copy of 0.12.0 goes away. No workflow, script, or install path fetches it. Its sha512 matches the lockfile's integrity, recorded in the release notes.
 - Dependabot is unchanged: it still watches `@ai-hero/sandcastle` and `@anthropic-ai/claude-code` in `package.json`, and still merges nothing by itself.
+
+## Amendment, 2026-09-08: the reviewer, implement-pr and the audit read only trusted authors too
+
+The 2026-09-07 amendment above left one hole open, named there as follow-up #43: `factory/agent-workflows/shared/review-context.ts` was unfiltered, so the reviewer, implement-pr and the audit read a stranger's PR comments, review threads and linked-issue comments. That is now closed (#52), and #43 with it. The history above stands as written; this is what changed.
+
+- Everything a stranger can write is dropped before it reaches one of those three agents: the PR's top-level comments, the submitted review summaries, the unresolved review threads, and the linked ticket's comments. A dropped thread comment is not a reply target either, so an agent cannot answer words it never read.
+- The count goes in place of what was dropped, on the PR context and on the ticket, so an agent reads a cut thread as cut rather than as the whole of it.
+- The linked issue moved to the `gh issue view --json` path. The text view carries no `author_association`, so nothing on it could be filtered; one JSON read now brings the title, the acceptance criteria and the comments with their associations, and `lib/ticket-context.ts` renders it, the same code the implementer's ticket goes through.
+- The trust policy is one type, `TrustPolicy`, built once at each entrypoint from that job's `trusted_author_associations` and passed down as a required argument. It was threaded as optional parameters with defaults, which meant a call site could read a stranger's words by forgetting one. `author_association` is a union, and a value GitHub does not send reads as `NONE`.
+- `agent-review.yml`, `agent-implement-pr.yml` and `agent-audit.yml` take `trusted_author_associations`, default `OWNER`, the dispatcher's default. Setting it widens all of it together. The retry marker read on the PR path follows the same policy, which it did not before: `agent-implement-pr.yml` had no input, so it was pinned to a hardcoded `OWNER`.
+- An untrusted parent spec now withholds its title as well as its body. A title is the same untrusted channel as a body, and quoting it put a stranger's words in the prompt.
+
+Still not covered, deliberately: the linked issue's own body and title are read whatever their author's association. The dispatcher vouches for a ticket's author before any of this runs, and a reviewer with no acceptance criteria has nothing to judge. The rest of the 2026-09-07 amendment's "What this does not cover" list stands: a hand-labeled ticket skips the dispatcher, and `OWNER` is nobody on an org-owned repo.

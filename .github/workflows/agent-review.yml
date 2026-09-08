@@ -24,6 +24,15 @@ on:
         description: How long the retry handler waits after the verdict for the head's gate and CI to settle; a check still pending then counts as failed.
         type: number
         default: 15
+      trusted_author_associations:
+        description: >-
+          Comma-separated GitHub author_association values whose words the factory acts on
+          (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE). PR comments, review threads and the linked ticket's comments from anyone else are dropped
+          before the reviewer reads them, with a count in their place.
+          Keep it equal to the dispatch and implement jobs; setting it widens all of it together.
+          Empty falls back to OWNER; a payload with no association reads as NONE.
+        type: string
+        default: OWNER
       node_version:
         description: The Node the target's own tests and tooling run on. Match the target's own CI.
         type: string
@@ -219,6 +228,7 @@ jobs:
         working-directory: target
         env:
           REVIEWER_MODEL: ${{ inputs.reviewer_model }}
+          TRUSTED_AUTHOR_ASSOCIATIONS: ${{ inputs.trusted_author_associations }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           TEST_OUTPUT_FILE: ${{ runner.temp }}/factory-out/test-output.txt
         run: tsx ../factory/factory/agent-workflows/review/review.ts

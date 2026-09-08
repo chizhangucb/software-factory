@@ -14,6 +14,16 @@ on:
         description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
         type: number
         default: 5
+      trusted_author_associations:
+        description: >-
+          Comma-separated GitHub author_association values whose words the factory acts on
+          (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE). PR comments, review threads and the linked ticket's comments from anyone else are dropped
+          before the agent reads them, with a count in their place. The retry marker this run reads
+          back is a comment the factory posted with FACTORY_PAT, so it follows this same policy.
+          Keep it equal to the dispatch and implement jobs; setting it widens all of it together.
+          Empty falls back to OWNER; a payload with no association reads as NONE.
+        type: string
+        default: OWNER
       node_version:
         description: The Node the target's own tests and tooling run on. Match the target's own CI.
         type: string
@@ -207,6 +217,7 @@ jobs:
         working-directory: target
         env:
           IMPLEMENTER_MODEL: ${{ inputs.implementer_model }}
+          TRUSTED_AUTHOR_ASSOCIATIONS: ${{ inputs.trusted_author_associations }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: tsx ../factory/factory/agent-workflows/implement-pr/implement-pr.ts

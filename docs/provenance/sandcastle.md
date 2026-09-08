@@ -24,7 +24,7 @@ Nothing from `src/` was copied. Re-verified on 2026-09-08 by grepping all 161 ex
 | Used | Where |
 |---|---|
 | `run()` | `factory/agent-workflows/shared/run-with-extraction.ts` and `factory/agent-workflows/implement/implement.ts`. The reviewer, implement-pr, and the audit reach it through `runWithExtraction` |
-| `claudeCode()` | `factory/agent-workflows/shared/common.ts`, through `factory/lib/turn-cap.ts` |
+| `claudeCode()` | `factory/agent-workflows/shared/common.ts` |
 | `noSandbox()` | the four scripts that build a `run()` call: `implement/implement.ts`, `review/review.ts`, `implement-pr/implement-pr.ts`, and `factory/audit/audit.ts` |
 | `Output.object()` | `review/review.ts`, `implement-pr/implement-pr.ts`, and `factory/audit/audit.ts`; `shared/run-with-extraction.ts` takes the definition they build and never calls it |
 | types `RunOptions`, `RunResult`, `OutputObjectDefinition`, `AgentProvider`, `AgentStreamEvent`, `LoggingOption` | the same files |
@@ -100,7 +100,7 @@ Two files sit inside that subtree and are ours, because he ships no tests at all
 | `factory/gate/` | `gate.ts`, `changed-files.ts`, `red-green.ts`, `removes.ts`, `test-integrity.ts`, their four `.test.ts` |
 | `factory/retry/` | `retry.ts`, `context.ts`, `checks.ts`, `decide.ts`, `checks.test.ts`, `decide.test.ts` |
 | `factory/update-branch/` | `update-branch.ts`, `plan.ts`, `plan.test.ts` |
-| `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `gh.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `turn-cap.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, a `.test.ts` sibling for each of those except `errors.ts` and `read-only.ts`, plus `upsert-comment.sh` and `fixtures/` |
+| `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `gh.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, a `.test.ts` sibling for each of those except `errors.ts` and `read-only.ts`, plus `upsert-comment.sh` and `fixtures/` |
 | `factory/plugins/mattpocock-skills/` | a vendored subset of Matt's skills plugin pinned at 1.2.3, today the `code-review` skill alone (`LICENSE`, `.claude-plugin/plugin.json`, `skills/code-review/SKILL.md`). A different upstream, not sandcastle; #54 is what widens the subset |
 | `templates/factory.yml` | the caller a target copies. The file is ours; `templates/` is sandcastle's word for the folder |
 | `scripts/onboard.sh` | labels, auto-merge, and the `factory` ruleset on a target |
@@ -136,9 +136,9 @@ Line survival, by the method at the top:
 
 | Workflow | His lines surviving | Ours now | His share of ours |
 |---|---|---|---|
-| agent-implement.yml | 130 of 188 (69%) | 332 | 39% |
-| agent-review.yml | 81 of 112 (72%) | 278 | 29% |
-| agent-implement-pr.yml | 124 of 155 (80%) | 277 | 45% |
+| agent-implement.yml | 130 of 188 (69%) | 326 | 40% |
+| agent-review.yml | 81 of 112 (72%) | 277 | 29% |
+| agent-implement-pr.yml | 124 of 155 (80%) | 276 | 45% |
 
 The "10 to 20 percent of sandcastle is left" impression comes from growth, not from deletion. Roughly two thirds to four fifths of his pipeline lines are still there; the files are two to three times longer because of the steps in the "added" lists below.
 
@@ -158,7 +158,7 @@ Three of his steps appear in every table and are handled the same way everywhere
 | Compute branch name | kept | |
 | Create branch | changed | resume the pushed branch on a retry (`87d0eb0`, story 12). His bot identity `sandcastle-agent[bot]` is back (#47) |
 | Setup Node.js | changed | `node_version` input (`4d2ca78`) |
-| Run implementation agent | changed | env for model, turn cap, trusted authors, OUTPUT_DIR, forced rate limit (`8f0c3f1`, `5de4ebd`, `27d972e`, `4d2ca78`) |
+| Run implementation agent | changed | env for model, trusted authors, OUTPUT_DIR (`8f0c3f1`, `5de4ebd`, `27d972e`, `4d2ca78`). The turn cap and the forced-rate-limit knob were here too until #49 deleted both (#46, stories 18 and 19) |
 | Push branch | changed | PAT in the URL, push `refs/heads/$BRANCH` (`20e5f95`, `c722a10`); ADR 0002 "pushes use a PAT so CI runs" |
 | Open draft PR | changed | renamed "Open PR" and not a draft: GitHub refuses auto-merge on drafts (`0431d99`, ADR 0003 amendment) |
 | Request automated review | kept in shape | his AGENT_PAT-or-GITHUB_TOKEN fallback restored with FACTORY_PAT in AGENT_PAT's place, plus a warning line saying a GITHUB_TOKEN label fires no event (#47) |
@@ -209,9 +209,9 @@ Added: `refuse-fork`, the `slot` job, "Enumerate accounts", "Checkout factory", 
 | `shared/review-context.ts` | 154 of 159 (97%) | 170 | `issueBody` for criteria parsing (story 5); the closing-keyword regex moved to `lib/linked-issue.ts` (#13, #16); body and comments fetched separately, because gh 2.95 prints only comments under `--comments`; the body read throws instead of falling back to `""`, so an API error can never read as "no criteria"; an optional `diff` for the audit (story 18). |
 | `shared/diff-lines.ts` | 28 of 30 (93%) | 35 | `+++ /dev/null` and `--- ` headers handled explicitly, no phantom trailing line. Not forced by a story; kept because reverting would change behaviour the gate depends on. See section 8. |
 | `shared/common.ts` | 88 of 96 (92%) | 111 | `claudeAgent()` takes the model and the account instead of hardcoding `claude-opus-4-8` and one token (stories 17, 20, ADR 0004); a config dir per account with the session dir pointed there so extraction can resume; API-key and GitHub-token vars blanked (ADR 0001); `gh` re-exports `lib/gh.ts` and its 64 MB buffer (#19). |
-| `implement/implement.ts` | 24 of 33 (73%) | 74 | account rotation; model input plus `model:` label; turn cap; the ticket document with parent spec (stories 22, 23); trusted-author filtering (ADR 0002 amendment); the retry section (stories 12, 13); the plugin install (story 4); commits counted on `refs/heads/$BRANCH`. His `run()` call and his zero-commit check are the core and are his. |
+| `implement/implement.ts` | 24 of 33 (73%) | 69 | account rotation; model input plus `model:` label; the ticket document with parent spec (stories 22, 23); trusted-author filtering (ADR 0002 amendment); the retry section (stories 12, 13); the plugin install (story 4); commits counted on `refs/heads/$BRANCH`. His `run()` call and his zero-commit check are the core and are his. |
 | `review/review.ts` | 56 of 78 (72%) | 150 | read-only plus `assertReadOnly` (story 5, ADR 0003); the verdict, the criteria parse, the PR body section and the status files (stories 5, 6); the target's test output in the prompt; rotation and the model input. His REST review payload, his inline-comment filtering and his reply filtering are intact. |
-| `implement-pr/implement-pr.ts` | 74 of 79 (94%) | 115 | the conflict hand-off with `git merge-tree` and a re-check after the run (#19); the retry section; the model label; rotation. His flow is otherwise intact. |
+| `implement-pr/implement-pr.ts` | 75 of 79 (95%) | 117 | the conflict hand-off with `git merge-tree` and a re-check after the run (#19); the retry section; the model label; rotation. His flow is otherwise intact. |
 | `implement/prompt.md` | 7 of 26 (27%) | 42 | his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT) are back and the paragraphs inside them are ours: parent spec, target-repo docs binding (story 23), no-placeholder rules (stories 7, 8), the two review skills by name (story 4), never push or label, no network git or gh. Two sections have no counterpart of his: NO PLACEHOLDERS and REVIEW AND FIX. |
 | `review/prompt.md` | 14 of 33 (42%) | 37 | his sections (TASK, LINKED ISSUE, DIFF TO MAIN, PR COMMENTS, REVIEW PROCESS) are back and in his order; the paragraphs turn "actively improve the branch" into a read-only judge ticking criteria (story 5, ADR 0003). Two sections have no counterpart of his: ACCEPTANCE CRITERIA and TEST OUTPUT, both of which the verdict needs. |
 | `implement-pr/prompt.md` | 25 of 28 (89%) | 29 | the CONFLICT and RETRY placeholders and the line that sends the agent at a conflict first (#19); the no-credentials line (ADR 0002); his `npm run typecheck` widened to the repo's own typecheck and full suite. |
@@ -234,8 +234,9 @@ The prompt numbers moved when #47 put his section skeletons back: `implement/pro
 | usage comment (`factory/lib/usage.ts`) | 27; #18 | Half. The numbers come from his `RunResult.iterations[].usage`; the summing and the comment are ours. |
 | trusted authors (`factory/lib/trusted-authors.ts`) | ADR 0002 amendment, no story | No. His only trust check is "PR author is a collaborator" in the preflight. |
 | update-branch, API and no agent (`factory/update-branch/`) | 11; ADR 0003 amendment | No for the routine case: his update-branch is an agent on a label, ours is an API call on push with a verdict carry. The conflict case is section 8. |
-| turn cap (`factory/lib/turn-cap.ts`) | 14; #12 | No. `claudeCode()` cannot pass `--max-turns` (#21, gap 1). Ten lines over his public `AgentProvider` type, as #21 proposed. |
 | run log (`factory/lib/run-log.ts`) | 12, 13 and rotation; #10 | No. Needed to read raw result events and to have a file to attach; his scripts log to stdout. |
+
+One row has left this table since it was written: the turn cap (`factory/lib/turn-cap.ts`, story 14, #12), ten lines wrapping his public `AgentProvider` type to append `--max-turns` because `claudeCode()` cannot pass a flag through. #49 deleted it under story 18 of #46, so the module is in the history and not in the tree.
 
 ## 8. Where rewriting was avoidable, and what has been undone since
 
@@ -265,7 +266,7 @@ The mapping that answers "how much of this did sandcastle already do".
 - Story 5, the reviewer. His edits the branch; ours must not.
 - Story 11, update-branch. His is an agent on a label; ours is an API call on push.
 - Story 12, failure handling. His is `agent:blocked` plus a comment, with no retry, no `needs-human`, and no push of the partial branch.
-- Story 14, limits. His 60 minute job timeout, yes; a turn cap, no.
+- Story 14, limits. His 60 minute job timeout, yes; a turn cap, no. The factory built one and then deleted it (#49, story 18 of #46), so on both sides the stop on a run is now the job timeout plus sandcastle's own idle timeout.
 - Story 15, concurrency. His is per issue; ours is per account.
 - Story 20, the model. His is hardcoded.
 - Story 22, sub-issues. He refuses them; `/to-tickets` output is sub-issues by design.

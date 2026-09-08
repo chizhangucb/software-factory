@@ -12,7 +12,7 @@
  * - retry section in the prompt: stories 12, 13.
  * - factory plugins installed per attempt, so the prompt's skills exist: story 4.
  *   The whole plugin goes in, so TASK fences the run to the skills the prompt
- *   names: the other 22 are in the list and some of them describe work this run
+ *   names: the other 23 are in the list and some of them describe work this run
  *   is not doing (story 11 of #46).
  * - the bundled-review step rendered for the agent provider in hand: story 12
  *   of #46.

@@ -118,11 +118,13 @@ jobs:
         if: github.event.pull_request.state == 'open'
         id: transition
         run: |
+          set -euo pipefail
+          # The retry job's gate: this run took the PR, so it owes it a retry or a comment (#51).
+          # Written first, so a label call that fails still fails the step and still reaches the handler.
+          echo "handle=true" >> "$GITHUB_OUTPUT"
           gh pr edit "$PR_NUMBER" --remove-label "agent:implement" || true
           gh pr edit "$PR_NUMBER" --remove-label "agent:blocked" || true
           gh pr edit "$PR_NUMBER" --add-label "agent:in-progress"
-          # The retry job's gate: this run took the PR, so it owes it a retry or a comment (#51).
-          echo "handle=true" >> "$GITHUB_OUTPUT"
 
       - name: Enumerate accounts
         # One secret per account, CLAUDE_CODE_OAUTH_TOKEN_<n>, labeled by the CLAUDE_ACCOUNT_<n> variable.
@@ -329,8 +331,11 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
 
-      - name: Always remove in-progress
-        if: always() && github.event.pull_request.state == 'open'
+      - name: Remove in-progress
+        # Only on the way out clean: on a failure the `retry` job owns the label and drops it
+        # itself, a step before it relabels, so the PR is never unlabelled while that job spends
+        # minutes starting up on a fresh runner (#51). Same shape as agent-implement.yml.
+        if: github.event.pull_request.state == 'open'
         run: gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true
 
   retry:
@@ -400,6 +405,12 @@ jobs:
         with:
           name: factory-implement-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
           path: ${{ runner.temp }}/factory-out/logs
+
+      - name: Remove in-progress
+        # The implement-PR job left it on for a failed attempt so the PR was never unlabelled
+        # while this job started up. It comes off here, a step before the relabel. A handler that
+        # never got this far leaves it on, and the reconciler's stuck sweep repairs that (#51).
+        run: gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true
 
       - name: Retry or escalate
         env:

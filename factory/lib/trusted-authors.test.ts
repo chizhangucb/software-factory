@@ -108,17 +108,23 @@ const POLICY_WORKFLOWS = {
   "agent-audit.yml": "audit/audit.ts",
 } as const;
 
+/** A workflow's steps, split on the `- name:` boundary, so an env can be tied to the step it belongs to. */
+const stepsOf = (yaml: string): string[] => yaml.split(/\n(?= {6}- name:)/);
+
 test("every workflow that runs a policy-reading script declares and passes the input", () => {
   for (const [file, script] of Object.entries(POLICY_WORKFLOWS)) {
     const yaml = fs.readFileSync(new URL(file, workflowsDir), "utf8");
     assert.match(yaml, new RegExp(String.raw`\n {6}trusted_author_associations:`), `${file} declares the input`);
     assert.match(yaml, /\n {8}default: OWNER\b/, `${file} defaults to OWNER`);
-    assert.match(
-      yaml,
-      new RegExp(String.raw`${TRUSTED_AUTHORS_VAR}: \$\{\{ inputs\.trusted_author_associations \}\}`),
-      `${file} passes the input to its run step`,
+    // On the step that runs the script, not merely somewhere in the file: #51
+    // moved the retry handler into a job of its own, and an input wired to the
+    // wrong job typechecks fine and silently reads as OWNER at runtime.
+    const running = stepsOf(yaml).filter((step) => step.includes(script));
+    assert.equal(running.length, 1, `${file} runs ${script} in exactly one step`);
+    assert.ok(
+      running[0]!.includes(`${TRUSTED_AUTHORS_VAR}: \${{ inputs.trusted_author_associations }}`),
+      `${file} passes the input to the step that runs ${script}`,
     );
-    assert.ok(yaml.includes(script), `${file} runs ${script}`);
   }
 });
 

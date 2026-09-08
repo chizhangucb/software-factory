@@ -63,7 +63,7 @@ export const whySkipped = (
   if (state) return `already in the factory: ${state}`;
   // After the label checks: a skipped ticket gets no comment, so its one log
   // line should name the state a human can act on, not the author.
-  if (!policy.trusts(issue.authorAssociation)) {
+  if (!policy.trusts({ association: issue.authorAssociation })) {
     return `untrusted author: ${issue.authorAssociation}`;
   }
   if (issue.assigned) return "assigned";

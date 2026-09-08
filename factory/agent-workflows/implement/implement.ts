@@ -1,14 +1,14 @@
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
-import { runWithRotation } from "../shared/accounts";
+import { runWithRotation } from "../../lib/accounts";
 import { fail, gh, outputDir, required, sh, writeText } from "../shared/common";
-import { resolveRoleModel } from "../shared/model";
-import { installFactoryPlugins } from "../shared/plugins";
-import { fetchIssue, fetchParentIssue, ticketDocument } from "../shared/ticket-context";
-import { trustedAuthorsFromEnv } from "../shared/trusted-authors";
-import { withMaxTurns } from "../shared/turn-cap";
-import { retrySectionForRun } from "../retry/context";
+import { resolveRoleModel } from "../../lib/model";
+import { installFactoryPlugins } from "../../lib/plugins";
+import { fetchIssue, fetchParentIssue, ticketDocument } from "../../lib/ticket-context";
+import { trustedAuthorsFromEnv } from "../../lib/trusted-authors";
+import { withMaxTurns } from "../../lib/turn-cap";
+import { retrySectionForRun } from "../../retry/context";
 
 const ISSUE_NUMBER = required("ISSUE_NUMBER");
 const ISSUE_TITLE = required("ISSUE_TITLE");

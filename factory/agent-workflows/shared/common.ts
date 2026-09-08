@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execFileSync, execSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import * as sandcastle from "@ai-hero/sandcastle";
 
@@ -14,9 +14,6 @@ export const required = (name: string): string => {
   }
   return value;
 };
-
-export const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 export const fail = (message: string): never => {
   console.error(`\nFAILED: ${message}`);
@@ -36,14 +33,9 @@ export const safeSh = (cmd: string): string => {
   }
 };
 
-/** 64 MB: a busy repo's paginated listing passed Node's 1 MB default (ENOBUFS in the reconciler, #19). */
-const GH_MAX_BUFFER = 64 * 1024 * 1024;
-export const gh = (args: string[]): string =>
-  execFileSync("gh", args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: GH_MAX_BUFFER,
-  });
+// #47: his four-line wrapper now re-exports the factory's one gh wrapper, which
+// carries the 64 MB buffer a busy repo's listing needs (ENOBUFS, #19).
+export { gh } from "../../lib/gh.ts";
 
 export const writeJson = (filename: string, value: unknown): void => {
   fs.mkdirSync(outputDir(), { recursive: true });

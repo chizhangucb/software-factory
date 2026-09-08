@@ -196,12 +196,12 @@ jobs:
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: tsx ../factory/factory/implement-pr/implement-pr.ts
+        run: tsx ../factory/factory/agent-workflows/implement-pr/implement-pr.ts
 
       - name: Post usage comment
         # Token usage and wall time of every attempt in this job, one comment per role (#18).
         if: always() && env.PR_OPEN == 'true'
-        run: bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-implementer.md"
+        run: bash factory/factory/lib/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-implementer.md"
 
       - name: Upload run log
         if: always() && env.PR_OPEN == 'true'

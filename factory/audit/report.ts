@@ -3,8 +3,8 @@
  * miss the revert PR body and the needs-human issue body. Pure over the
  * resolved verdict; `audit.ts` gathers, the workflow posts.
  */
-import type { Verdict } from "../shared/verdict";
-import { verdictDescription } from "../shared/verdict";
+import type { Verdict } from "../lib/verdict";
+import { verdictDescription } from "../lib/verdict";
 
 export const AUDIT_MARKER = "<!-- factory:audit -->";
 

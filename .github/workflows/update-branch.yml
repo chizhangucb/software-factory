@@ -45,7 +45,9 @@ jobs:
           path: factory
           token: ${{ secrets.FACTORY_PAT }}
           persist-credentials: false
-          sparse-checkout: factory/update-branch
+          sparse-checkout: |
+            factory/update-branch
+            factory/lib/gh.ts
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

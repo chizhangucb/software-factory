@@ -1,4 +1,4 @@
-import { gh } from "./common";
+import { gh } from "../agent-workflows/shared/common";
 import {
   DEFAULT_TRUSTED_AUTHORS,
   isTrustedAuthor,

@@ -12,8 +12,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { gh, required, safeSh, sh, writeJson, writeText } from "../shared/common";
-import { linkedIssueNumber } from "../shared/linked-issue";
+import { gh, required, safeSh, sh, writeJson, writeText } from "../agent-workflows/shared/common";
+import { linkedIssueNumber } from "../lib/linked-issue";
 import { parseNameStatus, type ChangedFile } from "./changed-files";
 import { parseRemoves } from "./removes";
 import { redGreenPlan, redGreenVerdict, type RedGreenResults, type TestResult } from "./red-green";

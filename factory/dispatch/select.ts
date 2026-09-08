@@ -15,9 +15,9 @@
 import {
   DEFAULT_TRUSTED_AUTHORS,
   isTrustedAuthor,
-} from "../shared/trusted-authors.ts";
+} from "../lib/trusted-authors.ts";
 
-export { DEFAULT_TRUSTED_AUTHORS, parseTrustedAuthors } from "../shared/trusted-authors.ts";
+export { DEFAULT_TRUSTED_AUTHORS, parseTrustedAuthors } from "../lib/trusted-authors.ts";
 
 export const READY_LABEL = "ready-for-agent";
 export const DISPATCH_LABEL = "agent:implement";

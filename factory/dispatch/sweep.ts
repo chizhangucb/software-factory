@@ -25,11 +25,11 @@
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine.
  */
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { GH_MAX_BUFFER, PROJECTIONS, type Projection, STATUSES_PROJECTION, describeGhFailure, parseItems } from "./gh-read.ts";
+import { gh as ghExec } from "../lib/gh.ts";
+import { PROJECTIONS, type Projection, STATUSES_PROJECTION, describeGhFailure, parseItems } from "./gh-read.ts";
 import {
   DEFAULT_DEADLINES,
   type Deadlines,
@@ -65,7 +65,7 @@ class GhError extends Error {}
 
 const gh = (args: string[], env: NodeJS.ProcessEnv = process.env): string => {
   try {
-    return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env, maxBuffer: GH_MAX_BUFFER });
+    return ghExec(args, env);
   } catch (error) {
     throw new GhError(describeGhFailure(args, error));
   }

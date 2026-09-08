@@ -1,6 +1,6 @@
 import { gh, safeSh, sh } from "./common";
 import { parseDiffLines } from "./diff-lines";
-import { linkedIssueNumber } from "./linked-issue";
+import { linkedIssueNumber } from "../../lib/linked-issue";
 
 export interface ReviewThreadComment {
   readonly commentId: string;

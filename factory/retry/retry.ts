@@ -32,11 +32,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
-import { RATE_LIMITED_FILE } from "../shared/accounts";
-import { errorMessage, gh, outputDir, required } from "../shared/common";
-import { linkedIssueNumber } from "../shared/linked-issue";
-import { SECTION_END, SECTION_START, boundOutput } from "../shared/verdict";
+import { RATE_LIMITED_FILE } from "../lib/accounts";
+import { gh, outputDir, required } from "../agent-workflows/shared/common";
+import { errorMessage } from "../lib/errors.ts";
+import { linkedIssueNumber } from "../lib/linked-issue";
+import { SECTION_END, SECTION_START, boundOutput } from "../lib/verdict";
 import {
   type CheckFailure,
   type CheckRun,
@@ -89,11 +89,7 @@ const ghJson = <T>(args: string[]): T => JSON.parse(gh(args)) as T;
 
 /** A write with FACTORY_PAT: labels it adds fire events, GITHUB_TOKEN's do not. */
 const ghWrite = (args: string[]): string =>
-  execFileSync("gh", args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, GH_TOKEN: FACTORY_PAT, GITHUB_TOKEN: FACTORY_PAT },
-  });
+  gh(args, { ...process.env, GH_TOKEN: FACTORY_PAT, GITHUB_TOKEN: FACTORY_PAT });
 
 const attempt = (call: () => string, label: string): string | undefined => {
   try {
@@ -182,11 +178,7 @@ const failedLog = (url: string | null): string => {
   const runId = runIdFromUrl(url);
   if (!runId) return `(no run log: ${url ?? "no url"})`;
   try {
-    const log = execFileSync("gh", ["run", "view", runId, "--repo", REPO, "--log-failed"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    const log = gh(["run", "view", runId, "--repo", REPO, "--log-failed"]);
     return boundOutput(log.trim() || "(the run has no failed step log)", LOG_LIMITS);
   } catch (error) {
     return `(could not read the log of run ${runId}: ${errorMessage(error)})`;

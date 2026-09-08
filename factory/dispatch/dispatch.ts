@@ -17,10 +17,10 @@
  * `node --experimental-strip-types` and skips installing the engine: the
  * schedule path runs every ten minutes and should cost seconds.
  */
-import { execFileSync } from "node:child_process";
-import { GH_MAX_BUFFER } from "./gh-read.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
+
+import { gh } from "../lib/gh.ts";
 
 import {
   DISPATCH_LABEL,
@@ -40,9 +40,6 @@ if (!repo) {
 }
 const dryRun = process.env.DRY_RUN === "1";
 const trustedAuthors = parseTrustedAuthors(process.env.TRUSTED_AUTHOR_ASSOCIATIONS);
-
-const gh = (args: string[]): string =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: GH_MAX_BUFFER });
 
 const openIssues = (): unknown[] =>
   JSON.parse(

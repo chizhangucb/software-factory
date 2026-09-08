@@ -11,7 +11,7 @@
  * they appear they are pending too, since the gate run may still be queued
  * when the review starts.
  */
-import { NO_CRITERIA_DESCRIPTION } from "../shared/verdict";
+import { NO_CRITERIA_DESCRIPTION } from "../lib/verdict";
 import type { FailureKind } from "./decide";
 
 export interface CommitStatus {

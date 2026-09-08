@@ -9,9 +9,9 @@
  * extension: it runs on bare `node --experimental-strip-types` before the
  * engine is installed.
  */
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
-import { linkedIssueNumber } from "../shared/linked-issue.ts";
+import { gh } from "./gh.ts";
+import { linkedIssueNumber } from "./linked-issue.ts";
 
 export interface OpenPr {
   readonly number: number;
@@ -23,11 +23,6 @@ export interface OpenPr {
 /** The open PRs whose body links the ticket, in the order given. */
 export const prsClosing = (issueNumber: string, prs: readonly OpenPr[]): OpenPr[] =>
   prs.filter((pr) => linkedIssueNumber(pr.body) === issueNumber);
-
-/** 64 MB: a busy repo's paginated listing passed Node's 1 MB default (ENOBUFS in the reconciler, #19). */
-const GH_MAX_BUFFER = 64 * 1024 * 1024;
-const gh = (args: string[]): string =>
-  execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: GH_MAX_BUFFER });
 
 const isCollaborator = (repo: string, login: string): boolean => {
   try {

@@ -58,7 +58,7 @@ export const conflictSection = (base: string, conflicts: readonly string[]): str
     "",
     ...conflicts.map((c) => `- ${c}`),
     "",
-    `Do this first: run \`git merge ${base}\` (\`${base}\` is a local branch, no network is needed), then invoke the skill \`mattpocock-skills:resolving-merge-conflicts\` and resolve the merge through it. Then continue with the rest of this task; when there is nothing else to do, the merge commit is the whole task.`,
+    `Do this first: run \`git merge ${base}\` (\`${base}\` is a local branch, no network is needed), then invoke the skill \`mattpocock-skills:resolving-merge-conflicts\` and resolve the merge through it. Where both sides added entries to one list, keep every entry from both, in order (#19). Then continue with the rest of this task; when there is nothing else to do, the merge commit is the whole task.`,
     "",
   ].join("\n");
 };

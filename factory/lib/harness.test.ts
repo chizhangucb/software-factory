@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { FACTORY_HARNESS, bundledReviewStep } from "./harness";
+import { bundledReviewStep } from "./harness";
 
-test("the implementer's second review step invokes the bundled code review on a harness that has one", () => {
-  const step = bundledReviewStep(FACTORY_HARNESS);
+// sandcastle's own provider names: `claudeCode()` is "claude-code", `codex()` is "codex".
+test("the implementer's second review step invokes the bundled code review on Claude Code", () => {
+  const step = bundledReviewStep("claude-code");
   assert.match(step, /`code-review`/);
-  assert.match(step, /medium --fix/);
+  assert.match(step, /--fix/);
 });
 
 test("the second review step is skipped cleanly on a harness with no bundled code review", () => {

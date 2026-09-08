@@ -2,26 +2,22 @@
  * What the harness running an agent already provides, as opposed to the
  * skills the factory vendors and installs itself (`plugins.ts`).
  *
- * The factory runs Claude Code today: `claudeAgent` in the vendored
- * `agent-workflows/shared/common.ts` builds `sandcastle.claudeCode`, and the
- * Claude Code CLI ships a `code-review` skill of its own. ADR 0001 lets
- * another vendor's subscription take its place and sandcastle's library
- * already carries Codex, Cursor and the rest, so the implementer prompt has
- * to read correctly on a harness that bundles no code review: this module
- * renders that step, and returns nothing at all when the harness has none
- * (story 12 of #46).
+ * sandcastle names every agent provider it builds (`claude-code`, `codex`,
+ * `cursor`, `opencode`, `copilot`, `pi`). The factory runs Claude Code, whose
+ * CLI ships a `code-review` skill of its own; ADR 0001 lets another vendor's
+ * subscription take its place. So the implementer prompt reads its
+ * bundled-review step off the provider the run drew, rather than off a
+ * constant someone must remember to change: swap the provider and the step
+ * goes with it (story 12 of #46).
  */
 
-/** The harness the factory runs its agents on. */
-export const FACTORY_HARNESS = "claude-code";
-
-/** Harnesses whose CLI ships a `code-review` skill. */
+/** Harnesses whose CLI ships a `code-review` skill, by sandcastle's provider name. */
 const HARNESSES_WITH_BUNDLED_CODE_REVIEW: readonly string[] = ["claude-code"];
 
 /**
- * The implementer prompt's bundled-review step, empty on a harness that has
- * no code review of its own. Empty is a clean skip: the step vanishes and
- * Matt's review, which is vendored and always present, is the whole of the
+ * The implementer prompt's second review step, empty on a harness with no
+ * code review of its own. Step 2 because Matt's two-axis review is always
+ * step 1, and empty is a clean skip: that review is then the whole of the
  * prompt's review stage.
  */
 export const bundledReviewStep = (harness: string): string =>

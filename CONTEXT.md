@@ -71,3 +71,7 @@ Choosing which subscription account a run uses, by remaining quota, and retrying
 **Agent workflow**:
 A workflow that runs a model. Named with sandcastle's `agent-` prefix, so the prefix is how a reader tells which jobs spend a subscription: `agent-implement`, `agent-review`, `agent-implement-pr`, `agent-audit`. Everything else under `.github/workflows/` runs no model and keeps a plain name.
 _Avoid_: agent job (Actions' word for a step group inside a workflow).
+
+**Harness**:
+The CLI a run drives the model through, by sandcastle's provider name: `claude-code` today, `codex` or another vendor's under ADR 0001. What it bundles is the factory's to work around: skills the factory needs and the harness does not ship are vendored under `factory/plugins/`.
+_Avoid_: runner (Actions' word for the machine), provider (sandcastle's word for the object), CLI.

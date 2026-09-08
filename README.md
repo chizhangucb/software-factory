@@ -96,7 +96,7 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 ## Rotation
 
 - The workflow enumerates `CLAUDE_CODE_OAUTH_TOKEN_<n>` secrets, masks every token, and hands the list to the run script as a file. The script picks the lowest-indexed account, deletes the file, runs, and if the result event says rate limited it re-runs once on the next account. The job log names accounts by their `CLAUDE_ACCOUNT_<n>` label, never by token. Module: `factory/lib/rotation.ts` (`pickToken`, `isRateLimited`, pure, no network); run path: `factory/lib/accounts.ts`. Quota-aware ranking is #24.
-- `per_account_slots` (input, default 5) caps runs in flight per account as `account-slot-<i>` concurrency groups; raise it in the caller's `with:`. ADR 0004 records the one-pending-per-group trade-off.
+- `per_account_slots` (default 5) caps runs in flight per account as `account-slot-<i>` concurrency groups. It is an input on the four workflows that run a model (implement, implement-pr, review, audit) and on no other, so raise it in those four jobs' `with:`; setting it on dispatch, gate or update-branch fails the caller at parse time. ADR 0004 records the one-pending-per-group trade-off.
 - The private factory repo must allow its workflows to be used by other repos: Settings, Actions, General, Access.
 
 ## Develop

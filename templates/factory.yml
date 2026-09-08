@@ -63,7 +63,10 @@ jobs:
       # Optional: whose words the implementer acts on. Keep it equal to the dispatch job's,
       # or a trusted author's ticket is dispatched and their comments are then dropped.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
-      # Optional, same on every job: runs in flight per account (default 5).
+      # Optional, on implement, implement-pr, review and audit: runs in flight
+      # per account (default 5). Only those four run a model, so only those four
+      # take it; setting it on dispatch, gate or update-branch fails the whole
+      # factory workflow at parse time.
       # Runs fill accounts in order and rotate only on a rate limit, so this is
       # how many run at once on the account in use, not a spread across accounts.
       # Raise it to leave less quota idle; lower it to be gentler on one account.

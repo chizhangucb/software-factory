@@ -5,8 +5,9 @@
  * - retry: post the failing output as a marker comment on the ticket, add
  *   `factory:retry-<n>`, and label `agent:implement` (on the PR when one is
  *   open, so implement-pr runs on the branch; on the ticket otherwise).
- * - escalate: agent:* labels off, needs-human on, the PR closed, the
- *   branch kept, a comment on the ticket linking the run and its log.
+ * - escalate: agent:* and ready-for-agent off the ticket, needs-human on,
+ *   the PR closed with its agent:* labels off, the branch kept, a comment on
+ *   the ticket linking the run and its log.
  * - requeue (rate limited on every account, #17): no retry spent. A ticket
  *   gets a comment and is left for the dispatcher; a PR gets the comment
  *   and `agent:blocked`, since nothing re-dispatches a PR.
@@ -51,10 +52,9 @@ import {
   summariseFailures,
   unretryableReason,
 } from "./checks";
+import { ESCALATION_LABEL, escalationLabels, prCloseLabels } from "./labels.ts";
 import {
   decide,
-  ESCALATION_LABEL,
-  escalationLabels,
   type FailureKind,
   isImplementerFailure,
   MAX_RETRIES,
@@ -354,7 +354,7 @@ const requeue = (target: Target, reason: string): void => {
 
 const escalate = (target: Target, reason: string, failure: Failure): void => {
   if (target.pr) {
-    const prLabels = escalationLabels(labelsOf("pr", target.pr)).remove;
+    const prLabels = prCloseLabels(labelsOf("pr", target.pr)).remove;
     if (prLabels.length > 0) tryWrite(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", prLabels.join(",")]);
     tryWrite([
       "pr", "close", target.pr, "--repo", REPO, "--comment",
@@ -380,7 +380,7 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
       output: failure.output,
     }),
   );
-  console.log(`Escalated ${on[0]} #${on[1]}: ${labels.add} on, ${labels.remove.join(", ") || "no agent labels"} off${target.pr ? `, PR #${target.pr} closed` : ""}.`);
+  console.log(`Escalated ${on[0]} #${on[1]}: ${labels.add} on, ${labels.remove.join(", ") || "no factory labels"} off${target.pr ? `, PR #${target.pr} closed` : ""}.`);
 };
 
 const main = async (): Promise<void> => {

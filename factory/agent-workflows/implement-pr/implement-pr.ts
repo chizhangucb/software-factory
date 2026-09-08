@@ -29,7 +29,7 @@
  *   `writing-for-agents` (story 14 of #46), which is where the completion
  *   criterion on the thread list and the positive framing of his prohibitions
  *   come from. `extraction.md` stays his to the line: it is a format contract,
- *   and the audit's copy keeps his shape so the three read alike.
+ *   not prose, so story 14 leaves it alone.
  */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";

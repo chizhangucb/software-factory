@@ -15,6 +15,8 @@ Skills the factory prompts invoke by name. `factory/lib/plugins.ts` copies every
 
 Copied verbatim: `.claude-plugin/plugin.json`, `LICENSE`, and the 25 skills the manifest declares, which live under `skills/engineering/` and `skills/productivity/`. Upstream's `skills/deprecated/`, `skills/in-progress/` and `skills/misc/` declare no skill in the manifest and are not copied, so an upstream diff of this folder is a diff of the plugin.
 
+`docs/agents/domain.md`, `issue-tracker.md` and `triage-labels.md` at the repo root are the same bytes as this plugin's `skills/engineering/setup-matt-pocock-skills/{domain,issue-tracker-github,triage-labels}.md`, which is the skill that writes them. They stay verbatim so a re-run of that skill is a no-op and a bump can re-copy them; edit the right-hand column of the triage table and the PR flag in the tracker page, and leave the prose alone.
+
 ## Why vendored rather than installed
 
 `claude plugin install` takes a plugin and a marketplace, and no version; `claude plugin update` goes to the latest. `claude plugin marketplace add` pins no ref either. So a marketplace install on a runner would drift with the marketplace and could not be pinned to 1.2.3. Vendoring is the only pin available, and it also keeps the runner off the network for its skills.

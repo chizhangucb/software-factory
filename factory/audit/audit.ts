@@ -3,6 +3,11 @@
  * its ticket with the strongest configured model, read-only, and write the
  * result for the workflow to post. The workflow decided this merge is one
  * of the first 20 (plan.ts) before running this.
+ *
+ * `prompt.md` is the factory's, put through `writing-for-agents` (story 14 of
+ * #46), and heads its ticket section `# TICKET` because it has no vendored
+ * counterpart whose heading to keep. `extraction.md` keeps the shape of the two
+ * vendored ones so the three read alike; it is a format contract, not prose.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

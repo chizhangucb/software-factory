@@ -19,8 +19,9 @@
  *   one judgement per criterion (stories 5, 6), and TEST OUTPUT, the target's own
  *   test run (story 5). The paragraphs are the factory's (story 5, ADR 0003), and
  *   went through `writing-for-agents` (story 14 of #46): the trailing rules now
- *   say where the output goes before what never to do, and name the read-only
- *   check that enforces them (`assertReadOnly`).
+ *   say where the output goes before what never to do, and TASK tells the model
+ *   the read-only rule is checked and fails the run before a verdict is written,
+ *   which is `assertReadOnly` below.
  * - `extraction.md` gains `verdict` and `criteria`, and its `summary` field asks
  *   what the PR does and why the verdict is what it is, where his asked what the
  *   reviewer changed: he has no verdict (story 5).

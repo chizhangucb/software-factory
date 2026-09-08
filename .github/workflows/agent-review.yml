@@ -117,7 +117,7 @@ jobs:
           gh pr edit "$PR_NUMBER" --add-label "agent:in-progress"
 
       - name: Mark verdict pending
-        # Needs statuses: write from the caller (see examples/factory.yml); a caller without it
+        # Needs statuses: write from the caller (see templates/factory.yml); a caller without it
         # gets a warning here and a hard failure at "Set verdict status".
         run: |
           gh api --method POST "repos/${GH_REPO}/statuses/${BRANCH_HEAD_SHA}" \

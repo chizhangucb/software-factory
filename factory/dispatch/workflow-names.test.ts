@@ -43,7 +43,7 @@ test("the workflows that run a model carry sandcastle's names and the old ones a
 });
 
 test("the caller template calls workflow files the factory has", () => {
-  const template = fs.readFileSync(new URL("examples/factory.yml", repoRoot), "utf8");
+  const template = fs.readFileSync(new URL("templates/factory.yml", repoRoot), "utf8");
   const called = [...template.matchAll(/uses:\s*\S+\/\.github\/workflows\/(\S+?)@/g)].map((m) => m[1]!);
   assert.deepEqual(
     called.filter((file) => !exists(file)),

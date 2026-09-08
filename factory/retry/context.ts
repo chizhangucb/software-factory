@@ -1,6 +1,5 @@
 import { gh } from "../agent-workflows/shared/common";
-import { trustedComments } from "../lib/ticket-context";
-import { trustedAuthorsFromEnv } from "../lib/trusted-authors";
+import type { TrustPolicy } from "../lib/trusted-authors";
 import { latestRetryContext, type RetryContext, retryPromptSection } from "./decide";
 
 /**
@@ -13,10 +12,12 @@ import { latestRetryContext, type RetryContext, retryPromptSection } from "./dec
  * with FACTORY_PAT, so its comments qualify; without this filter anyone who
  * can comment on a public target's ticket could forge a marker and put their
  * own words in the implementer's prompt under "THE PREVIOUS ATTEMPT FAILED".
+ * The policy is required, on the ticket path and the PR path alike, so no run
+ * can read the marker under a wider policy than its target set (#52).
  */
 export const fetchRetryContext = (
   issueNumber: string,
-  trustedAuthors: readonly string[] = trustedAuthorsFromEnv(),
+  policy: TrustPolicy,
 ): RetryContext | undefined => {
   let bodies: string[];
   let labels: string[];
@@ -27,7 +28,9 @@ export const fetchRetryContext = (
       comments: { body: string; authorAssociation?: string | null }[];
       labels: { name: string }[];
     };
-    bodies = trustedComments(issue.comments, trustedAuthors).map((c) => c.body);
+    bodies = policy
+      .keep(issue.comments, (comment) => comment.authorAssociation)
+      .kept.map((comment) => comment.body);
     labels = issue.labels.map((l) => l.name);
   } catch (error) {
     console.log(
@@ -41,9 +44,9 @@ export const fetchRetryContext = (
 /** The prompt section for this run, logged in full so the run log shows what the agent was told. */
 export const retrySectionForRun = (
   issueNumber: string | undefined,
-  trustedAuthors?: readonly string[],
+  policy: TrustPolicy,
 ): string => {
-  const context = issueNumber ? fetchRetryContext(issueNumber, trustedAuthors) : undefined;
+  const context = issueNumber ? fetchRetryContext(issueNumber, policy) : undefined;
   if (!context) {
     console.log("No current retry context on the ticket: first attempt.");
     return "";

@@ -13,6 +13,7 @@ import { fail, required, sh, writeJson, writeText } from "../agent-workflows/sha
 import { resolveRoleModel } from "../lib/model";
 import { assertReadOnly, worktreeState } from "../lib/read-only";
 import { fetchPullRequestContext } from "../agent-workflows/shared/review-context";
+import { trustPolicyFromEnv } from "../lib/trusted-authors";
 import { runWithExtraction } from "../agent-workflows/shared/run-with-extraction";
 import { formatUsageComment } from "../lib/usage";
 import { readUsageRecords } from "../lib/usage-record";
@@ -97,7 +98,10 @@ try {
 
   // The merged change is the commit's diff to its first parent: a squash has one.
   const diff = sh(`git diff ${MERGE_SHA}^ ${MERGE_SHA}`);
-  const context = fetchPullRequestContext(PR_NUMBER, { diff });
+  // Whose words this run reads (story 27, ADR 0002 amendment), built once here.
+  const policy = trustPolicyFromEnv();
+  console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
+  const context = fetchPullRequestContext(PR_NUMBER, policy, { diff });
   const criteria = parseAcceptanceCriteria(context.issueBody);
   console.log(`Ticket #${context.issueNumber || "(none)"}: ${criteria.length} acceptance criteria.`);
 

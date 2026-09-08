@@ -27,7 +27,7 @@ import {
   type DispatchIssue,
   fromGitHub,
   issuesClosedByPrs,
-  parseTrustedAuthors,
+  trustPolicyFromEnv,
   selectForDispatch,
   whyNotDispatchableNow,
   whySkipped,
@@ -39,7 +39,9 @@ if (!repo) {
   process.exit(1);
 }
 const dryRun = process.env.DRY_RUN === "1";
-const trustedAuthors = parseTrustedAuthors(process.env.TRUSTED_AUTHOR_ASSOCIATIONS);
+// Built once here and passed down as a required argument, so no selection
+// path can fall back to a default policy of its own (#52).
+const policy = trustPolicyFromEnv();
 
 const openIssues = (): unknown[] =>
   JSON.parse(
@@ -62,7 +64,7 @@ const label = (issue: DispatchIssue): void => {
 
 const closedByOpenPr = issuesClosedByPrs(openPrs());
 const issues = fromGitHub(openIssues(), closedByOpenPr);
-const dispatched = selectForDispatch(issues, trustedAuthors);
+const dispatched = selectForDispatch(issues, policy);
 
 /** Re-read the issue itself right before labeling; the listing above may be seconds stale, and so may the PR list. */
 const closedByOpenPrNow = dispatched.length > 0 && !dryRun ? issuesClosedByPrs(openPrs()) : closedByOpenPr;
@@ -70,12 +72,12 @@ const recheck = (number: number): string | undefined =>
   whyNotDispatchableNow(
     JSON.parse(gh(["api", `repos/${repo}/issues/${number}`])),
     closedByOpenPrNow,
-    trustedAuthors,
+    policy,
   );
 
-console.log(`Trusted ticket authors: ${trustedAuthors.join(", ")}.`);
+console.log(`Trusted ticket authors: ${policy.associations.join(", ")}.`);
 for (const issue of issues) {
-  const reason = whySkipped(issue, trustedAuthors);
+  const reason = whySkipped(issue, policy);
   console.log(`#${issue.number}: ${reason ?? "dispatch"}`);
 }
 
@@ -106,7 +108,7 @@ if (outputDir) {
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(
     path.join(outputDir, "dispatch.json"),
-    JSON.stringify({ repo, dryRun, trustedAuthors, issues, dispatched: dispatched.map((i) => i.number), labeled, skipped, failed }, null, 2),
+    JSON.stringify({ repo, dryRun, trustedAuthors: policy.associations, issues, dispatched: dispatched.map((i) => i.number), labeled, skipped, failed }, null, 2),
   );
 }
 

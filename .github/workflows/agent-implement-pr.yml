@@ -33,7 +33,8 @@ on:
 jobs:
   refuse-fork:
     # pull_request_target runs with secrets: the factory never runs a fork's code. Say so on the PR
-    # and drop the trigger label, instead of skipping in silence.
+    # and drop the trigger label, instead of skipping in silence. No story asked for this job; it
+    # stays because reverting it would open the hole, not close a rewrite (#47).
     if: github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     permissions:
@@ -95,19 +96,18 @@ jobs:
       BRANCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      PR_OPEN: ${{ github.event.pull_request.state == 'open' }}
       # The push step puts FACTORY_PAT in front of it; the agent never sees the token.
       PUSH_URL: ${{ github.server_url }}/${{ github.repository }}.git
 
     steps:
       - name: Refuse closed PR
-        if: env.PR_OPEN != 'true'
+        if: github.event.pull_request.state != 'open'
         run: |
           gh pr edit "$PR_NUMBER" --remove-label "agent:implement" || true
           gh pr comment "$PR_NUMBER" --body "Refused to run: PR #${PR_NUMBER} is not open."
 
       - name: Transition labels
-        if: env.PR_OPEN == 'true'
+        if: github.event.pull_request.state == 'open'
         run: |
           gh pr edit "$PR_NUMBER" --remove-label "agent:implement" || true
           gh pr edit "$PR_NUMBER" --remove-label "agent:blocked" || true
@@ -118,7 +118,7 @@ jobs:
         # Every token is masked before anything else prints. The list goes to a file in RUNNER_TEMP for
         # the run script, which picks the account, deletes the file, and rotates once on a rate limit
         # (#17). Adding an account is adding one secret; nothing here changes.
-        if: env.PR_OPEN == 'true'
+        if: github.event.pull_request.state == 'open'
         env:
           SECRETS_JSON: ${{ toJSON(secrets) }}
           VARS_JSON: ${{ toJSON(vars) }}
@@ -144,7 +144,7 @@ jobs:
           echo "$count account(s) configured: $(jq -r '[.[] | "\(.index) (\(.label))"] | join(", ")' "$file")"
 
       - name: Checkout PR branch
-        if: env.PR_OPEN == 'true'
+        if: github.event.pull_request.state == 'open'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -154,7 +154,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout factory
-        if: env.PR_OPEN == 'true'
+        if: github.event.pull_request.state == 'open'
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.factory_repo }}
@@ -164,7 +164,7 @@ jobs:
           persist-credentials: false
 
       - name: Prepare branch
-        if: env.PR_OPEN == 'true'
+        if: github.event.pull_request.state == 'open'
         working-directory: target
         run: |
           # fetch-depth 0 already brought origin/main; no credentials remain for a network fetch
@@ -174,13 +174,16 @@ jobs:
           git config user.email "sandcastle-agent[bot]@users.noreply.github.com"
 
       - name: Setup Node.js
-        if: env.PR_OPEN == 'true'
+        if: github.event.pull_request.state == 'open'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
 
       - name: Install factory (pinned sandcastle, tsx, Claude Code)
-        if: env.PR_OPEN == 'true'
+        # His three steps (npm ci, npm run build, npm i -g @anthropic-ai/claude-code) collapse
+        # into one: nothing here builds sandcastle, and the CLI is pinned in the factory's own
+        # lockfile rather than installed unpinned at run time (#21, ADR 0002).
+        if: github.event.pull_request.state == 'open'
         working-directory: factory
         run: |
           npm ci
@@ -188,7 +191,7 @@ jobs:
           echo "Claude Code $(node_modules/.bin/claude --version)"
 
       - name: Run implement-PR agent
-        if: env.PR_OPEN == 'true'
+        if: github.event.pull_request.state == 'open'
         id: run
         working-directory: target
         env:
@@ -200,11 +203,11 @@ jobs:
 
       - name: Post usage comment
         # Token usage and wall time of every attempt in this job, one comment per role (#18).
-        if: always() && env.PR_OPEN == 'true'
+        if: always() && github.event.pull_request.state == 'open'
         run: bash factory/factory/lib/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-implementer.md"
 
       - name: Upload run log
-        if: always() && env.PR_OPEN == 'true'
+        if: always() && github.event.pull_request.state == 'open'
         uses: actions/upload-artifact@v4
         with:
           name: factory-implement-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
@@ -213,7 +216,7 @@ jobs:
 
       - name: Push branch
         # refs/heads/$BRANCH, not HEAD: the branch the run collected commits on, whatever the agent left checked out.
-        if: env.PR_OPEN == 'true' && success()
+        if: github.event.pull_request.state == 'open' && success()
         working-directory: target
         env:
           FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
@@ -231,7 +234,7 @@ jobs:
           fi
 
       - name: Post thread replies
-        if: env.PR_OPEN == 'true' && success()
+        if: github.event.pull_request.state == 'open' && success()
         env:
           REPLIES: ${{ runner.temp }}/factory-out/implement_thread_replies.json
         run: |
@@ -251,7 +254,7 @@ jobs:
           done
 
       - name: Post inline comments
-        if: env.PR_OPEN == 'true' && success()
+        if: github.event.pull_request.state == 'open' && success()
         working-directory: target
         env:
           COMMENTS: ${{ runner.temp }}/factory-out/implement_new_inline_comments.json
@@ -274,7 +277,7 @@ jobs:
           done
 
       - name: Post top-level comments
-        if: env.PR_OPEN == 'true' && success()
+        if: github.event.pull_request.state == 'open' && success()
         env:
           COMMENTS: ${{ runner.temp }}/factory-out/implement_top_level_comments.json
         run: |
@@ -289,7 +292,7 @@ jobs:
 
       - name: Request review
         # The factory's loop: every push is judged again. FACTORY_PAT so the label fires its event.
-        if: env.PR_OPEN == 'true' && success()
+        if: github.event.pull_request.state == 'open' && success()
         env:
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
         run: gh pr edit "$PR_NUMBER" --add-label "agent:review"
@@ -298,7 +301,7 @@ jobs:
         # One informed retry, then needs-human (#16), for a failure of the implementer itself. FACTORY_PAT so
         # the label that starts the retry fires its event. A failure elsewhere in the job (a push refused because
         # the branch moved, say), or a handler that cannot reach GitHub, gets the plain blocked comment.
-        if: env.PR_OPEN == 'true' && failure()
+        if: github.event.pull_request.state == 'open' && failure()
         env:
           FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
           FAILURE_KIND: implement
@@ -324,5 +327,5 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
 
       - name: Always remove in-progress
-        if: always() && env.PR_OPEN == 'true'
+        if: always() && github.event.pull_request.state == 'open'
         run: gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true

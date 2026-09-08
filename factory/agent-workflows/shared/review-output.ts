@@ -1,3 +1,10 @@
+/**
+ * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/shared/review-output.ts`.
+ * One forced difference (#47): the review schema gains `verdict` and one
+ * `criteria` entry per acceptance criterion, because the factory's reviewer
+ * emits a pass or fail with evidence rather than his `improved`/`clean`
+ * (story 5, ADR 0003). His implement-PR schema is untouched.
+ */
 import {
   asArray,
   asOptionalString,

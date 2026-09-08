@@ -1,3 +1,19 @@
+/**
+ * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/implement-pr/implement-pr.ts`.
+ * His flow is intact: PR context, one run over the unresolved threads, replies
+ * and comments out, refuse to finish with nothing to show. Every line that
+ * differs is forced, and each is named here (#47 keeps this list true):
+ *
+ * - conflict hand-off: update-branch labels a conflicting PR `agent:implement`, so
+ *   this run probes with `git merge-tree`, asks the agent to merge and resolve, and
+ *   fails if the conflict survives, or the hand-off would loop (#19). His own
+ *   `update-branch` agent does this upstream; kept as built because the proof run
+ *   exercised it (story 5 of #46).
+ * - retry section in the prompt: stories 12, 13.
+ * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
+ * - `prompt.md` is his, plus the CONFLICT and RETRY placeholders and the
+ *   no-credentials line (the agent gets no GitHub token, ADR 0002).
+ */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";

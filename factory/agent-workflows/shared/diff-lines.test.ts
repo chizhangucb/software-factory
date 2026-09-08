@@ -1,3 +1,5 @@
+// Factory-authored: sandcastle ships no tests for diff-lines.ts. Covers the factory's
+// forced differences and his behaviour underneath them (#47).
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

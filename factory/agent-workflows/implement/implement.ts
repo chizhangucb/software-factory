@@ -1,3 +1,22 @@
+/**
+ * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/implement/implement.ts`.
+ * His shape stands: read the issue, `sandcastle.run()` the prompt file, fail
+ * when the agent made no commits. Every line that differs is forced, and each
+ * is named here (#47 keeps this list true):
+ *
+ * - account rotation, one config dir per account: stories 15, 16, 17, ADR 0004.
+ * - model as a workflow input plus a `model:` label override: story 20.
+ * - turn cap: story 14 (`claudeCode()` cannot pass `--max-turns`).
+ * - ticket document, parent spec and `ticket-N.md`: stories 22, 23.
+ * - trusted authors over the ticket, its comments, the parent and the retry
+ *   marker: ADR 0002 amendment.
+ * - retry section in the prompt: stories 12, 13.
+ * - factory plugins installed per attempt, so the prompt's skills exist: story 4.
+ * - commits counted on `refs/heads/$BRANCH` against main, not on HEAD: a retry
+ *   that inherits the last attempt's commits still has a branch to judge (#16).
+ * - `prompt.md` keeps his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT);
+ *   the paragraphs inside them are the factory's (stories 4, 7, 8, 23).
+ */
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";

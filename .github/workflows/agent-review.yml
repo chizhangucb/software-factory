@@ -43,7 +43,8 @@ on:
 jobs:
   refuse-fork:
     # pull_request_target runs with secrets: the factory never runs a fork's code. Say so on the PR
-    # and drop the trigger label, instead of skipping in silence.
+    # and drop the trigger label, instead of skipping in silence. No story asked for this job; it
+    # stays because reverting it would open the hole, not close a rewrite (#47).
     if: github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     permissions:
@@ -206,6 +207,9 @@ jobs:
           tail -n 40 "$RUNNER_TEMP/factory-out/test-output.txt"
 
       - name: Install factory (pinned sandcastle, tsx, Claude Code)
+        # His three steps (npm ci, npm run build, npm i -g @anthropic-ai/claude-code) collapse
+        # into one: nothing here builds sandcastle, and the CLI is pinned in the factory's own
+        # lockfile rather than installed unpinned at run time (#21, ADR 0002).
         working-directory: factory
         run: |
           npm ci

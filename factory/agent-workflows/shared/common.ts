@@ -1,3 +1,14 @@
+/**
+ * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/shared/common.ts`.
+ * Forced differences, each named (#47):
+ *
+ * - `claudeAgent()` takes the model and the account instead of hardcoding
+ *   `claude-opus-4-8` and one token: stories 17, 20, ADR 0004. See its own doc.
+ * - `gh` re-exports `lib/gh.ts`, one wrapper and one 64 MB buffer (#19).
+ *
+ * `errorMessage` was here and was not forced by anything; it now lives in
+ * `lib/errors.ts` with its factory-authored callers.
+ */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";

@@ -401,8 +401,15 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
 
-      - name: Always remove in-progress
-        if: always() && steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
+      - name: Remove in-progress
+        # Only on the way out clean: on a failure the `retry` job owns the label and drops it
+        # itself, once it is about to relabel. Dropping it here would leave the ticket with no
+        # factory label for the minutes that job spends on a fresh runner, and the dispatcher's
+        # ten minute sweep re-dispatches exactly that shape: a `ready-for-agent` ticket with no
+        # `agent:*` label and no open PR. That run would start before the retry marker comment
+        # and the `factory:retry-1` label exist, so it would begin from main with no RETRY
+        # section, which is the resume the handler is there to arrange (#51).
+        if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
         run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:in-progress" || true
 
   retry:
@@ -474,6 +481,12 @@ jobs:
         with:
           name: factory-implement-issue-${{ github.event.issue.number }}-run-${{ github.run_attempt }}
           path: ${{ runner.temp }}/factory-out/logs
+
+      - name: Remove in-progress
+        # The implement job left it on for a failed attempt so nothing re-dispatched the ticket
+        # while this job started up. It comes off here, a step before the relabel. A handler that
+        # never got this far leaves it on, and the reconciler's stuck sweep repairs that (#51).
+        run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:in-progress" || true
 
       - name: Retry or escalate
         env:

@@ -18,9 +18,12 @@
  *
  * Env: GH_REPO, GH_TOKEN, FACTORY_PAT, BRANCH, RUN_URL, OUTPUT_DIR, one of
  * ISSUE_NUMBER or PR_NUMBER, and FAILURE_KIND:
- * - `implement`: the run in this job failed; the output is
+ * - `implement`: the implementer's attempt ended badly; the output is
  *   OUTPUT_DIR/failure_reason.txt plus the tail of the newest run log.
  *   OUTPUT_DIR/rate_limited.txt present means every account was rate limited.
+ *   IMPLEMENTER_OUTCOME is how the attempt ended, and only an attempt that
+ *   failed or was killed spends a retry; anything else exits 1 so the calling
+ *   job posts its blocked comment (#51).
  * - `checks`: a verdict was just posted on HEAD_SHA; wait for the head's
  *   other checks to settle (CHECKS_TIMEOUT_MINUTES, default 15), then fail
  *   on any failing status or check run. A check still pending at the
@@ -53,7 +56,9 @@ import {
   ESCALATION_LABEL,
   escalationLabels,
   type FailureKind,
+  isImplementerFailure,
   MAX_RETRIES,
+  missingFailureReason,
   renderEscalationComment,
   renderRequeueComment,
   renderRetryComment,
@@ -152,8 +157,8 @@ interface Failure {
   readonly unretryable?: string;
 }
 
-const implementFailure = (): Failure => {
-  const reason = readIf(path.join(outputDir(), "failure_reason.txt"))?.trim() || "(no reason file written; see the workflow log)";
+const implementFailure = (outcome: string): Failure => {
+  const reason = readIf(path.join(outputDir(), "failure_reason.txt"))?.trim() || missingFailureReason(outcome);
   return {
     kind: "implement",
     summary: `implement: ${reason.split("\n")[0]}`,
@@ -384,7 +389,14 @@ const main = async (): Promise<void> => {
 
   let failure: Failure | undefined;
   if (FAILURE_MODE === "implement") {
-    failure = implementFailure();
+    const outcome = required("IMPLEMENTER_OUTCOME");
+    if (!isImplementerFailure(outcome)) {
+      console.log(
+        `The implementer ended '${outcome}', so the failure is not the implementer's own: no retry is spent.`,
+      );
+      process.exit(1);
+    }
+    failure = implementFailure(outcome);
   } else if (FAILURE_MODE === "checks") {
     failure = await checksFailure();
   } else {

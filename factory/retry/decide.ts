@@ -38,6 +38,29 @@ export const retriesUsed = (labels: readonly string[]): number =>
     return Number.isInteger(n) && n > max ? n : max;
   }, 0);
 
+/**
+ * Whether an attempt that ended this way is the implementer's own failure, so
+ * it spends the ticket's one retry. GitHub's outcome for the step that ran the
+ * implementer, or for the job when the step's outcome did not survive.
+ *
+ * `cancelled` is the job timeout (#51): `timeout-minutes` kills the job
+ * mid-run, and an attempt killed while working is exactly what a retry is for.
+ * Anything else failed around the implementer (a checkout, a push, the PR
+ * step), which gets the blocked comment rather than burning the retry.
+ */
+export const isImplementerFailure = (outcome: string): boolean =>
+  outcome === "failure" || outcome === "cancelled";
+
+/**
+ * What to report as the failure reason when the attempt wrote no reason file.
+ * A cancelled attempt was killed rather than stopped by anything it could
+ * write down (#51), so saying "no reason file" would read as a factory bug.
+ */
+export const missingFailureReason = (outcome: string): string =>
+  outcome === "cancelled"
+    ? "the run was killed before it could report a reason; a job timeout looks like this"
+    : "(no reason file written; see the workflow log)";
+
 export type Decision =
   | { readonly action: "retry"; readonly retry: number }
   | { readonly action: "escalate"; readonly reason: string }

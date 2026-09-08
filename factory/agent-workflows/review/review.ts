@@ -14,7 +14,9 @@
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
  * - `prompt.md` keeps his sections (TASK, LINKED ISSUE, DIFF TO MAIN, PR COMMENTS,
  *   REVIEW PROCESS, then the trailing rules); the paragraphs are the factory's
- *   (story 5, ADR 0003). `extraction.md` gains `verdict` and `criteria` (story 5).
+ *   (story 5, ADR 0003). `extraction.md` gains `verdict` and `criteria`, and its
+ *   `summary` field asks what the PR does and why the verdict is what it is,
+ *   where his asked what the reviewer changed: he has no verdict (story 5).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

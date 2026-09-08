@@ -11,8 +11,12 @@
  *   exercised it (story 5 of #46).
  * - retry section in the prompt: stories 12, 13.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
- * - `prompt.md` is his, plus the CONFLICT and RETRY placeholders and the
- *   no-credentials line (the agent gets no GitHub token, ADR 0002).
+ * - `prompt.md` is his, plus: the CONFLICT and RETRY placeholders and the line
+ *   that sends the agent at the conflict first (#19); the no-credentials line
+ *   (the agent gets no GitHub token, ADR 0002); and his `npm run typecheck`
+ *   line widened to the repo's own typecheck and full suite, with what the gate
+ *   re-checks on a retry push, since nothing here is specific to one repo
+ *   (story 23) and the gate is the factory's, not his (stories 7, 8, 9, #13).
  */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";

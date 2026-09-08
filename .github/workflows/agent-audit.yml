@@ -5,7 +5,7 @@
 # merged diff and the ticket's acceptance criteria, read-only, and comments the
 # result on the PR. A miss opens a revert PR (not auto-merged) and a needs-human
 # issue. After 20 the job exits early with a log line.
-name: factory audit
+name: Agent Audit
 
 on:
   workflow_call:
@@ -182,8 +182,8 @@ jobs:
       - name: Prepare checkout
         working-directory: target
         run: |
-          git config user.name "factory-agent[bot]"
-          git config user.email "factory-agent[bot]@users.noreply.github.com"
+          git config user.name "sandcastle-agent[bot]"
+          git config user.email "sandcastle-agent[bot]@users.noreply.github.com"
           echo "Auditing $(git rev-parse --short HEAD): $(git log -1 --format=%s)"
 
       - name: Setup Node.js
@@ -216,7 +216,7 @@ jobs:
           echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
           echo "Claude Code $(node_modules/.bin/claude --version)"
 
-      - name: Run audit
+      - name: Run audit agent
         # Read-only: the script fails the run on any commit, dirty file, or moved HEAD.
         working-directory: target
         env:

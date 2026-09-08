@@ -20,7 +20,7 @@ const pr = (number: number, overrides: Partial<OpenPr> = {}): OpenPr => ({
   behindBy: 2,
   mergeable: "MERGEABLE",
   labels: [],
-  head: { sha: "h1", parents: ["p0"], committerLogin: "factory-agent[bot]" },
+  head: { sha: "h1", parents: ["p0"], committerLogin: "sandcastle-agent[bot]" },
   verdict: { state: "success", sha: "h1" },
   ...overrides,
 });
@@ -103,7 +103,7 @@ test("every plan carries a reason a log line can print", () => {
 test("isUpdateMerge names GitHub's own two-parent merge and nothing else", () => {
   assert.equal(isUpdateMerge(updateMerge), true);
   assert.equal(isUpdateMerge({ ...updateMerge, committerLogin: null }), false);
-  assert.equal(isUpdateMerge({ ...updateMerge, committerLogin: "factory-agent[bot]" }), false);
+  assert.equal(isUpdateMerge({ ...updateMerge, committerLogin: "sandcastle-agent[bot]" }), false);
   assert.equal(isUpdateMerge({ ...updateMerge, parents: ["h1"] }), false);
 });
 
@@ -129,14 +129,14 @@ test("findVerdict takes the verdict on the head itself first", () => {
 });
 
 test("findVerdict walks first parents through the factory's update merges to the head the reviewer judged", () => {
-  const h1: HeadCommit = { sha: "h1", parents: ["p0"], committerLogin: "factory-agent[bot]" };
+  const h1: HeadCommit = { sha: "h1", parents: ["p0"], committerLogin: "sandcastle-agent[bot]" };
   const h3: HeadCommit = { sha: "h3", parents: ["h2", "m4"], committerLogin: "web-flow" };
   const { statusesOf, commitOf } = chain({ h2: updateMerge, h1 }, { h2: [requested], h1: [status("failure"), requested] });
   assert.deepEqual(findVerdict(h3, statusesOf, commitOf), { state: "failure", sha: "h1" });
 });
 
 test("findVerdict does not cross a GitHub merge the factory never asked for: a conflict resolved in the web editor", () => {
-  const h1: HeadCommit = { sha: "h1", parents: ["p0"], committerLogin: "factory-agent[bot]" };
+  const h1: HeadCommit = { sha: "h1", parents: ["p0"], committerLogin: "sandcastle-agent[bot]" };
   const { statusesOf, commitOf } = chain({ h1 }, { h1: [status("success")] });
   assert.equal(isUpdateMerge(updateMerge), true, "same shape as an update merge");
   assert.deepEqual(findVerdict(updateMerge, statusesOf, commitOf), { state: "none", sha: "h2" });
@@ -145,8 +145,8 @@ test("findVerdict does not cross a GitHub merge the factory never asked for: a c
 });
 
 test("findVerdict stops at a commit a person or an agent made, and reports none on the head", () => {
-  const agentMerge: HeadCommit = { sha: "h2", parents: ["h1", "m3"], committerLogin: "factory-agent[bot]" };
-  const h1: HeadCommit = { sha: "h1", parents: ["p0"], committerLogin: "factory-agent[bot]" };
+  const agentMerge: HeadCommit = { sha: "h2", parents: ["h1", "m3"], committerLogin: "sandcastle-agent[bot]" };
+  const h1: HeadCommit = { sha: "h1", parents: ["p0"], committerLogin: "sandcastle-agent[bot]" };
   const { statusesOf, commitOf } = chain({ h1 }, { h1: [status("success")] });
   assert.deepEqual(findVerdict(agentMerge, statusesOf, commitOf), { state: "none", sha: "h2" });
   assert.deepEqual(findVerdict(h1, statusesOf, commitOf), { state: "success", sha: "h1" });

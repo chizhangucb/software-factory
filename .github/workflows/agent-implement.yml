@@ -1,7 +1,7 @@
 # Reusable: run the implementer on an issue labeled agent:implement.
 # Called from a target repo's thin factory workflow on `issues: labeled`.
 # Vendored from sandcastle's agent-implement.yml (v0.12.0), edited for the factory.
-name: factory implement
+name: Agent Implement
 
 on:
   workflow_call:
@@ -196,7 +196,7 @@ jobs:
           echo "FACTORY_ACCOUNTS_FILE=$file" >> "$GITHUB_ENV"
           echo "$count account(s) configured: $(jq -r '[.[] | "\(.index) (\(.label))"] | join(", ")' "$file")"
 
-      - name: Checkout target repo
+      - name: Checkout main
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
         uses: actions/checkout@v4
         with:
@@ -221,8 +221,8 @@ jobs:
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
         run: |
-          git config user.name "factory-agent[bot]"
-          git config user.email "factory-agent[bot]@users.noreply.github.com"
+          git config user.name "sandcastle-agent[bot]"
+          git config user.email "sandcastle-agent[bot]@users.noreply.github.com"
           # A retry (#16) continues on the branch the failed attempt pushed. Any other run, a first
           # attempt or a ticket handed back after an escalation, starts from main.
           retrying=$(gh issue view "$ISSUE_NUMBER" --json labels --jq '[.labels[].name | select(startswith("factory:retry-"))] | length')
@@ -243,7 +243,7 @@ jobs:
           echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
           echo "Claude Code $(node_modules/.bin/claude --version)"
 
-      - name: Run implementer
+      - name: Run implementation agent
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
         id: run
         working-directory: target
@@ -316,12 +316,26 @@ jobs:
             gh pr comment "$PR_NUMBER" --body "Auto-merge could not be enabled: \`$out\`. Run \`scripts/onboard.sh\` on this repo, then \`gh pr merge $PR_NUMBER --auto --squash\`."
           fi
 
-      - name: Request review
+      - name: Request automated review
+        # Sandcastle's AGENT_PAT-or-GITHUB_TOKEN fallback, with FACTORY_PAT for his AGENT_PAT.
+        # FACTORY_PAT is a required secret, so the PAT always acts and the fallback is the
+        # PAT-call-failed path only. A label GITHUB_TOKEN applies fires no event on the target,
+        # so a review started that way waits for the reconciler's sweep to re-apply the label.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
         env:
           PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
-          GH_TOKEN: ${{ secrets.FACTORY_PAT }}
-        run: gh pr edit "$PR_NUMBER" --add-label "agent:review"
+          FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
+          GITHUB_TOKEN_FALLBACK: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          if [ -n "$FACTORY_PAT" ]; then
+            GH_TOKEN="$FACTORY_PAT" gh pr edit "$PR_NUMBER" --add-label "agent:review"
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+          fi
+          GH_TOKEN="$GITHUB_TOKEN_FALLBACK" gh pr edit "$PR_NUMBER" --add-label "agent:review"
 
       - name: Post usage comment
         # Token usage and wall time of every attempt in this job, one comment per role (#18).

@@ -133,6 +133,19 @@ query($owner:String!,$repo:String!,$number:Int!) {
   }
 }`;
 
+
+/** One line per run naming what the policy took out, so a cut thread is visible in the job log (#52). */
+export const describeDropped = (dropped: DroppedComments): string => {
+  const total =
+    dropped.prComments +
+    dropped.reviewSummaries +
+    dropped.reviewThreadComments +
+    dropped.issueComments;
+  return total === 0
+    ? "Untrusted comments dropped: none."
+    : `Untrusted comments dropped: ${total} (PR comments ${dropped.prComments}, review summaries ${dropped.reviewSummaries}, review threads ${dropped.reviewThreadComments}, ticket comments ${dropped.issueComments}).`;
+};
+
 /**
  * The context an agent gets, from the reads, under one trust policy. Pure, so
  * the filter is provable over fixtures with no network.
@@ -152,13 +165,13 @@ export const pullRequestContext = (
     ? renderIssue(reads.issue, policy)
     : { text: "(no linked issue found)", droppedComments: 0 };
 
-  const prComments = policy.keep(
-    reads.pr.comments,
-    (comment) => comment.authorAssociation,
-  );
+  const prComments = policy.keep(reads.pr.comments, (comment) => ({
+    association: comment.authorAssociation,
+    login: comment.author?.login,
+  }));
   const reviewSummaries = policy.keep(
     reads.reviews.filter((review) => review.body && review.body.trim().length > 0),
-    (review) => review.author_association,
+    (review) => ({ association: review.author_association, login: review.user?.login }),
   );
   const threadComments = policy.keep(
     reads.threads
@@ -166,7 +179,10 @@ export const pullRequestContext = (
       .flatMap((thread) =>
         thread.comments.nodes.map((comment) => ({ thread, comment })),
       ),
-    ({ comment }) => comment.authorAssociation,
+    ({ comment }) => ({
+      association: comment.authorAssociation,
+      login: comment.author?.login,
+    }),
   );
 
   const reviewThreads: ReviewThreadComment[] = threadComments.kept.map(

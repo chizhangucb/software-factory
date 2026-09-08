@@ -25,11 +25,18 @@ export const fetchRetryContext = (
     const issue = JSON.parse(
       gh(["issue", "view", issueNumber, "--json", "comments,labels"]),
     ) as {
-      comments: { body: string; authorAssociation?: string | null }[];
+      comments: {
+        body: string;
+        authorAssociation?: string | null;
+        author?: { login: string } | null;
+      }[];
       labels: { name: string }[];
     };
     bodies = policy
-      .keep(issue.comments, (comment) => comment.authorAssociation)
+      .keep(issue.comments, (comment) => ({
+        association: comment.authorAssociation,
+        login: comment.author?.login,
+      }))
       .kept.map((comment) => comment.body);
     labels = issue.labels.map((l) => l.name);
   } catch (error) {

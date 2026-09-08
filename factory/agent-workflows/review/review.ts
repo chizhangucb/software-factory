@@ -36,7 +36,7 @@ import {
 } from "../shared/common";
 import { resolveRoleModel } from "../../lib/model";
 import { assertReadOnly, worktreeState } from "../../lib/read-only";
-import { fetchPullRequestContext } from "../shared/review-context";
+import { describeDropped, fetchPullRequestContext } from "../shared/review-context";
 import { trustPolicyFromEnv } from "../../lib/trusted-authors";
 import {
   filterInlineComments,
@@ -114,6 +114,7 @@ try {
   const policy = trustPolicyFromEnv();
   console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
   const context = fetchPullRequestContext(PR_NUMBER, policy);
+  console.log(describeDropped(context.dropped));
   const criteria = parseAcceptanceCriteria(context.issueBody);
   const { model } = resolveRoleModel("reviewer", REVIEWER_MODEL);
   console.log(`Reviewer model: ${model}.`);

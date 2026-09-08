@@ -41,7 +41,7 @@ import {
 } from "../shared/common";
 import { resolveRoleModel } from "../../lib/model";
 import { installPluginsForAttempt } from "../../lib/plugins";
-import { fetchPullRequestContext } from "../shared/review-context";
+import { describeDropped, fetchPullRequestContext } from "../shared/review-context";
 import { trustPolicyFromEnv } from "../../lib/trusted-authors";
 import {
   filterInlineComments,
@@ -82,6 +82,7 @@ try {
   const policy = trustPolicyFromEnv();
   console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
   const context = fetchPullRequestContext(PR_NUMBER, policy);
+  console.log(describeDropped(context.dropped));
 
   const labels = JSON.parse(
     gh(["pr", "view", PR_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),

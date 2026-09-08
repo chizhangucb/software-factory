@@ -104,10 +104,10 @@ export interface RenderedIssue {
 
 export const renderIssue = (issue: IssueView, policy: TrustPolicy): RenderedIssue => {
   const parts = [`Issue #${issue.number}: ${issue.title}`, (issue.body ?? "").trim()];
-  const { kept, dropped } = policy.keep(
-    issue.comments ?? [],
-    (comment) => comment.authorAssociation,
-  );
+  const { kept, dropped } = policy.keep(issue.comments ?? [], (comment) => ({
+    association: comment.authorAssociation,
+    login: comment.author?.login,
+  }));
   if (kept.length > 0) {
     parts.push("## Comments");
     for (const comment of kept) {
@@ -147,7 +147,7 @@ export const ticketDocument = (input: {
   const { parent, policy } = input;
   const parentSection = !parent
     ? "# Parent spec\n\nThis ticket has no parent spec. The ticket above is the whole brief.\n"
-    : policy.trusts(parent.authorAssociation)
+    : policy.trusts({ association: parent.authorAssociation })
       ? `# Parent spec #${parent.number}: ${parent.title}\n\n${parent.body.trim()}\n`
       : `# Parent spec #${parent.number}\n\nNot included, title as well as body: it was written by an untrusted author (${parent.authorAssociation}), and the factory acts only on ${policy.associations.join(", ")}. Work from the ticket above.\n`;
   return `# Ticket #${input.number}\n\n${input.issueContext.trim()}\n\n${parentSection}`;

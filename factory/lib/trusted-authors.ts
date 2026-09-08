@@ -53,6 +53,31 @@ export const DEFAULT_TRUSTED_AUTHORS = ["OWNER"] as const;
 /** The env var the workflows pass the caller's input through. */
 export const TRUSTED_AUTHORS_VAR = "TRUSTED_AUTHOR_ASSOCIATIONS";
 
+/**
+ * The factory's own voice. A workflow that posts with GITHUB_TOKEN comments as
+ * the Actions bot, and GitHub reports `author_association: NONE` for it on
+ * every repo, so the association alone would drop the reviewer's own summary
+ * and inline findings before implement-pr ever read them. The login is spelled
+ * two ways across the reads (`github-actions[bot]` on REST, `github-actions` on
+ * gh's JSON and on GraphQL), so it is normalised before the comparison.
+ * Comments posted with FACTORY_PAT come from the owner and need no exemption.
+ *
+ * Not a widening: posting under this login needs a workflow in the target,
+ * which needs write access, the same bar as adding the `agent:implement` label.
+ */
+export const FACTORY_LOGINS: readonly string[] = ["github-actions"];
+
+const normaliseLogin = (login: string | null | undefined): string =>
+  String(login ?? "")
+    .toLowerCase()
+    .replace(/\[bot\]$/, "");
+
+/** Who wrote something: GitHub's association, and the login it was posted under. */
+export interface Author {
+  readonly association?: string | null;
+  readonly login?: string | null;
+}
+
 /** What survived the policy, and how much did not. */
 export interface TrustedSelection<T> {
   readonly kept: readonly T[];
@@ -66,12 +91,12 @@ export interface TrustedSelection<T> {
 export interface TrustPolicy {
   /** The associations this target acts on, uppercased, as the caller wrote them. */
   readonly associations: readonly string[];
-  /** Would the factory act on words from an author with this association? */
-  readonly trusts: (association: string | null | undefined) => boolean;
+  /** Would the factory act on words from this author? */
+  readonly trusts: (author: Author) => boolean;
   /** Keep what a trusted author wrote and count what was dropped. */
   readonly keep: <T>(
     items: readonly T[],
-    associationOf: (item: T) => string | null | undefined,
+    authorOf: (item: T) => Author,
   ) => TrustedSelection<T>;
   /**
    * The line that stands in for what was dropped, so an agent knows the
@@ -93,16 +118,17 @@ export const trustPolicy = (value: string | undefined): TrustPolicy => {
     .filter((part) => part.length > 0);
   const associations: readonly string[] =
     parsed.length > 0 ? parsed : [...DEFAULT_TRUSTED_AUTHORS];
-  const trusts = (association: string | null | undefined): boolean =>
-    associations.includes(authorAssociation(association));
+  const trusts = (author: Author): boolean =>
+    FACTORY_LOGINS.includes(normaliseLogin(author.login)) ||
+    associations.includes(authorAssociation(author.association));
   return {
     associations,
     trusts,
     keep: <T>(
       items: readonly T[],
-      associationOf: (item: T) => string | null | undefined,
+      authorOf: (item: T) => Author,
     ): TrustedSelection<T> => {
-      const kept = items.filter((item) => trusts(associationOf(item)));
+      const kept = items.filter((item) => trusts(authorOf(item)));
       return { kept, dropped: items.length - kept.length };
     },
     droppedNote: (dropped: number, what: string): string =>

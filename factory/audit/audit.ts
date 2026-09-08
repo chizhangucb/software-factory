@@ -12,7 +12,7 @@ import { runWithRotation } from "../lib/accounts";
 import { fail, required, sh, writeJson, writeText } from "../agent-workflows/shared/common";
 import { resolveRoleModel } from "../lib/model";
 import { assertReadOnly, worktreeState } from "../lib/read-only";
-import { fetchPullRequestContext } from "../agent-workflows/shared/review-context";
+import { describeDropped, fetchPullRequestContext } from "../agent-workflows/shared/review-context";
 import { trustPolicyFromEnv } from "../lib/trusted-authors";
 import { runWithExtraction } from "../agent-workflows/shared/run-with-extraction";
 import { formatUsageComment } from "../lib/usage";
@@ -102,6 +102,7 @@ try {
   const policy = trustPolicyFromEnv();
   console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
   const context = fetchPullRequestContext(PR_NUMBER, policy, { diff });
+  console.log(describeDropped(context.dropped));
   const criteria = parseAcceptanceCriteria(context.issueBody);
   console.log(`Ticket #${context.issueNumber || "(none)"}: ${criteria.length} acceptance criteria.`);
 

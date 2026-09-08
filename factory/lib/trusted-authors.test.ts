@@ -13,15 +13,15 @@ import {
 test("the default trusts the repo owner and nobody else", () => {
   const policy = trustPolicy(undefined);
   assert.deepEqual([...policy.associations], [...DEFAULT_TRUSTED_AUTHORS]);
-  assert.equal(policy.trusts("OWNER"), true);
-  assert.equal(policy.trusts("COLLABORATOR"), false);
-  assert.equal(policy.trusts("NONE"), false);
+  assert.equal(policy.trusts({ association: "OWNER" }), true);
+  assert.equal(policy.trusts({ association: "COLLABORATOR" }), false);
+  assert.equal(policy.trusts({ association: "NONE" }), false);
 });
 
 test("an absent association reads as an outsider", () => {
   const policy = trustPolicy(undefined);
-  assert.equal(policy.trusts(undefined), false);
-  assert.equal(policy.trusts(null), false);
+  assert.equal(policy.trusts({ association: undefined }), false);
+  assert.equal(policy.trusts({ association: null }), false);
 });
 
 test("a value GitHub never sends reads as NONE, so a strange payload is an outsider", () => {
@@ -34,8 +34,8 @@ test("a value GitHub never sends reads as NONE, so a strange payload is an outsi
 test("a wider list lets in everyone who could already push", () => {
   const policy = trustPolicy("OWNER, member ,collaborator");
   assert.deepEqual([...policy.associations], ["OWNER", "MEMBER", "COLLABORATOR"]);
-  assert.equal(policy.trusts("MEMBER"), true);
-  assert.equal(policy.trusts("CONTRIBUTOR"), false);
+  assert.equal(policy.trusts({ association: "MEMBER" }), true);
+  assert.equal(policy.trusts({ association: "CONTRIBUTOR" }), false);
 });
 
 test("an empty or missing input falls back to the owner alone", () => {
@@ -45,8 +45,8 @@ test("an empty or missing input falls back to the owner alone", () => {
 
 test("a value GitHub never sends matches nothing, so a typo parks work", () => {
   const typo = trustPolicy("OWNR");
-  assert.equal(typo.trusts("OWNER"), false);
-  assert.equal(typo.trusts("NONE"), false);
+  assert.equal(typo.trusts({ association: "OWNER" }), false);
+  assert.equal(typo.trusts({ association: "NONE" }), false);
 });
 
 test("the environment carries the caller's input to the run scripts", () => {
@@ -57,6 +57,15 @@ test("the environment carries the caller's input to the run scripts", () => {
   assert.deepEqual([...trustPolicyFromEnv({}).associations], ["OWNER"]);
 });
 
+test("the factory's own login is never a stranger, whichever way the API spells it", () => {
+  // GITHUB_TOKEN comments come back as author_association NONE on every repo.
+  const policy = trustPolicy("OWNER");
+  assert.equal(policy.trusts({ association: "NONE", login: "github-actions[bot]" }), true);
+  assert.equal(policy.trusts({ association: "NONE", login: "github-actions" }), true);
+  assert.equal(policy.trusts({ association: "NONE", login: "github-actions-impostor" }), false);
+  assert.equal(policy.trusts({ association: "NONE", login: "stranger" }), false);
+});
+
 test("keep returns what a trusted author wrote and counts what it dropped", () => {
   const comments = [
     { association: "OWNER", body: "keep" },
@@ -64,11 +73,11 @@ test("keep returns what a trusted author wrote and counts what it dropped", () =
     { association: null, body: "drop too" },
     { association: "COLLABORATOR", body: "maybe" },
   ];
-  const owner = trustPolicy("OWNER").keep(comments, (c) => c.association);
+  const owner = trustPolicy("OWNER").keep(comments, (c) => ({ association: c.association }));
   assert.deepEqual(owner.kept.map((c) => c.body), ["keep"]);
   assert.equal(owner.dropped, 3);
 
-  const wider = trustPolicy("OWNER,COLLABORATOR").keep(comments, (c) => c.association);
+  const wider = trustPolicy("OWNER,COLLABORATOR").keep(comments, (c) => ({ association: c.association }));
   assert.deepEqual(wider.kept.map((c) => c.body), ["keep", "maybe"]);
   assert.equal(wider.dropped, 2);
 });

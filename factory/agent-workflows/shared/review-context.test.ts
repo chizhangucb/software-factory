@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { pullRequestContext, type PullRequestReads } from "./review-context";
+import { describeDropped, pullRequestContext, type PullRequestReads } from "./review-context";
 import { trustPolicy } from "../../lib/trusted-authors";
 
 const OWNER_ONLY = trustPolicy("OWNER");
@@ -34,6 +34,8 @@ const reads = (): PullRequestReads => ({
   },
   reviews: [
     { user: { login: "chi" }, author_association: "OWNER", body: "Owner review summary.", state: "COMMENTED" },
+    // The factory's own reviewer, posted with GITHUB_TOKEN: NONE on every repo.
+    { user: { login: "github-actions[bot]" }, author_association: "NONE", body: "Verdict: fail (1 of 2).", state: "COMMENTED" },
     { user: { login: "stranger" }, author_association: "NONE", body: "Stranger review summary.", state: "COMMENTED" },
     { user: { login: "chi" }, author_association: "OWNER", body: "   ", state: "APPROVED" },
   ],
@@ -45,6 +47,7 @@ const reads = (): PullRequestReads => ({
         nodes: [
           { id: "C1", path: "a.ts", line: 3, originalLine: null, body: "Owner in the thread.", author: { login: "chi" }, authorAssociation: "OWNER" },
           { id: "C2", path: "a.ts", line: 4, originalLine: null, body: "Stranger in the thread.", author: { login: "stranger" }, authorAssociation: "NONE" },
+          { id: "C4", path: "a.ts", line: 5, originalLine: null, body: "Reviewer finding on line 5.", author: { login: "github-actions" }, authorAssociation: "NONE" },
         ],
       },
     },
@@ -118,7 +121,9 @@ test("widening the policy lets a collaborator through and drops one fewer", () =
 
 test("a dropped thread comment is not a reply target, and a resolved thread is still out", () => {
   const context = pullRequestContext(reads(), OWNER_ONLY);
-  assert.deepEqual([...context.validReplyIds], ["C1"]);
+  // C2 is the stranger's, C3 sits on a resolved thread. C1 is the owner's and
+  // C4 is the factory's own reviewer.
+  assert.deepEqual([...context.validReplyIds], ["C1", "C4"]);
 });
 
 test("a PR that links no ticket says so and carries no criteria", () => {
@@ -151,4 +156,27 @@ test("a thread nobody was dropped from carries no dropped block at all", () => {
     issueComments: 0,
   });
   assert.doesNotMatch(context.prCommentsJson, /dropped_untrusted/);
+});
+
+test("the factory's own review survives the filter, or implement-pr would lose its feedback", () => {
+  // agent-review.yml posts the review and its inline comments with GITHUB_TOKEN,
+  // so they arrive as github-actions with author_association NONE. Dropping them
+  // would leave implement-pr with a dropped count in place of the findings it
+  // exists to address, and no thread it is allowed to reply to.
+  const context = pullRequestContext(reads(), OWNER_ONLY);
+  assert.match(context.prCommentsJson, /Verdict: fail \(1 of 2\)\./);
+  assert.match(context.prCommentsJson, /Reviewer finding on line 5\./);
+  assert.deepEqual([...context.validReplyIds], ["C1", "C4"]);
+  assert.equal(context.dropped.reviewSummaries, 1, "only the stranger's summary goes");
+  assert.equal(context.dropped.reviewThreadComments, 1, "only the stranger's thread comment goes");
+});
+
+test("the job log names what was dropped, so a cut thread is visible without the prompt", () => {
+  const context = pullRequestContext(reads(), OWNER_ONLY);
+  const line = describeDropped(context.dropped);
+  assert.match(line, /PR comments 2/);
+  assert.match(line, /review summaries 1/);
+  assert.match(line, /review threads 1/);
+  assert.match(line, /ticket comments 1/);
+  assert.match(describeDropped({ prComments: 0, reviewSummaries: 0, reviewThreadComments: 0, issueComments: 0 }), /none/);
 });

@@ -6,6 +6,8 @@ You are the implementer. You are on branch `{{BRANCH}}`, already created from `m
 
 This run has a 60 minute limit. Spend it on the ticket, not on exploration for its own sake.
 
+Invoke the skills this prompt names, and any a named skill sends you to itself. The rest of the vendored plugin is installed alongside them and describes work this run is not doing: there is no user here to grill, question, or walk through a wizard, and no network beyond the checkout.
+
 {{RETRY_SECTION}}
 # ISSUE
 

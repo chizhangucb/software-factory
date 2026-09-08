@@ -11,7 +11,14 @@
  *   marker: ADR 0002 amendment.
  * - retry section in the prompt: stories 12, 13.
  * - factory plugins installed per attempt, so the prompt's skills exist: story 4.
- * - the bundled-review step rendered for the agent provider in hand: story 12 of #46.
+ *   The whole plugin goes in, so TASK fences the run to the skills the prompt
+ *   names: the other 22 are in the list and some of them describe work this run
+ *   is not doing (story 11 of #46).
+ * - the bundled-review step rendered for the agent provider in hand: story 12
+ *   of #46.
+ * - `idleTimeoutSeconds` raised over the library's 10 minute default, since the
+ *   review skills run in sub-agents whose output never reaches this stream;
+ *   with the turn cap gone it is the run's only in-process bound (#49).
  * - commits counted on `refs/heads/$BRANCH` against main, not on HEAD: a retry
  *   that inherits the last attempt's commits still has a branch to judge (#16).
  * - `prompt.md` keeps his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT) and

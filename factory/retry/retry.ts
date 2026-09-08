@@ -22,8 +22,8 @@
  *   OUTPUT_DIR/failure_reason.txt plus the tail of the newest run log.
  *   OUTPUT_DIR/rate_limited.txt present means every account was rate limited.
  *   IMPLEMENTER_OUTCOME is how the attempt ended, and only an attempt that
- *   failed or was killed spends a retry; anything else exits 1 so the calling
- *   job posts its blocked comment (#51).
+ *   failed or was killed spends a retry; anything else, an attempt that never
+ *   started included, exits 1 so the calling job posts its blocked comment (#51).
  * - `checks`: a verdict was just posted on HEAD_SHA; wait for the head's
  *   other checks to settle (CHECKS_TIMEOUT_MINUTES, default 15), then fail
  *   on any failing status or check run. A check still pending at the
@@ -389,10 +389,10 @@ const main = async (): Promise<void> => {
 
   let failure: Failure | undefined;
   if (FAILURE_MODE === "implement") {
-    const outcome = required("IMPLEMENTER_OUTCOME");
+    const outcome = process.env.IMPLEMENTER_OUTCOME ?? "";
     if (!isImplementerFailure(outcome)) {
       console.log(
-        `The implementer ended '${outcome}', so the failure is not the implementer's own: no retry is spent.`,
+        `The implementer ended '${outcome || "(it never started)"}', so the failure is not the implementer's own: no retry is spent.`,
       );
       process.exit(1);
     }

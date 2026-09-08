@@ -86,8 +86,9 @@ jobs:
       cancel-in-progress: false
     outputs:
       # Everything the `retry` job needs from this one. That job runs on its own
-      # runner, so nothing it reads is here for free (#51). The PR's state and its
-      # head branch come straight off the event, so they are not repeated here.
+      # runner, so nothing it reads is here for free (#51). The PR's head branch comes
+      # straight off the event, so it is not repeated here.
+      handle: ${{ steps.transition.outputs.handle }}
       outcome: ${{ steps.run.outcome }}
       reason: ${{ steps.handoff.outputs.reason }}
       rate_limited: ${{ steps.handoff.outputs.rate_limited }}
@@ -115,10 +116,13 @@ jobs:
 
       - name: Transition labels
         if: github.event.pull_request.state == 'open'
+        id: transition
         run: |
           gh pr edit "$PR_NUMBER" --remove-label "agent:implement" || true
           gh pr edit "$PR_NUMBER" --remove-label "agent:blocked" || true
           gh pr edit "$PR_NUMBER" --add-label "agent:in-progress"
+          # The retry job's gate: this run took the PR, so it owes it a retry or a comment (#51).
+          echo "handle=true" >> "$GITHUB_OUTPUT"
 
       - name: Enumerate accounts
         # One secret per account, CLAUDE_CODE_OAUTH_TOKEN_<n>, labeled by the CLAUDE_ACCOUNT_<n> variable.
@@ -314,7 +318,9 @@ jobs:
           set -euo pipefail
           {
             echo "reason<<FACTORY_HANDOFF_EOF"
-            if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then cat "${OUTPUT_DIR}/failure_reason.txt"; echo; fi
+            # A reason line equal to the delimiter would end the value early, and the reason
+            # can carry the agent's own words: drop any such line rather than trust it.
+            if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then grep -vFx 'FACTORY_HANDOFF_EOF' "${OUTPUT_DIR}/failure_reason.txt" || true; echo; fi
             echo "FACTORY_HANDOFF_EOF"
             if [ -f "${OUTPUT_DIR}/rate_limited.txt" ]; then echo "rate_limited=true"; else echo "rate_limited=false"; fi
           } >> "$GITHUB_OUTPUT"
@@ -330,13 +336,14 @@ jobs:
   retry:
     # The failure handler is a job, not a step of `implement-pr` (#51), for the same reason
     # as on the ticket path: a `timeout-minutes` kill cancels that job, so `failure()` is
-    # false and a step gated on it never runs, leaving the PR with no label and no comment.
+    # false and a step gated on it never ran, leaving the PR with no label and no comment.
+    # See agent-implement.yml's `retry` job for why widening the gate is not the fix.
     # One informed retry, then needs-human (#16), for a failure of the implementer itself.
     # FACTORY_PAT so the label that starts the retry fires its event. A failure elsewhere in
     # the implement-PR job (a push refused because the branch moved, say), or a handler that
     # cannot reach GitHub, gets the plain blocked comment.
     needs: implement-pr
-    if: always() && github.event.pull_request.state == 'open' && github.event.pull_request.head.repo.full_name == github.repository && needs.implement-pr.result != 'success'
+    if: always() && needs.implement-pr.outputs.handle == 'true' && needs.implement-pr.result != 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -349,7 +356,6 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      OUTPUT_DIR: ${{ runner.temp }}/factory-out
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
     steps:
@@ -380,9 +386,12 @@ jobs:
           RATE_LIMITED: ${{ needs.implement-pr.outputs.rate_limited }}
         run: |
           set -euo pipefail
-          mkdir -p "$OUTPUT_DIR"
-          if [ -n "$FAILURE_REASON" ]; then printf '%s\n' "$FAILURE_REASON" > "${OUTPUT_DIR}/failure_reason.txt"; fi
-          if [ "$RATE_LIMITED" = "true" ]; then printf 'every account was rate limited\n' > "${OUTPUT_DIR}/rate_limited.txt"; fi
+          # runner.temp is not available in job-level env, so OUTPUT_DIR is set here for the steps after this one.
+          out="${RUNNER_TEMP}/factory-out"
+          echo "OUTPUT_DIR=$out" >> "$GITHUB_ENV"
+          mkdir -p "$out"
+          if [ -n "$FAILURE_REASON" ]; then printf '%s\n' "$FAILURE_REASON" > "$out/failure_reason.txt"; fi
+          if [ "$RATE_LIMITED" = "true" ]; then printf 'every account was rate limited\n' > "$out/rate_limited.txt"; fi
 
       - name: Download the run log
         # Absent when the kill landed before the upload; the handler reports what it has.
@@ -398,8 +407,7 @@ jobs:
           BRANCH: ${{ github.event.pull_request.head.ref }}
           FAILURE_KIND: implement
           ARTIFACT_NAME: factory-implement-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
-          # The step's own outcome, or the job's when the kill took the step outputs with it.
-          IMPLEMENTER_OUTCOME: ${{ needs.implement-pr.outputs.outcome || needs.implement-pr.result }}
+          IMPLEMENTER_OUTCOME: ${{ needs.implement-pr.outputs.outcome }}
         run: |
           if factory/node_modules/.bin/tsx factory/factory/retry/retry.ts; then
             exit 0

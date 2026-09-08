@@ -78,14 +78,23 @@ test("a stranger's PR comment, review-thread comment and ticket comment never re
 test("what was dropped is reported as a count, so the agent knows the thread was cut", () => {
   const context = pullRequestContext(reads(), OWNER_ONLY);
   const payload = JSON.parse(context.prCommentsJson) as {
-    dropped_untrusted?: { pr_comments: number; review_summaries: number; review_threads: number; note: string };
+    dropped_untrusted?: {
+      pr_comments: number;
+      review_summaries: number;
+      review_threads: number;
+      linked_issue_comments: number;
+      note: string;
+    };
   };
-  assert.deepEqual(
-    { ...payload.dropped_untrusted, note: undefined },
-    { pr_comments: 2, review_summaries: 1, review_threads: 1, note: undefined },
-  );
-  assert.match(String(payload.dropped_untrusted?.note), /untrusted authors were dropped/);
-  assert.match(context.linkedIssue, /1 comment\(s\) on the ticket from untrusted authors were dropped/);
+  const { note, ...counts } = payload.dropped_untrusted ?? ({} as never);
+  assert.deepEqual(counts, {
+    pr_comments: 2,
+    review_summaries: 1,
+    review_threads: 1,
+    linked_issue_comments: 1,
+  });
+  assert.ok(note.length > 0, "the note stands in for what was dropped");
+  assert.match(context.linkedIssue, /1 comment\(s\)/, "the ticket says how many it dropped");
 });
 
 test("a trusted author's words are unchanged", () => {
@@ -131,4 +140,15 @@ test("the audit's own diff is judged, and it is filtered the same way", () => {
   assert.equal(context.diff, merged);
   assert.ok(context.diffLines.get("b.ts")?.has(1));
   assert.doesNotMatch(context.prCommentsJson, /Stranger/);
+});
+
+test("a thread nobody was dropped from carries no dropped block at all", () => {
+  const context = pullRequestContext(reads(), trustPolicy("OWNER,COLLABORATOR,NONE"));
+  assert.deepEqual(context.dropped, {
+    prComments: 0,
+    reviewSummaries: 0,
+    reviewThreadComments: 0,
+    issueComments: 0,
+  });
+  assert.doesNotMatch(context.prCommentsJson, /dropped_untrusted/);
 });

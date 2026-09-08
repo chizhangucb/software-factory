@@ -13,9 +13,9 @@
  */
 
 import { READY_LABEL } from "../lib/labels.ts";
-import type { TrustPolicy } from "../lib/trusted-authors.ts";
+import { authorAssociation, type AuthorAssociation, type TrustPolicy } from "../lib/trusted-authors.ts";
 
-export { DEFAULT_TRUSTED_AUTHORS, trustPolicy, trustPolicyFromEnv } from "../lib/trusted-authors.ts";
+export { trustPolicy, trustPolicyFromEnv } from "../lib/trusted-authors.ts";
 
 /** Re-exported so the dispatcher's callers keep reading its rules from one module. */
 export { READY_LABEL };
@@ -46,7 +46,7 @@ export type DispatchIssue = {
   /** An open PR already says it closes this issue. */
   hasOpenPr: boolean;
   /** GitHub's `author_association` for whoever opened the issue. */
-  authorAssociation: string;
+  authorAssociation: AuthorAssociation;
 };
 
 /** The reason an issue is not dispatched, or undefined when it is. */
@@ -119,8 +119,8 @@ export const fromGitHub = (
       openBlockers: Number(r.issue_dependencies_summary?.blocked_by ?? 0),
       subIssues: Number(r.sub_issues_summary?.total ?? 0),
       hasOpenPr: closedByOpenPr.has(Number(r.number)),
-      // Absent only on a payload GitHub no longer sends; read as an outsider.
-      authorAssociation: String(r.author_association ?? "NONE").toUpperCase(),
+      // Absent, or a value GitHub does not send, reads as an outsider.
+      authorAssociation: authorAssociation(r.author_association),
     });
   }
   return issues;

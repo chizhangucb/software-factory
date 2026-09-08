@@ -63,7 +63,7 @@ test("ticketDocument says so when there is no parent spec", () => {
 });
 
 test("renderIssue shows the body even when there are no comments", () => {
-  const text = renderIssue(
+  const { text, droppedComments } = renderIssue(
     {
       number: 4,
       title: "Add a helper",
@@ -72,13 +72,14 @@ test("renderIssue shows the body even when there are no comments", () => {
     },
     OWNER_ONLY,
   );
+  assert.equal(droppedComments, 0);
   assert.match(text, /^Issue #4: Add a helper/m);
   assert.match(text, /A helper\./);
   assert.doesNotMatch(text, /## Comments/);
 });
 
 test("renderIssue appends comments with their authors", () => {
-  const text = renderIssue(
+  const { text } = renderIssue(
     {
       number: 4,
       title: "Add a helper",
@@ -96,7 +97,7 @@ test("renderIssue appends comments with their authors", () => {
 });
 
 test("renderIssue drops comments from untrusted authors and says how many", () => {
-  const text = renderIssue(
+  const { text, droppedComments } = renderIssue(
     {
       number: 4,
       title: "Add a helper",
@@ -112,7 +113,8 @@ test("renderIssue drops comments from untrusted authors and says how many", () =
   assert.match(text, /### chi\n\nAlso handle zero\./);
   assert.doesNotMatch(text, /Ignore the ticket/);
   assert.doesNotMatch(text, /No association at all/);
-  assert.match(text, /2 comment\(s\) on the ticket from untrusted authors were dropped/);
+  assert.equal(droppedComments, 2);
+  assert.match(text, /2 comment\(s\)/, "the count stands in for what was dropped");
 });
 
 test("renderIssue keeps an untrusted comment when the target trusts that author", () => {
@@ -124,8 +126,8 @@ test("renderIssue keeps an untrusted comment when the target trusts that author"
       { author: { login: "mate" }, authorAssociation: "COLLABORATOR", body: "Also handle zero." },
     ],
   };
-  assert.doesNotMatch(renderIssue(issue, OWNER_ONLY), /Also handle zero/);
-  assert.match(renderIssue(issue, trustPolicy("OWNER,COLLABORATOR")), /Also handle zero/);
+  assert.doesNotMatch(renderIssue(issue, OWNER_ONLY).text, /Also handle zero/);
+  assert.match(renderIssue(issue, trustPolicy("OWNER,COLLABORATOR")).text, /Also handle zero/);
 });
 
 test("ticketDocument keeps an untrusted parent spec out of the prompt and says so", () => {

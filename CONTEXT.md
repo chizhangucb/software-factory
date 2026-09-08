@@ -56,8 +56,12 @@ The daily Telegram message listing merges, escalations, and audit findings. The 
 The step that moves a ticket into the factory once its blockers close. Bridges the human intent label to the factory's state labels.
 
 **Trusted author**:
-Whoever the factory will take instructions from. A ticket body is what the implementer executes, so on a public target the dispatcher runs only tickets written by an author it trusts, by GitHub's `author_association`. Default: the repo owner alone.
+Whoever the factory will take instructions from, by GitHub's `author_association`. A ticket body is what the implementer executes, and a PR comment is what the reviewer and implement-pr read, so on a public target the dispatcher runs only tickets written by a trusted author, and every agent reads only trusted authors' comments, review threads and linked-ticket comments, with a count in place of what was dropped. Default: the repo owner alone.
 _Avoid_: allowlist, whitelist.
+
+**Trust policy**:
+One target's answer to "whose words does an agent get to read", built once per run from `trusted_author_associations` and passed down as a required argument, so no read path can fall back to a policy of its own.
+_Avoid_: trust list, trusted authors list (say trust policy for the object, trusted author for the person).
 
 **Proof run**:
 The acceptance test for the factory: seven tickets in two chains on a fixture repo, two accounts, one rate limit, zero human actions. Passed in #19; the switch that forced its rate limit is gone (#49), so a re-run needs a real one.

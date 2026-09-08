@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import { test } from "node:test";
 
 import {
   authorAssociation,
   DEFAULT_TRUSTED_AUTHORS,
+  TRUSTED_AUTHORS_VAR,
   trustPolicy,
   trustPolicyFromEnv,
 } from "./trusted-authors";
@@ -77,4 +79,42 @@ test("droppedNote names the count and the policy, and is empty when nothing was 
   const note = policy.droppedNote(2, "comment(s) on the PR");
   assert.match(note, /^2 comment\(s\) on the PR from untrusted authors were dropped\./);
   assert.match(note, /OWNER, MEMBER/);
+});
+
+/**
+ * The wiring a new job or a renamed input would break, in the style of
+ * `dispatch/workflow-names.test.ts`: the subject is the repo's own workflow
+ * files, so the tree is the fixture. The run scripts read the policy from
+ * TRUSTED_AUTHOR_ASSOCIATIONS, so a workflow that runs one of them and does
+ * not pass it silently falls back to OWNER whatever the target set.
+ */
+const workflowsDir = new URL("../../.github/workflows/", import.meta.url);
+
+/** Every workflow whose script builds a trust policy, and the script it runs. */
+const POLICY_WORKFLOWS = {
+  "dispatch.yml": "dispatch/dispatch.ts",
+  "agent-implement.yml": "agent-workflows/implement/implement.ts",
+  "agent-review.yml": "agent-workflows/review/review.ts",
+  "agent-implement-pr.yml": "agent-workflows/implement-pr/implement-pr.ts",
+  "agent-audit.yml": "audit/audit.ts",
+} as const;
+
+test("every workflow that runs a policy-reading script declares and passes the input", () => {
+  for (const [file, script] of Object.entries(POLICY_WORKFLOWS)) {
+    const yaml = fs.readFileSync(new URL(file, workflowsDir), "utf8");
+    assert.match(yaml, new RegExp(String.raw`\n {6}trusted_author_associations:`), `${file} declares the input`);
+    assert.match(yaml, /\n {8}default: OWNER\b/, `${file} defaults to OWNER`);
+    assert.match(
+      yaml,
+      new RegExp(String.raw`${TRUSTED_AUTHORS_VAR}: \$\{\{ inputs\.trusted_author_associations \}\}`),
+      `${file} passes the input to its run step`,
+    );
+    assert.ok(yaml.includes(script), `${file} runs ${script}`);
+  }
+});
+
+test("the caller template offers the input on every job that takes it", () => {
+  const template = fs.readFileSync(new URL("../../templates/factory.yml", import.meta.url), "utf8");
+  const offers = template.match(/trusted_author_associations:/g) ?? [];
+  assert.equal(offers.length, Object.keys(POLICY_WORKFLOWS).length);
 });

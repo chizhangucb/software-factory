@@ -1,6 +1,7 @@
 # Watches the sandcastle pin. Dependabot opens a PR when Matt publishes a new
 # version; nothing merges on its own (ADR 0002). A bump is a deliberate
-# commit plus a proof run.
+# commit plus a proof run. A sandcastle bump also cuts an `engine-<version>`
+# release holding the new tarball, the cold storage the old `vendor/` folder was (#48).
 version: 2
 updates:
   - package-ecosystem: npm

@@ -75,9 +75,10 @@ try {
       sandbox: noSandbox(),
       logging: log.logging,
       // The review skills run in sub-agents whose output never reaches this
-      // stream, so the parent can be silent for a while. The 60 minute job
-      // timeout is the only bound on the run; the library's 10 minute idle
-      // default would cut a long review short.
+      // stream, so the parent can be silent for a while: the library's 10
+      // minute idle default would cut a long review short. With the turn cap
+      // gone (#49) the two bounds left are this idle timeout and the 60
+      // minute job timeout.
       idleTimeoutSeconds: 30 * 60,
       promptFile: path.join(import.meta.dirname, "prompt.md"),
       promptArgs: {

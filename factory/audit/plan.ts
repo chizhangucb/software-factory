@@ -9,7 +9,7 @@
 
 export const AUDIT_LIMIT = 20;
 
-/** Branch prefix implement.yml uses, and the body line it writes. Either marks a factory PR. */
+/** Branch prefix agent-implement.yml uses, and the body line it writes. Either marks a factory PR. */
 export const FACTORY_BRANCH_PREFIX = "agent/issue-";
 export const FACTORY_BODY_MARKER = "Implemented by the software factory";
 

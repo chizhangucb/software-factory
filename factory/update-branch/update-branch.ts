@@ -149,7 +149,7 @@ const waitForNewHead = async (number: number, oldHead: string): Promise<string |
   return undefined;
 };
 
-/** No API call resolves a conflict: label the PR for implement-pr.yml, which merges the base on the branch and resolves. */
+/** No API call resolves a conflict: label the PR for agent-implement-pr.yml, which merges the base on the branch and resolves. */
 const handOff = (number: number): void => {
   const body = [
     "update-branch could not bring this PR up to date with `" + base + "`: the merge conflicts.",

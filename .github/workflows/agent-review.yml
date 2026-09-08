@@ -3,7 +3,7 @@
 # Vendored from sandcastle's agent-review.yml (v0.12.0), edited for the factory:
 # the reviewer is read-only (no push, no mark-ready), ticks the ticket's acceptance
 # criteria into the PR body, and sets the factory/verdict commit status.
-name: factory review
+name: Agent Review
 
 on:
   workflow_call:
@@ -178,8 +178,8 @@ jobs:
           # fetch-depth 0 already brought origin/main; no credentials remain for a network fetch
           git branch -f main origin/main
           git checkout -B "$BRANCH" "$BRANCH_HEAD_SHA"
-          git config user.name "factory-agent[bot]"
-          git config user.email "factory-agent[bot]@users.noreply.github.com"
+          git config user.name "sandcastle-agent[bot]"
+          git config user.email "sandcastle-agent[bot]@users.noreply.github.com"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -212,7 +212,7 @@ jobs:
           echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
           echo "Claude Code $(node_modules/.bin/claude --version)"
 
-      - name: Run reviewer
+      - name: Run review agent
         # Read-only: the script fails the run on any commit, dirty file, or moved HEAD.
         working-directory: target
         env:

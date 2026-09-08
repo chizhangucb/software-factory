@@ -23,7 +23,7 @@ Nothing in this prompt is specific to one repo. Take commands (typecheck, test, 
 
 # EXECUTION
 
-Invoke the skill `mattpocock-skills:tdd` and build the ticket through it. Follow the skill, not a remembered version of it. Two things it cannot know from where it sits:
+Invoke the skill `mattpocock-skills:tdd` and build the ticket through it, following it as written. Two things it cannot know from where it sits:
 
 - The seams are the ones the ticket names, or the ones the repo already tests. There is no user in this run to confirm them with, so those are the agreed seams.
 - Repeat its cycle until every acceptance criterion has a test that fails on `main` and passes here.

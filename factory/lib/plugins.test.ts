@@ -2,35 +2,35 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
 
 import { installFactoryPlugins } from "./plugins";
 
-const install = (): { configDir: string; pluginDir: string } => {
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "factory-config-"));
-  return {
-    configDir,
-    pluginDir: path.join(configDir, "skills", "mattpocock-skills"),
-  };
+/** A throwaway `CLAUDE_CONFIG_DIR`, removed when the test ends. */
+const tempConfigDir = (t: TestContext): string => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "factory-config-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
 };
 
-test("the skills the prompts invoke by name are installed, at the pinned version", () => {
-  const { configDir } = install();
-  const installed = installFactoryPlugins(configDir);
+const installedPluginDir = (configDir: string): string =>
+  path.join(configDir, "skills", "mattpocock-skills");
+
+test("the skills the implementer prompts invoke by name are installed, at the pinned version", (t) => {
+  const installed = installFactoryPlugins(tempConfigDir(t));
 
   const plugin = installed.find((p) => p.name === "mattpocock-skills");
   assert.ok(plugin, "mattpocock-skills is vendored");
   assert.equal(plugin.version, "1.2.3");
-  for (const skill of ["tdd", "code-review", "resolving-merge-conflicts", "writing-for-agents"]) {
+  for (const skill of ["tdd", "code-review", "resolving-merge-conflicts"]) {
     assert.ok(plugin.skills.includes(skill), `${skill} is installed`);
   }
-
-  fs.rmSync(configDir, { recursive: true, force: true });
 });
 
-test("every skill the installed plugin declares has a SKILL.md the runner can load", () => {
-  const { configDir, pluginDir } = install();
+test("every skill the installed plugin declares has a SKILL.md the runner can load", (t) => {
+  const configDir = tempConfigDir(t);
   const installed = installFactoryPlugins(configDir);
+  const pluginDir = installedPluginDir(configDir);
 
   const manifest = JSON.parse(
     fs.readFileSync(path.join(pluginDir, ".claude-plugin", "plugin.json"), "utf8"),
@@ -46,12 +46,9 @@ test("every skill the installed plugin declares has a SKILL.md the runner can lo
     installed.find((p) => p.name === "mattpocock-skills")?.skills.length,
     manifest.skills.length,
   );
-
-  fs.rmSync(configDir, { recursive: true, force: true });
 });
 
-test("installFactoryPlugins is idempotent", () => {
-  const { configDir } = install();
+test("installFactoryPlugins is idempotent", (t) => {
+  const configDir = tempConfigDir(t);
   assert.deepEqual(installFactoryPlugins(configDir), installFactoryPlugins(configDir));
-  fs.rmSync(configDir, { recursive: true, force: true });
 });

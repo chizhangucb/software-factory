@@ -14,7 +14,7 @@
  *   run: re-add agent:implement (remove then add, so the event fires);
  *   second miss on the same stranding escalates to needs-human. Escalation
  *   here leaves the same labels as the retry handler's (#50,
- *   `factory/retry/labels.ts`): needs-human alone.
+ *   `factory/retry/escalation.ts`): needs-human alone.
  * - PR in agent:review (or agent:implement, agent:in-progress) with no live
  *   review (implement-pr) run: same, with agent:review.
  * - factory PR with auto-merge armed and no factory/verdict on its head:
@@ -121,7 +121,7 @@ export type Subject = { kind: "issue" | "pr"; number: number };
 export type Action =
   | { type: "none" }
   | { type: "relabel"; remove: string[]; add: string; miss?: number }
-  | { type: "escalate"; remove: string[]; add: typeof ESCALATION_LABEL; ticket?: EscalatedTicket }
+  | { type: "escalate"; remove: string[]; add: typeof ESCALATION_LABEL; ticket?: number }
   | { type: "dispatch"; eventType: typeof UPDATE_BRANCH_EVENT; pr: number };
 
 export type Decision = {
@@ -150,9 +150,6 @@ const isUpdateBranchRun = (run: Run, base: string): boolean =>
   (run.event === "push" && run.headBranch === base) ||
   (run.event === "repository_dispatch" && run.title === UPDATE_BRANCH_EVENT);
 
-/** The ticket a PR closes, parked with the PR: it loses the same labels. */
-export type EscalatedTicket = { number: number; remove: string[] };
-
 type StuckInput = {
   subject: Subject;
   state: string;
@@ -164,7 +161,8 @@ type StuckInput = {
   /** The subject's labels: a relabel clears the agent:* ones, an escalation clears more. */
   labels: readonly string[];
   add: string;
-  ticket?: EscalatedTicket;
+  /** The ticket a PR closes: escalating the PR parks the ticket with it. */
+  ticket?: number;
 };
 
 const markComment = (input: StuckInput, cause: string, miss: number, counted: boolean, deadline: number, url?: string): string => {
@@ -182,7 +180,7 @@ const escalationComment = (input: StuckInput, remove: readonly string[], cause: 
   const handBack =
     input.subject.kind === "issue"
       ? `remove \`${ESCALATION_LABEL}\`, then add \`${READY_LABEL}\` back and the dispatcher picks the ticket up on its next event, or add \`${input.add}\` by hand.`
-      : `remove \`${ESCALATION_LABEL}\` here and on the ticket, then add \`${input.add}\` to this PR.`;
+      : `remove \`${ESCALATION_LABEL}\` here and on the ticket, add \`${READY_LABEL}\` back to the ticket, then add \`${input.add}\` to this PR.`;
   return [
     `## Escalated: \`${ESCALATION_LABEL}\``,
     "",
@@ -274,16 +272,6 @@ const PR_STATES: readonly { label: string; roles: readonly RunRole[]; expected: 
   { label: "agent:implement", roles: ["implement-pr"], expected: "implement-pr run", add: "agent:implement" },
 ];
 
-/**
- * The ticket a stranded PR closes, with the labels it loses when the PR is
- * escalated. Parking the PR parks the ticket, so the ticket ends up carrying
- * `needs-human` alone like any other escalation (#50).
- */
-const escalatedTicket = (number: number | undefined, snap: Snapshot): EscalatedTicket | undefined =>
-  number === undefined
-    ? undefined
-    : { number, remove: escalationLabels(snap.issues.find((t) => t.number === number)?.labels ?? []).remove };
-
 const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decision | undefined => {
   const state = PR_STATES.find((s) => p.labels.includes(s.label));
   if (!state) return undefined;
@@ -292,7 +280,7 @@ const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decisi
   if (parked) return parked;
   const runs = runsFor({ kind: "pr", headRef: p.headRef }, snap.runs).filter((r) => r.role === undefined || state.roles.includes(r.role));
   return decideStuck(
-    { subject, state: state.label, since: p.stateSince, marks: p.marks, runs, expected: state.expected, labels: p.labels, add: state.add, ticket: escalatedTicket(p.closes, snap) },
+    { subject, state: state.label, since: p.stateSince, marks: p.marks, runs, expected: state.expected, labels: p.labels, add: state.add, ticket: p.closes },
     snap,
     deadlines.stuckMinutes,
   );

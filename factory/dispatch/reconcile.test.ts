@@ -217,23 +217,13 @@ test("a live review run on the PR's head branch covers it; one on another branch
   assert.equal(only(reconcile(snapshot({ prs: [stuck], runs: [other] }), DEFAULT_DEADLINES)).action.type, "relabel");
 });
 
-test("a PR's second miss escalates the PR and parks its ticket on the same label set", () => {
-  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(20), marks: [{ miss: 1, at: minutesAgo(19) }] });
-  const decisions = reconcile(snapshot({ issues: [ticket(1)], prs: [stuck] }), DEFAULT_DEADLINES);
-  const d = decisions.find((x) => x.subject.kind === "pr") as Decision;
-  assert.equal(d.action.type, "escalate");
-  // The PR has no ready-for-agent of its own; its ticket does, and loses it with the rest.
-  assert.deepEqual(d.action.type === "escalate" && d.action.remove, ["agent:review"]);
-  assert.deepEqual(d.action.type === "escalate" && d.action.ticket, {
-    number: 1,
-    remove: ["ready-for-agent", "agent:in-progress"],
-  });
-});
-
-test("a PR whose ticket is not in the snapshot is escalated with nothing to take off the ticket", () => {
+test("a PR's second miss escalates the PR and names the ticket to park with it", () => {
   const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(20), marks: [{ miss: 1, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ prs: [stuck] }), DEFAULT_DEADLINES));
-  assert.deepEqual(d.action.type === "escalate" && d.action.ticket, { number: 1, remove: [] });
+  assert.equal(d.action.type, "escalate");
+  // The PR carries no ready-for-agent of its own, so only its agent:* labels go.
+  assert.deepEqual(d.action.type === "escalate" && d.action.remove, ["agent:review"]);
+  assert.equal(d.action.type === "escalate" && d.action.ticket, 1);
 });
 
 test("a PR in agent:in-progress with no live run is sent back to review; a live implement-pr run covers it", () => {

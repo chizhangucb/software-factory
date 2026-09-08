@@ -29,6 +29,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { gh as ghExec } from "../lib/gh.ts";
+import { escalationLabels } from "../retry/escalation.ts";
 import { PROJECTIONS, type Projection, STATUSES_PROJECTION, describeGhFailure, parseItems } from "./gh-read.ts";
 import {
   DEFAULT_DEADLINES,
@@ -211,6 +212,9 @@ for (const d of decisions) console.log(d.log);
 const edit = (subject: Decision["subject"], args: string[]): void => {
   gh([subject.kind === "issue" ? "issue" : "pr", "edit", String(subject.number), "--repo", repo, ...args]);
 };
+/** A subject's labels right now: the snapshot may be stale by the time a repair lands. */
+const labelsOf = (number: number): string[] =>
+  ghJson(["issue", "view", String(number), "--repo", repo, "--json", "labels", "--jq", "[.labels[].name]"]);
 const comment = (subject: Decision["subject"], body: string): void => {
   gh([subject.kind === "issue" ? "issue" : "pr", "comment", String(subject.number), "--repo", repo, "--body", body]);
 };
@@ -230,10 +234,17 @@ const apply = (d: Decision): void => {
       edit(subject, ["--add-label", action.add]);
       if (d.comment) comment(subject, d.comment);
       if (action.ticket !== undefined) {
-        const ticket = { kind: "issue" as const, number: action.ticket.number };
-        for (const label of action.ticket.remove) edit(ticket, ["--remove-label", label]);
-        edit(ticket, ["--add-label", action.add]);
-        comment(ticket, `PR #${subject.number} was escalated by the reconciler: ${d.log}${runUrl ? `\n\nSweep: ${runUrl}` : ""}`);
+        // Escalating the PR parks its ticket on the same label set (#50). The ticket's
+        // labels are read here, not taken from the snapshot: an earlier repair in this
+        // same sweep may have changed them, and the ticket may be closed and unlisted.
+        const ticket = { kind: "issue" as const, number: action.ticket };
+        const ticketLabels = escalationLabels(labelsOf(action.ticket));
+        for (const label of ticketLabels.remove) edit(ticket, ["--remove-label", label]);
+        edit(ticket, ["--add-label", ticketLabels.add]);
+        comment(
+          ticket,
+          `PR #${subject.number} was escalated by the reconciler: ${d.log}\n\nLabels here: ${ticketLabels.remove.length > 0 ? `\`${ticketLabels.remove.join("`, `")}\` removed, ` : ""}\`${ticketLabels.add}\` added. To hand it back, remove \`${ticketLabels.add}\` and add \`ready-for-agent\` again.${runUrl ? `\n\nSweep: ${runUrl}` : ""}`,
+        );
       }
       return;
     case "dispatch":

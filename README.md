@@ -1,6 +1,6 @@
 # software-factory
 
-Reusable GitHub Actions workflows that turn a labeled ticket into a PR, review it, and merge it with no human in the path. Glossary in `CONTEXT.md`, decisions in `docs/adr/`, spec in issue #9.
+Reusable GitHub Actions workflows that turn a labeled ticket into a PR, review it, and merge it with no human in the path. Glossary in `CONTEXT.md`, decisions in `docs/adr/`, spec in issue #9. What is sandcastle's and what is ours, file by file, in `docs/provenance/sandcastle.md`; the dated research the ADRs rest on in `docs/research/`.
 
 ## Onboard a target repo
 
@@ -73,6 +73,7 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 - `factory/plugins/`: skills the prompts call by name, vendored whole and pinned (mattpocock-skills 1.2.3, all 25 skills its manifest declares, including `tdd`, `code-review` and `resolving-merge-conflicts`). Copied into the account's `CLAUDE_CONFIG_DIR/skills/` before each attempt, where Claude Code loads them as plugins. The marketplace installer takes no version, so vendoring is the pin; `factory/plugins/README.md` records it and how to bump it.
 - `templates/`: `factory.yml`, the caller a target copies into its own `.github/workflows/`. sandcastle's word for it.
 - `.github/dependabot.yml`: opens a PR when a new sandcastle or Claude Code version ships. The pin only moves by hand.
+- `docs/adr/`: the decisions. `docs/provenance/sandcastle.md`: every file mapped to its origin, what was not copied and why, and spec #9's stories on sandcastle. `docs/research/`: dated snapshots an ADR cites, never updated. `docs/agents/`: how an agent should use this repo's tracker, labels and domain docs.
 
 ## Dispatcher
 

@@ -54,15 +54,20 @@ const scripted = (outcomes: Record<string, ResultEvent | ResultEvent[]>) =>
 
 test("a rate-limited first attempt restores the tree and re-runs once on the next account", async () => {
   const { logs, createLog } = fakeLogs();
+  const attempted: string[] = [];
   let restored = 0;
+  const run = scripted({
+    "tok-1": fixture("rate-limit-session"),
+    "tok-2": fixture("success"),
+  });
   const outcome = await runOnAccounts({
     name: "t",
     accounts,
     agentFor: (a) => a.token,
-    run: scripted({
-      "tok-1": fixture("rate-limit-session"),
-      "tok-2": fixture("success"),
-    }),
+    run: (agent, log) => {
+      attempted.push(agent);
+      return run(agent, log);
+    },
     createLog,
     log: () => {},
     restore: () => {
@@ -75,6 +80,9 @@ test("a rate-limited first attempt restores the tree and re-runs once on the nex
     account: accounts[1],
   });
   assert.deepEqual(logs, ["t.account-1", "t.account-2"]);
+  // Both accounts were actually run: rotation follows a rate-limited result,
+  // and nothing can mark an account limited without running the agent on it.
+  assert.deepEqual(attempted, ["tok-1", "tok-2"]);
   assert.equal(restored, 1);
 });
 
@@ -139,28 +147,6 @@ test("an auth error does not rotate; it fails on the account it happened on", as
   });
   assert.equal(outcome.ok, false);
   assert.equal(outcome.ok || outcome.rateLimited, false);
-  assert.deepEqual(logs, ["t.account-1"]);
-});
-
-test("nothing can skip the agent on an account; only a rate-limited result rotates", async () => {
-  const attempted: string[] = [];
-  const { logs, createLog } = fakeLogs();
-  const outcome = await runOnAccounts({
-    name: "t",
-    accounts,
-    // `forced` was the deleted FACTORY_FORCE_RATE_LIMIT_ON knob (#49). No option
-    // reads it now, so account 1 runs and the run finishes there.
-    ...({ forced: new Set([1]) } as Record<string, unknown>),
-    agentFor: (a) => a.token,
-    run: (agent: string, log: RunLog) => {
-      attempted.push(agent);
-      return scripted({ "tok-1": fixture("success") })(agent, log);
-    },
-    createLog,
-    log: () => {},
-  });
-  assert.equal(outcome.ok, true);
-  assert.deepEqual(attempted, ["tok-1"]);
   assert.deepEqual(logs, ["t.account-1"]);
 });
 

@@ -60,7 +60,7 @@ Whoever the factory will take instructions from. A ticket body is what the imple
 _Avoid_: allowlist, whitelist.
 
 **Proof run**:
-The acceptance test for the factory: seven tickets in two chains on a fixture repo, two accounts, one forced rate limit, zero human actions.
+The acceptance test for the factory: seven tickets in two chains on a fixture repo, two accounts, one rate limit, zero human actions. Passed in #19; the switch that forced its rate limit is gone (#49), so a re-run needs a real one.
 
 **Fixture repo**:
 A throwaway target repo with a tiny project, used only by the proof run and ticket demos.

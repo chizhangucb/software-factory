@@ -64,6 +64,7 @@ jobs:
       # or a trusted author's ticket is dispatched and their comments are then dropped.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
       # Optional, same on every job: runs in flight per account (default 5).
+      # Raise it to spread more load across the accounts.
       # per_account_slots: 8
   review:
     if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:review'

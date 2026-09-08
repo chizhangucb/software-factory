@@ -19,14 +19,14 @@ Two things share the name, and only one of them is copied.
 
 How this repo consumes the library: as a dependency, unmodified. `package.json` pins `@ai-hero/sandcastle` to exactly `0.12.0`; `package-lock.json`'s `integrity` for `node_modules/@ai-hero/sandcastle` is the live check that `npm ci` verifies on every run; the 0.12.0 tarball is cold storage attached to this repo's `engine-0.12.0` release and nothing fetches it (ADR 0002's 2026-09-08 amendment).
 
-Nothing from `src/` was copied. Re-verified on 2026-09-08 by grepping all 161 exported names of his `src/*.ts` against `factory/`: the only matches are `run`, `claudeCode`, and `Output`, all reached through the package, plus the words `create` and `remove` used in unrelated contexts. The whole contract with the library is five names and a few types:
+Nothing from `src/` was copied. Re-verified on 2026-09-08 by grepping all 161 exported names of his `src/*.ts` against `factory/`: the only matches are `run`, `claudeCode`, and `Output`, all reached through the package, plus the words `create` and `remove` used in unrelated contexts. Add `noSandbox`, which is a sub-path export (`@ai-hero/sandcastle/sandboxes/no-sandbox`) and so not in that top-level list, and the whole contract with the library is four names and a few types, the same contract `docs/research/sandcastle-inventory-2026-09.md` proposed:
 
 | Used | Where |
 |---|---|
-| `run()` | every vendored script, and `factory/audit/audit.ts` |
+| `run()` | `factory/agent-workflows/shared/run-with-extraction.ts` and `factory/agent-workflows/implement/implement.ts`. The reviewer, implement-pr, and the audit reach it through `runWithExtraction` |
 | `claudeCode()` | `factory/agent-workflows/shared/common.ts`, through `factory/lib/turn-cap.ts` |
-| `noSandbox()` | every vendored script, and the audit |
-| `Output.object()` | `factory/agent-workflows/shared/run-with-extraction.ts` |
+| `noSandbox()` | the four scripts that build a `run()` call: `implement/implement.ts`, `review/review.ts`, `implement-pr/implement-pr.ts`, and `factory/audit/audit.ts` |
+| `Output.object()` | `review/review.ts`, `implement-pr/implement-pr.ts`, and `factory/audit/audit.ts`; `shared/run-with-extraction.ts` takes the definition they build and never calls it |
 | types `RunOptions`, `RunResult`, `OutputObjectDefinition`, `AgentProvider`, `AgentStreamEvent`, `LoggingOption` | the same files |
 
 ## 2. His pipeline's autonomy, honestly
@@ -100,7 +100,7 @@ Two files sit inside that subtree and are ours, because he ships no tests at all
 | `factory/gate/` | `gate.ts`, `changed-files.ts`, `red-green.ts`, `removes.ts`, `test-integrity.ts`, their four `.test.ts` |
 | `factory/retry/` | `retry.ts`, `context.ts`, `checks.ts`, `decide.ts`, `checks.test.ts`, `decide.test.ts` |
 | `factory/update-branch/` | `update-branch.ts`, `plan.ts`, `plan.test.ts` |
-| `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `gh.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `turn-cap.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, `upsert-comment.sh`, a `.test.ts` sibling for each of them except `errors.ts` and `read-only.ts`, `fixtures/` |
+| `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `gh.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `turn-cap.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, a `.test.ts` sibling for each of those except `errors.ts` and `read-only.ts`, plus `upsert-comment.sh` and `fixtures/` |
 | `factory/plugins/mattpocock-skills/` | a vendored subset of Matt's skills plugin pinned at 1.2.3, today the `code-review` skill alone (`LICENSE`, `.claude-plugin/plugin.json`, `skills/code-review/SKILL.md`). A different upstream, not sandcastle; #54 is what widens the subset |
 | `templates/factory.yml` | the caller a target copies. The file is ours; `templates/` is sandcastle's word for the folder |
 | `scripts/onboard.sh` | labels, auto-merge, and the `factory` ruleset on a target |
@@ -226,7 +226,7 @@ The prompt numbers moved when #47 put his section skeletons back: `implement/pro
 
 | Piece | Story, ADR | Could his code have served? |
 |---|---|---|
-| dispatch (`factory/dispatch/`) | 1, 2, 21, 28, 30; #15 | No. His pipeline has no dispatcher; a human applies the label. His `simple-loop` template lets an agent pick issues, which #9 excludes ("any planner that invents work"). |
+| dispatch (`factory/dispatch/`) | 1, 2, 21, 28, 30; #15 | No. His pipeline has no dispatcher; a human applies the label. His `simple-loop` template lets an agent pick issues, which #9 excludes ("any planner that invents work"). Story 21 is the exception on this row: the `agent:*` label vocabulary the dispatcher writes is entirely his (section 9), only the thing that applies it is new. |
 | gate (`factory/gate/`) | 7, 8, 9; ADR 0003; #13 | No. His pipeline trusts the agent's "ran the tests". `diff-lines.ts` was reused as a seed. |
 | audit (`factory/audit/`) | 18, 19; ADR 0003; #18 | Partly. It reuses his `review-context.ts` and `run-with-extraction.ts`; the trigger and the revert logic have no counterpart. |
 | retry (`factory/retry/`) | 12, 13; #16 | No. His failure path is `agent:blocked` plus "re-add the label". |

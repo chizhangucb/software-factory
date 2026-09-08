@@ -34,7 +34,7 @@ Chronicle is the first public target (#20). The consequence above says isolation
 - A ticket labeled `agent:implement` by hand skips the dispatcher, so it skips the gate. That is deliberate: adding that label needs write access, and a maintainer doing it by hand is making the trust decision themselves. The reconciler re-adds the label on stranded work for the same reason, and the ticket it re-labels was dispatched under the gate in the first place.
 - `OWNER` is nobody on an org-owned repo, where the owner's own issues read `MEMBER`. Moving these repos to an org (#26) means setting `OWNER,MEMBER` in the same change.
 
-Deferred, not rejected: a sandbox provider is still one line in `factory/agent-workflows/shared/common.ts`, and the case for it returns when a target has contributors whose tickets the factory should run, or when the factory gets a credential worth stealing. Nothing here changes ADR 0001 or the vendoring decision.
+Deferred, not rejected: a sandbox provider is still one line per script that calls `run()` (see the 2026-09-08 amendment below for the four), and the case for it returns when a target has contributors whose tickets the factory should run, or when the factory gets a credential worth stealing. Nothing here changes ADR 0001 or the vendoring decision.
 
 ## Amendment, 2026-09-08: the tarball is a release asset, not a tree file
 
@@ -76,7 +76,7 @@ Two corrections of record from the reconciliation of 2026-09-08 (#46, story 9). 
 Story 26 of #46. The considered-options list above defers sandcastle's local Docker orchestrator, it does not reject it. Recording now what "undeferred" would mean, so the shape is settled before the story exists and a local path cannot arrive as a second product:
 
 - Shared, unchanged: the dispatcher decides what runs, the gate decides what may merge, the reviewer decides the verdict. None of the three runs a model over a sandbox; they read and write GitHub. A local path changes where `sandcastle.run()` happens, not who says go and who says ship.
-- Swapped: the sandbox provider (`noSandbox()` to `docker()` or `podman()`, one line in `factory/agent-workflows/shared/common.ts`) and the machine the job sits on. Both are sandcastle's own options and both are already inside the pinned package, so this costs no new dependency.
+- Swapped: the sandbox provider (`noSandbox()` to `docker()` or `podman()`, one line in each of the four scripts that pass a sandbox to `run()`: `implement/implement.ts`, `review/review.ts`, `implement-pr/implement-pr.ts`, `factory/audit/audit.ts`) and the machine the job sits on. Both are sandcastle's own options and both are already inside the pinned package, so this costs no new dependency.
 - Bought: Actions minutes stop being the price of a private target, and a real sandbox around the agent becomes available, which is what the first consequence above and the 2026-09-07 amendment both keep pointing at.
 - Paid: the Mini has to be awake. That is why v0 is cloud-only and why this is a note and not a path.
 

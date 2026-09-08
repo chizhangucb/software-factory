@@ -15,9 +15,9 @@ What the vendor's own documents say about that token, as of 2026-09-06 (sources 
 - Anthropic's legal and compliance page says OAuth authentication is intended for ordinary use of Claude Code and other native Anthropic applications, and that developers building products or services, including on the Agent SDK, should use API key authentication.
 - A support article says Anthropic may allow paid subscribers to use certain third-party tools, and reserves the right to draw that use from usage credits rather than from subscription limits.
 - The June 2026 change that would have put `claude -p`, the Agent SDK, and GitHub Actions on a separate credit pool is marked paused, not withdrawn.
-- No source found addresses a harness that spawns the unmodified `claude` CLI, which is what sandcastle's wrapper and therefore this factory does.
+- No page states a rule for a harness that spawns the unmodified `claude` CLI, which is what sandcastle's wrapper and therefore this factory does. The research note reads the pages above as leaving that case under the support article's reserved right, and its per-option table gives sandcastle and its peers the verdict "not a sanctioned surface, subject to discretionary usage-credit billing or blocking".
 
-So the factory keeps exactly one auth seam, and every path off subscription tokens goes through it.
+That last bullet is the risk this decision runs, stated once and left as the source states it. The factory's answer to it is mechanical, not rhetorical: exactly one auth seam, so every path off subscription tokens is one secret change away.
 
 ## Consequences
 
@@ -34,14 +34,14 @@ The rule, in three parts:
 
 1. **A subscription plan first**, whichever vendor's, for as long as one can do the work. The reason is unchanged: subscription billing is what makes the factory's volume affordable.
 2. **Any vendor.** The engine's agent slot already takes `codex`, `copilot`, `cursor`, `opencode`, and `pi` beside `claudeCode` (ADR 0002, and `docs/research/sandcastle-inventory-2026-09.md` section 2a lists them). An account is a secret plus the provider that reads it, so a Codex subscription is a second account kind, not a second design.
-3. **An API key is allowed**, through the seam that already exists: the auth environment the workflow hands to the run. Nothing in the tree changes shape to accept one.
+3. **An API key is allowed**, through the seam that already exists: the auth environment the workflow hands to the run. That seam is `claudeAgent()` in `factory/agent-workflows/shared/common.ts`, and today it takes subscription tokens only: it requires `CLAUDE_CODE_OAUTH_TOKEN` (or an account's token) and blanks `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` unconditionally. The first key-authenticated run therefore has to widen that one function to pass a key through when one is configured. Nothing else in the tree changes shape.
 
 What this does not change:
 
 - Rotation stays the mechanism for spreading load across subscription accounts (ADR 0004). An API key has no quota window to rotate around, so a key-authenticated run is a rotation of one.
-- API-key environment variables stay blanked inside the agent process (`factory/agent-workflows/shared/common.ts`). That is what makes the workflow's auth the only way in: a key reaches a run because someone configured it, never because it happened to be in the environment.
+- API-key environment variables stay blanked inside the agent process by default (`factory/agent-workflows/shared/common.ts`), and stay blanked outright until the seam is widened as point 3 says. That is what makes the workflow's auth the only way in: a key reaches a run because someone configured it at that seam, never because it happened to be in the environment.
 - The Agent SDK path stays closed for subscription tokens.
-- The file name changed with the title (`0001-subscription-tokens-only.md` to `0001-subscription-plans-first.md`). Nothing links to the ADR by file name; the references in `docs/adr/0002-vendored-sandcastle-engine.md`, `factory/agent-workflows/shared/common.ts`, and `factory/lib/usage.ts` all say "ADR 0001".
+- The file name changed with the title (`0001-subscription-tokens-only.md` to `0001-subscription-plans-first.md`). Two things link to the ADR by file name, the `cited-by:` front matter of `docs/research/sandcastle-peers-2026-09.md` and of `docs/research/sandcastle-inventory-2026-09.md`, and both carry the new name; a later rename has to move them too. Every other reference names the ADR by number, not by file: `docs/adr/0002-vendored-sandcastle-engine.md`, `factory/agent-workflows/shared/common.ts`, and `factory/lib/usage.ts` all say "ADR 0001".
 
 Secret naming per vendor is a v1 note, not decided here. Today's names are Claude-shaped (`CLAUDE_CODE_OAUTH_TOKEN_<n>` secrets, `CLAUDE_ACCOUNT_<n>` variables), and the "Enumerate accounts" step of each agent workflow reads that prefix. A second vendor means a second prefix plus a provider input to choose between them. Naming that before a vendor actually runs would be guessing; story 25 of #9 owns the first real swap.
 

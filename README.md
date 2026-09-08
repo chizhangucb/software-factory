@@ -69,7 +69,7 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 - `.github/workflows/`: an `agent-` prefix means the workflow runs a model, sandcastle's convention. `agent-implement.yml`, `agent-review.yml`, `agent-implement-pr.yml`: the reusable workflows, one per vendored sandcastle workflow, under his names. `agent-audit.yml`: the first-20 audit, factory-owned, no sandcastle counterpart. The rest run no model: `gate.yml` (the factory's own gate checks), `dispatch.yml` (the dispatcher), `update-branch.yml` (the merge-queue stand-in), all three factory-owned.
 - `factory/`: the vendored scripts and prompts (`shared`, `implement`, `review`, `implement-pr`) plus factory-owned modules (`model.ts`, `run-log.ts`, `turn-cap.ts`, `ticket-context.ts`, `plugins.ts`, `usage.ts`, `read-only.ts`, `gate/`, `dispatch/`, `update-branch/`, `retry/`, `audit/`). Treated as our code.
 - `factory/plugins/`: skills the prompts call by name, vendored and pinned (`mattpocock-skills:code-review` from mattpocock-skills 1.2.3). Copied into the account's `CLAUDE_CONFIG_DIR/skills/` before each attempt, where Claude Code loads them as plugins. Bump by hand.
-- `vendor/`: the `@ai-hero/sandcastle@0.12.0` tarball, integrity-checked against the lockfile in CI.
+- `templates/`: `factory.yml`, the caller a target copies into its own `.github/workflows/`. sandcastle's word for it.
 - `.github/dependabot.yml`: opens a PR when a new sandcastle or Claude Code version ships. The pin only moves by hand.
 
 ## Dispatcher
@@ -85,7 +85,8 @@ Inputs: `test_command` (default `node --test`, receives the test files as argume
 
 ## Engine notes
 
-- Sandcastle 0.12.0 pinned exactly, Claude Code CLI pinned in `package.json`, both installed from the lockfile on every run.
+- Sandcastle 0.12.0 pinned exactly, Claude Code CLI pinned in `package.json`, both installed from the lockfile on every run. `package-lock.json`'s `integrity` for `node_modules/@ai-hero/sandcastle` is the live check on what a run installs, so `npm ci` is the check and CI needs no hash step of its own.
+- The 0.12.0 tarball is also attached to the `engine-0.12.0` release as cold storage, in case the npm registry copy goes away. Nothing fetches it: no workflow, no script, no install path. It is a copy to fall back on by hand, and its sha512 matches the lockfile's integrity.
 - Every run logs to a file with the stream event hook and keeps Claude's raw `result` events, each appended to `<name>.result-events.jsonl` in the log artifact as it arrives. Success is decided from the last of them (`is_error`; the library retries a malformed turn, so an earlier error can be followed by a success), never from the library's return value or the CLI exit code, because a rate-limited `claude -p` exits 0. Every event is still read for rate-limit detection.
 - Runs pass `--dangerously-skip-permissions` on a bare ephemeral runner (ADR 0002). Pushes and PR creation use `FACTORY_PAT` so the target's CI fires on the agent's work.
 - The library's Claude provider has no flag passthrough, so `turn-cap.ts` wraps it and appends `--max-turns`; hitting the cap is an `is_error` result, so the run fails instead of stalling.

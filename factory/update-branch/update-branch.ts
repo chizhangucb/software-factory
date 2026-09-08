@@ -8,7 +8,8 @@
  * (see plan.ts); the old head gets a factory/update-branch status the moment
  * the call is accepted, so a later run can tell that merge from one a person
  * made in the web editor. A conflict the API cannot resolve is commented and
- * labeled agent:blocked; escalation proper is #16. No agent runs here.
+ * labeled agent:implement, so agent-implement-pr.yml resolves it on the branch
+ * (planConflict in plan.ts, ADR 0003 as amended by #19). No agent runs here.
  *
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT, for the update call,
  * comments, and labels), STATUS_TOKEN (GITHUB_TOKEN, for reading and
@@ -24,7 +25,6 @@ import * as path from "node:path";
 
 import { gh } from "../lib/gh.ts";
 import {
-  HANDED_OFF_LABELS,
   IMPLEMENT_LABEL,
   type CommitStatus,
   type HeadCommit,
@@ -35,6 +35,7 @@ import {
   carriedVerdict,
   findVerdict,
   isUpdateMerge,
+  planConflict,
   planUpdates,
 } from "./plan.ts";
 
@@ -211,17 +212,19 @@ for (const plan of plans) {
     }
     const result = requestUpdate(plan.number, pr.head.sha);
     if (result === "conflict") {
-      const held = pr.labels.find((l) => HANDED_OFF_LABELS.includes(l));
-      if (held) {
-        outcome.action = "skip";
-        outcome.reason = `update-branch refused: conflicts with main, already ${held}`;
-        console.log(`update-branch refused #${plan.number} (conflict); already ${held}, left alone.`);
-        continue;
+      // The same decision the plan takes on a CONFLICTING PR, reached here because
+      // the scan read UNKNOWN and GitHub answered with the conflict (plan.ts).
+      const conflict = planConflict(pr, "update-branch");
+      // Action and reason only: the plan's `carry` was already acted on above,
+      // and planConflict never sees a verdict, so its `carry: false` is not this one.
+      outcome.action = conflict.action;
+      outcome.reason = conflict.reason;
+      if (conflict.action === "hand-off") {
+        handOff(plan.number);
+        console.log(`#${plan.number}: ${conflict.reason}; commented and labeled ${IMPLEMENT_LABEL}.`);
+      } else {
+        console.log(`#${plan.number}: ${conflict.reason}, left alone.`);
       }
-      outcome.action = "hand-off";
-      outcome.reason = "update-branch refused: conflicts with main; handing the PR to the implementer";
-      handOff(plan.number);
-      console.log(`update-branch refused #${plan.number} (conflict); commented and labeled ${IMPLEMENT_LABEL}.`);
       continue;
     }
     if (result === "head moved") {

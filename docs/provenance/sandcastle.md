@@ -4,7 +4,7 @@ This repo is not a fork of [mattpocock/sandcastle](https://github.com/mattpocock
 
 Cited by ADR 0002 (`docs/adr/0002-vendored-sandcastle-engine.md`), which is the decision this document is the evidence for.
 
-- **Verified against the tree of 2026-09-08**, after the boundary move (#47), the workflow rename (#61), and the tarball move (#48). A change under `factory/agent-workflows/` or `.github/workflows/agent-*.yml` should update this file.
+- **Verified against the tree of 2026-09-08**, after the boundary move (#47), the workflow rename (#61), the tarball move (#48), and the writing-for-agents pass over the prompts (#56). A change under `factory/agent-workflows/` or `.github/workflows/agent-*.yml` should update this file, and section 6 says which numbers such a change moves.
 - **Reference for the comparison**: a clone of sandcastle at tag `v0.12.0`, commit `e99f832`, plus `npm pack @ai-hero/sandcastle@0.12.0`. Repo HEAD and the tag are the same commit; `git log v0.12.0..HEAD` is empty.
 - **Other sources**: this repo's `git log --follow`, ADRs 0001 to 0004, spec #9, spec #46, and the two dated research snapshots in `docs/research/`.
 - **Line counting method, used everywhere below**: non-blank, non-comment lines, whitespace normalised; one of his lines counts as surviving if the same normalised line appears anywhere in our version of that file. It is a coarse measure and it undercounts a line that was reindented into a different shape. It is stated so anyone can reproduce it.
@@ -52,7 +52,7 @@ And it has no dependency ordering, no retry, no escalation, no accounts or rotat
 
 ## 3. The file map: every file to its origin
 
-One rule, and then the exhaustive lists so nobody has to trust the rule.
+**Whose is this file?** One rule, and then the exhaustive lists so nobody has to trust the rule.
 
 > Under `factory/`, the folder `agent-workflows/` is sandcastle's and everything else is this repo's. Under `.github/workflows/`, the three named below are his and the rest are this repo's.
 
@@ -132,6 +132,8 @@ Three files sit inside that subtree and are ours, because he ships no tests at a
 
 ## 5. The three copied workflows, step by step
 
+**Before you change a step in one of his three workflows**, find the step in its table below. A step marked kept is his, so changing it needs the comment the boundary rule asks for; a step in the "Added" list under each table is ours to change freely.
+
 Line survival, by the method at the top:
 
 | Workflow | His lines surviving | Ours now | His share of ours |
@@ -202,6 +204,8 @@ Added: `refuse-fork`, the `slot` job, "Enumerate accounts", "Checkout factory", 
 
 ## 6. The vendored scripts and prompts
 
+**Before you change a script or prompt under `factory/agent-workflows/`**, find its row. The last column is the standing list of reasons a difference from him is allowed to exist; add to it when you add a difference, and update the row's two counts in the same PR.
+
 | File | His lines surviving | Ours now | What was forced |
 |---|---|---|---|
 | `shared/run-with-extraction.ts` | 41 of 41 (100%) | 41 | nothing. Untouched. |
@@ -212,15 +216,17 @@ Added: `refuse-fork`, the `slot` job, "Enumerate accounts", "Checkout factory", 
 | `implement/implement.ts` | 24 of 33 (73%) | 74 | account rotation; model input plus `model:` label; the ticket document with parent spec (stories 22, 23); trusted-author filtering (ADR 0002 amendment); the retry section (stories 12, 13); the plugin install (story 4); commits counted on `refs/heads/$BRANCH`. His `run()` call and his zero-commit check are the core and are his. |
 | `review/review.ts` | 54 of 78 (69%) | 154 | read-only plus `assertReadOnly` (story 5, ADR 0003); the verdict, the criteria parse, the PR body section and the status files (stories 5, 6); the target's test output in the prompt; rotation and the model input. His REST review payload, his inline-comment filtering and his reply filtering are intact. |
 | `implement-pr/implement-pr.ts` | 73 of 79 (92%) | 125 | the conflict hand-off with `git merge-tree` and a re-check after the run (#19); the retry section; the model label; rotation. His flow is otherwise intact. |
-| `implement/prompt.md` | 7 of 26 (27%) | 40 | his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT) are back and the paragraphs inside them are ours: parent spec, target-repo docs binding (story 23), never push or label, no network git or gh. Two sections have no counterpart of his: NO PLACEHOLDERS (stories 7, 8, 9, #13) and REVIEW AND FIX. Since #54, EXECUTION and REVIEW AND FIX invoke `mattpocock-skills:tdd` and `mattpocock-skills:code-review` by name instead of restating them, and TASK fences the run to the skills the prompt names, because the whole plugin is installed (story 12 of #46). |
-| `review/prompt.md` | 14 of 33 (42%) | 37 | his sections (TASK, LINKED ISSUE, DIFF TO MAIN, PR COMMENTS, REVIEW PROCESS) are back and in his order; the paragraphs turn "actively improve the branch" into a read-only judge ticking criteria (story 5, ADR 0003). Two sections have no counterpart of his: ACCEPTANCE CRITERIA and TEST OUTPUT, both of which the verdict needs. |
-| `implement-pr/prompt.md` | 25 of 28 (89%) | 30 | the CONFLICT and RETRY placeholders and the line that sends the agent at a conflict first (#19); the no-credentials line (ADR 0002); his `npm run typecheck` widened to the repo's own typecheck and full suite; and, since #54, the same fence to the named skills that the implementer prompt carries (story 12 of #46). |
+| `implement/prompt.md` | 7 of 26 (27%) | 39 | his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT) are back and the paragraphs inside them are ours: parent spec, target-repo docs binding (story 23), never push or label, no network git or gh. Two sections have no counterpart of his: NO PLACEHOLDERS (stories 7, 8, 9, #13) and REVIEW AND FIX. Since #54, EXECUTION and REVIEW AND FIX invoke `mattpocock-skills:tdd` and `mattpocock-skills:code-review` by name instead of restating them, and TASK fences the run to the skills the prompt names, because the whole plugin is installed (story 12 of #46). Then #56 put every paragraph through `writing-for-agents`, so NO PLACEHOLDERS names the target to hit before each guardrail (story 14 of #46); his seven lines are the section headings and none of them moved. |
+| `review/prompt.md` | 14 of 33 (42%) | 38 | his sections (TASK, LINKED ISSUE, DIFF TO MAIN, PR COMMENTS, REVIEW PROCESS) are back and in his order; the paragraphs turn "actively improve the branch" into a read-only judge ticking criteria (story 5, ADR 0003). Two sections have no counterpart of his: ACCEPTANCE CRITERIA and TEST OUTPUT, both of which the verdict needs. #56's writing pass moved none of his fourteen either: it states read-only once with the check that enforces it, and turns the trailing rules positive (story 14 of #46). |
+| `implement-pr/prompt.md` | 20 of 28 (71%) | 31 | the CONFLICT and RETRY placeholders and the line that sends the agent at a conflict first (#19); the no-credentials line (ADR 0002); his `npm run typecheck` widened to the repo's own typecheck and full suite; and, since #54, the same fence to the named skills that the implementer prompt carries (story 12 of #46). Then #56: the one prompt whose writing pass cost him lines, five of them, because his prose here had survived almost whole and the pass rewrote it. His four outcomes for a thread are still his four; what changed is that the list gained an exhaustive completion criterion and his four prohibitions became a positive lead plus a `Never:` block (story 14 of #46). |
 | `review/extraction.md` | 16 of 18 (89%) | 27 | `verdict` and `criteria`, and a `summary` field that asks what the PR does and why the verdict is what it is, where his asked what the reviewer changed: he has no verdict (story 5). |
 | `implement-pr/extraction.md` | 20 of 20 (100%) | 20 | nothing. Untouched. |
 
 Five of the eight scripts are over 90 percent his. The three that are not are the three the spec changed the most: the implementer got a whole ticket document and a rotation wrapper, the reviewer stopped being a writer, and `review-context.ts` became the place trust is enforced for three agents at once (#52). That last one moved most recently and by the largest step, from 97 percent to 69.
 
 The prompt numbers moved when #47 put his section skeletons back: `implement/prompt.md` went from 3 surviving lines to 7 and `review/prompt.md` from 12 to 14. They did not move again when #54 replaced the prose that imitated Matt's skills with calls to those skills by name: `implement/prompt.md` got shorter (42 lines to 40) and `implement-pr/prompt.md` one line longer, with the same lines of his surviving. The content inside the sections is still ours, and it has to be, because stories 4, 5, 7, 8 and 23 all land in prompt text.
+
+#56's writing pass (story 14 of #46) moved them once more, and only here: every script row above is unchanged, because that pass touched only comment text and this table's method excludes comments. `implement/prompt.md` and `review/prompt.md` kept every one of his lines, since his are the section headings and the headings were out of bounds. `implement-pr/prompt.md` lost five, 89 percent down to 71, the largest single drop in this table, for the reason its row gives. Both `extraction.md` files were left alone on purpose: they are a format contract rather than prose, so the writing pass had nothing to do to them, and `implement-pr/extraction.md` is still the only file in the vendored set that is his to the line.
 
 ## 7. Added with no sandcastle counterpart
 
@@ -240,7 +246,9 @@ One row has left this table since it was written: the turn cap (`factory/lib/tur
 
 ## 8. Where rewriting was avoidable, and what has been undone since
 
-Edits that no story or ADR forced, most consequential first, with their state as of 2026-09-08.
+**Before you fix something under `factory/agent-workflows/` that looks wrong**, check this list. Every entry is a difference from him that no story or ADR forced, so each one looks like a mistake and some of them are not. **Kept** means it was examined and left on purpose, with the reason given: leave it, and raise a ticket of its own rather than reverting it inside a ticket about something else. **Undone** means it is already gone and the entry is history.
+
+Most consequential first, with their state as of 2026-09-08.
 
 - **Conflict resolution reinvented in implement-pr** (`3f21533`, `factory/lib/conflicts.ts`, the prompt's CONFLICT section). His `update-branch.ts` plus `agent-update-branch.yml` do exactly this: merge base, agent resolves, push with lease. It was left out because #9 said conflicts escalate in v0, then #19 reversed that and wrote new code rather than copying his. **Kept as built**, by decision: story 5 of #46 says reconciliation does not re-prove working code, and the proof run exercised this path.
 - **Prompt rewrites went wholesale where edits would have done.** **Undone by #47**: his section skeletons are back in all three prompts, with the paragraphs inside them swapped. The content had to change (stories 4, 5, 23); the structure did not. #54 then cut the rewritten content down further: the paragraphs that restated Matt's TDD and review skills in prose became calls to those skills by name (story 12 of #46), so the prompts carry less of our writing than at any point since the vendoring.

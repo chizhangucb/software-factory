@@ -6,9 +6,10 @@
  *
  * - conflict hand-off: update-branch labels a conflicting PR `agent:implement`, so
  *   this run probes with `git merge-tree`, asks the agent to merge and resolve, and
- *   fails if the conflict survives, or the hand-off would loop (#19). His own
- *   `update-branch` agent does this upstream; kept as built because the proof run
- *   exercised it (story 5 of #46).
+ *   fails if the conflict survives, or the hand-off would loop (#19). A probe that
+ *   neither exited 0 nor 1 fails the run too, naming the exit, rather than reading
+ *   its own crash as resolved (#53). His own `update-branch` agent does this
+ *   upstream; kept as built because the proof run exercised it (story 5 of #46).
  * - retry section in the prompt: stories 12, 13.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
  * - `prompt.md` is his, plus: the CONFLICT and RETRY placeholders and the line
@@ -48,14 +49,21 @@ const IMPLEMENTER_MODEL = required("IMPLEMENTER_MODEL");
 /** The base branch, present as a local branch (the workflow runs `git branch -f main origin/main`). */
 const BASE_BRANCH = process.env.BASE_BRANCH || "main";
 
-/** Whether this branch conflicts with the base: update-branch hands such PRs to this run. */
+/**
+ * Whether this branch conflicts with the base: update-branch hands such PRs to
+ * this run. A probe that neither exited 0 nor 1 throws, so the run fails with
+ * the exit in the reason rather than reporting a branch it never checked (#53).
+ */
 const detectConflicts = (): readonly string[] => {
   const probe = spawnSync("git", ["merge-tree", "--write-tree", BASE_BRANCH, "HEAD"], { encoding: "utf8" });
-  if (probe.status !== 0 && probe.status !== 1) {
-    console.warn(`::warning::git merge-tree could not probe for conflicts (exit ${probe.status}): ${probe.stderr}`);
-    return [];
-  }
-  return parseMergeTreeConflicts({ status: probe.status, stdout: probe.stdout });
+  // The spawn itself failing (no git on PATH) is not a probe result to read.
+  if (probe.error) throw probe.error;
+  return parseMergeTreeConflicts({
+    status: probe.status,
+    stdout: probe.stdout,
+    stderr: probe.stderr,
+    signal: probe.signal,
+  });
 };
 
 try {

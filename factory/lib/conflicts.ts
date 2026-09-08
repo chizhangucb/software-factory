@@ -8,12 +8,34 @@
  * git.
  */
 
-/** What `git merge-tree --write-tree` reports as conflicting: file paths for content conflicts, the message for other kinds. */
+/**
+ * What `git merge-tree --write-tree` reports as conflicting: file paths for
+ * content conflicts, the message for other kinds.
+ *
+ * The exit code is the whole answer, so anything but 0 or 1 throws (#53).
+ * A bad ref exits 128, a git too old for `--write-tree` 129, a killed probe
+ * reports a signal and no status at all; reading any of those as "no
+ * conflicts" would hand the caller a clean branch it never checked. That
+ * silence is worst at the re-check after the implement-PR run, where an
+ * empty list is what lets a still-conflicting branch through.
+ */
 export const parseMergeTreeConflicts = (input: {
-  /** Exit status of `git merge-tree --write-tree <base> <head>`: 0 clean, 1 conflicts. */
-  readonly status: number;
+  /** Exit status of `git merge-tree --write-tree <base> <head>`: 0 clean, 1 conflicts, null when a signal killed it. */
+  readonly status: number | null;
   readonly stdout: string;
+  readonly stderr?: string;
+  /** The signal that killed the probe, when one did. */
+  readonly signal?: string | null;
 }): readonly string[] => {
+  if (input.status !== 0 && input.status !== 1) {
+    const exitReason =
+      input.status === null ? (input.signal ? `killed by ${input.signal}` : "no exit status") : `exit ${input.status}`;
+    const stderr = (input.stderr ?? "").trim();
+    throw new Error(
+      `git merge-tree --write-tree could not probe for conflicts (${exitReason}); expected exit 0 (clean) or 1 (conflicts)` +
+        (stderr ? `: ${stderr}` : ""),
+    );
+  }
   if (input.status === 0) return [];
   const lines = input.stdout.split("\n").map((l) => l.trimEnd()).filter((l) => l.length > 0);
   const conflicts: string[] = [];

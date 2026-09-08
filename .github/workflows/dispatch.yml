@@ -76,7 +76,9 @@ jobs:
           sparse-checkout: |
             factory/dispatch
             factory/lib/gh.ts
+            factory/lib/labels.ts
             factory/lib/trusted-authors.ts
+            factory/retry/escalation.ts
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

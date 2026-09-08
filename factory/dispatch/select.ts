@@ -13,12 +13,9 @@
  */
 
 import { READY_LABEL } from "../lib/labels.ts";
-import {
-  DEFAULT_TRUSTED_AUTHORS,
-  isTrustedAuthor,
-} from "../lib/trusted-authors.ts";
+import type { TrustPolicy } from "../lib/trusted-authors.ts";
 
-export { DEFAULT_TRUSTED_AUTHORS, parseTrustedAuthors } from "../lib/trusted-authors.ts";
+export { DEFAULT_TRUSTED_AUTHORS, trustPolicy, trustPolicyFromEnv } from "../lib/trusted-authors.ts";
 
 /** Re-exported so the dispatcher's callers keep reading its rules from one module. */
 export { READY_LABEL };
@@ -55,7 +52,7 @@ export type DispatchIssue = {
 /** The reason an issue is not dispatched, or undefined when it is. */
 export const whySkipped = (
   issue: DispatchIssue,
-  trustedAuthors: readonly string[] = DEFAULT_TRUSTED_AUTHORS,
+  policy: TrustPolicy,
 ): string | undefined => {
   const has = (label: string) => issue.labels.includes(label);
   if (issue.state === "closed") return "closed since the snapshot";
@@ -66,7 +63,7 @@ export const whySkipped = (
   if (state) return `already in the factory: ${state}`;
   // After the label checks: a skipped ticket gets no comment, so its one log
   // line should name the state a human can act on, not the author.
-  if (!isTrustedAuthor(issue.authorAssociation, trustedAuthors)) {
+  if (!policy.trusts(issue.authorAssociation)) {
     return `untrusted author: ${issue.authorAssociation}`;
   }
   if (issue.assigned) return "assigned";
@@ -80,9 +77,9 @@ export const whySkipped = (
 
 export const selectForDispatch = (
   issues: readonly DispatchIssue[],
-  trustedAuthors: readonly string[] = DEFAULT_TRUSTED_AUTHORS,
+  policy: TrustPolicy,
 ): DispatchIssue[] =>
-  issues.filter((issue) => whySkipped(issue, trustedAuthors) === undefined);
+  issues.filter((issue) => whySkipped(issue, policy) === undefined);
 
 /**
  * Issue numbers that open PRs claim to close, from their bodies. Same
@@ -139,8 +136,8 @@ export const fromGitHub = (
 export const whyNotDispatchableNow = (
   raw: unknown,
   closedByOpenPr: ReadonlySet<number>,
-  trustedAuthors: readonly string[] = DEFAULT_TRUSTED_AUTHORS,
+  policy: TrustPolicy,
 ): string | undefined => {
   const [issue] = fromGitHub([raw], closedByOpenPr);
-  return issue ? whySkipped(issue, trustedAuthors) : "not an issue";
+  return issue ? whySkipped(issue, policy) : "not an issue";
 };

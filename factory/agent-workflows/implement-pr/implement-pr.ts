@@ -16,6 +16,8 @@
  *   whole plugin goes in, so TASK fences the run to the skills the prompt names:
  *   the other 24 are in the list and some of them describe work this run is not
  *   doing (story 11 of #46).
+ * - trusted authors over the PR comments, the review threads, the linked issue
+ *   with its comments, and the retry marker: story 27, ADR 0002 amendment.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
  * - `prompt.md` is his, plus: the CONFLICT and RETRY placeholders and the line
  *   that sends the agent at the conflict first (#19); the no-credentials line
@@ -40,6 +42,7 @@ import {
 import { resolveRoleModel } from "../../lib/model";
 import { installPluginsForAttempt } from "../../lib/plugins";
 import { fetchPullRequestContext } from "../shared/review-context";
+import { trustPolicyFromEnv } from "../../lib/trusted-authors";
 import {
   filterInlineComments,
   filterReplies,
@@ -73,7 +76,12 @@ const detectConflicts = (): readonly string[] => {
 };
 
 try {
-  const context = fetchPullRequestContext(PR_NUMBER);
+  // Whose words this run reads (story 27, ADR 0002 amendment): built once here
+  // and passed to the PR context and the retry marker alike, so both follow the
+  // target's own policy rather than a default of their own.
+  const policy = trustPolicyFromEnv();
+  console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
+  const context = fetchPullRequestContext(PR_NUMBER, policy);
 
   const labels = JSON.parse(
     gh(["pr", "view", PR_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),
@@ -81,7 +89,7 @@ try {
   const { model, source } = resolveRoleModel("implementer", IMPLEMENTER_MODEL, labels);
   console.log(`Implementer model: ${model} (from ${source}).`);
   // A retry (#16) carries the failing verdict or check log on the linked ticket.
-  const retrySection = retrySectionForRun(context.issueNumber || undefined);
+  const retrySection = retrySectionForRun(context.issueNumber || undefined, policy);
   const conflicts = detectConflicts();
   console.log(
     conflicts.length === 0

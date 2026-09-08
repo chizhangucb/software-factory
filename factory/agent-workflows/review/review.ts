@@ -12,6 +12,8 @@
  *   section. A ticket with no criteria fails mechanically: stories 5, 6.
  * - the target's test output in the prompt: story 5.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
+ * - trusted authors over the PR comments, the review threads and the linked
+ *   issue with its comments: story 27, ADR 0002 amendment.
  * - `prompt.md` keeps his sections (TASK, LINKED ISSUE, DIFF TO MAIN, PR COMMENTS,
  *   REVIEW PROCESS, then the trailing rules) and gains two: ACCEPTANCE CRITERIA,
  *   one judgement per criterion (stories 5, 6), and TEST OUTPUT, the target's own
@@ -35,6 +37,7 @@ import {
 import { resolveRoleModel } from "../../lib/model";
 import { assertReadOnly, worktreeState } from "../../lib/read-only";
 import { fetchPullRequestContext } from "../shared/review-context";
+import { trustPolicyFromEnv } from "../../lib/trusted-authors";
 import {
   filterInlineComments,
   filterReplies,
@@ -106,7 +109,11 @@ const writeReview = (review: ReviewFiles): void => {
 };
 
 try {
-  const context = fetchPullRequestContext(PR_NUMBER);
+  // Whose words this run reads (story 27, ADR 0002 amendment): built once here
+  // and passed down, so nothing between here and the prompt can widen it.
+  const policy = trustPolicyFromEnv();
+  console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
+  const context = fetchPullRequestContext(PR_NUMBER, policy);
   const criteria = parseAcceptanceCriteria(context.issueBody);
   const { model } = resolveRoleModel("reviewer", REVIEWER_MODEL);
   console.log(`Reviewer model: ${model}.`);

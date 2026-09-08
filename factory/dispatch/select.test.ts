@@ -5,11 +5,14 @@ import {
   type DispatchIssue,
   fromGitHub,
   issuesClosedByPrs,
-  parseTrustedAuthors,
+  trustPolicy,
   selectForDispatch,
   whyNotDispatchableNow,
   whySkipped,
 } from "./select.ts";
+
+/** The default every target starts on: the repo owner alone. */
+const OWNER_ONLY = trustPolicy("OWNER");
 
 const ticket = (
   number: number,
@@ -25,11 +28,11 @@ const ticket = (
 });
 
 const numbers = (issues: readonly DispatchIssue[]): number[] =>
-  selectForDispatch(issues).map((issue) => issue.number);
+  selectForDispatch(issues, OWNER_ONLY).map((issue) => issue.number);
 
 test("a ready ticket with no blockers, no assignee, and no run state is dispatched", () => {
   assert.deepEqual(numbers([ticket(1)]), [1]);
-  assert.equal(whySkipped(ticket(1)), undefined);
+  assert.equal(whySkipped(ticket(1), OWNER_ONLY), undefined);
 });
 
 test("only the dependent of a closed blocker is dispatched, not the rest of the chain", () => {
@@ -37,7 +40,7 @@ test("only the dependent of a closed blocker is dispatched, not the rest of the 
   const b = ticket(2, { openBlockers: 0 });
   const c = ticket(3, { openBlockers: 1 });
   assert.deepEqual(numbers([b, c]), [2]);
-  assert.equal(whySkipped(c), "1 open blocker");
+  assert.equal(whySkipped(c, OWNER_ONLY), "1 open blocker");
 });
 
 test("a ticket with an open blocker is never dispatched", () => {
@@ -46,15 +49,15 @@ test("a ticket with an open blocker is never dispatched", () => {
 
 test("a ticket without ready-for-agent is not a dispatch candidate", () => {
   assert.deepEqual(numbers([ticket(1, { labels: [] })]), []);
-  assert.equal(whySkipped(ticket(1, { labels: ["bug"] })), "no ready-for-agent");
+  assert.equal(whySkipped(ticket(1, { labels: ["bug"] }), OWNER_ONLY), "no ready-for-agent");
 });
 
 test("ready-for-human and needs-triage are refused even with ready-for-agent", () => {
   const human = ticket(1, { labels: ["ready-for-agent", "ready-for-human"] });
   const triage = ticket(2, { labels: ["needs-triage", "ready-for-agent"] });
   assert.deepEqual(numbers([human, triage]), []);
-  assert.equal(whySkipped(human), "refused: ready-for-human");
-  assert.equal(whySkipped(triage), "refused: needs-triage");
+  assert.equal(whySkipped(human, OWNER_ONLY), "refused: ready-for-human");
+  assert.equal(whySkipped(triage, OWNER_ONLY), "refused: needs-triage");
 });
 
 test("an assigned ticket is left to its assignee", () => {
@@ -71,7 +74,7 @@ test("factory state labels mean the ticket is already in the factory", () => {
   ]) {
     const issue = ticket(1, { labels: ["ready-for-agent", state] });
     assert.deepEqual(numbers([issue]), [], state);
-    assert.equal(whySkipped(issue), `already in the factory: ${state}`);
+    assert.equal(whySkipped(issue, OWNER_ONLY), `already in the factory: ${state}`);
   }
 });
 
@@ -82,12 +85,12 @@ test("a ticket that an open PR already closes is skipped", () => {
 test("a spec with sub-issues is not a ticket", () => {
   const spec = ticket(9, { subIssues: 3 });
   assert.deepEqual(numbers([spec]), []);
-  assert.equal(whySkipped(spec), "has sub-issues, not a ticket");
+  assert.equal(whySkipped(spec, OWNER_ONLY), "has sub-issues, not a ticket");
 });
 
 test("selection keeps the tracker's order and returns whole issues", () => {
   const issues = [ticket(5), ticket(3, { openBlockers: 1 }), ticket(8)];
-  assert.deepEqual(selectForDispatch(issues), [issues[0], issues[2]]);
+  assert.deepEqual(selectForDispatch(issues, OWNER_ONLY), [issues[0], issues[2]]);
 });
 
 test("issuesClosedByPrs reads closing keywords from open PR bodies", () => {
@@ -164,12 +167,12 @@ test("re-reading an issue before labeling catches a close or a new blocker since
     ...over,
   });
   const none = new Set<number>();
-  assert.equal(whyNotDispatchableNow(raw({}), none), undefined);
-  assert.equal(whyNotDispatchableNow(raw({ state: "closed" }), none), "closed since the snapshot");
-  assert.equal(whyNotDispatchableNow(raw({ issue_dependencies_summary: { blocked_by: 1 } }), none), "1 open blocker");
-  assert.equal(whyNotDispatchableNow(raw({}), new Set([67])), "an open PR already closes it");
+  assert.equal(whyNotDispatchableNow(raw({}), none, OWNER_ONLY), undefined);
+  assert.equal(whyNotDispatchableNow(raw({ state: "closed" }), none, OWNER_ONLY), "closed since the snapshot");
+  assert.equal(whyNotDispatchableNow(raw({ issue_dependencies_summary: { blocked_by: 1 } }), none, OWNER_ONLY), "1 open blocker");
+  assert.equal(whyNotDispatchableNow(raw({}), new Set([67]), OWNER_ONLY), "an open PR already closes it");
   assert.equal(
-    whyNotDispatchableNow(raw({ labels: [{ name: "ready-for-agent" }, { name: "agent:in-progress" }] }), none),
+    whyNotDispatchableNow(raw({ labels: [{ name: "ready-for-agent" }, { name: "agent:in-progress" }] }), none, OWNER_ONLY),
     "already in the factory: agent:in-progress",
   );
 });
@@ -177,8 +180,8 @@ test("re-reading an issue before labeling catches a close or a new blocker since
 test("the re-read applies the same trust list the selection did", () => {
   const raw = { number: 67, state: "open", labels: [{ name: "ready-for-agent" }], assignees: [], author_association: "COLLABORATOR", issue_dependencies_summary: { blocked_by: 0 } };
   const none = new Set<number>();
-  assert.equal(whyNotDispatchableNow(raw, none), "untrusted author: COLLABORATOR");
-  assert.equal(whyNotDispatchableNow(raw, none, parseTrustedAuthors("OWNER,COLLABORATOR")), undefined);
+  assert.equal(whyNotDispatchableNow(raw, none, OWNER_ONLY), "untrusted author: COLLABORATOR");
+  assert.equal(whyNotDispatchableNow(raw, none, trustPolicy("OWNER,COLLABORATOR")), undefined);
 });
 
 test("a ticket written by someone without write access is not dispatched", () => {
@@ -186,12 +189,12 @@ test("a ticket written by someone without write access is not dispatched", () =>
   // implementer executes. Only the owner's own tickets are trusted by default.
   const outsider = ticket(1, { authorAssociation: "NONE" });
   assert.deepEqual(numbers([outsider]), []);
-  assert.equal(whySkipped(outsider), "untrusted author: NONE");
+  assert.equal(whySkipped(outsider, OWNER_ONLY), "untrusted author: NONE");
 });
 
 test("a wider trust list lets in a ticket the default would park", () => {
   const member = ticket(1, { authorAssociation: "COLLABORATOR" });
-  const trusted = parseTrustedAuthors("OWNER,COLLABORATOR");
+  const trusted = trustPolicy("OWNER,COLLABORATOR");
   assert.deepEqual(selectForDispatch([member], trusted).map((i) => i.number), [1]);
   assert.equal(whySkipped(member, trusted), undefined);
 });

@@ -1,19 +1,29 @@
 /**
  * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/shared/review-context.ts`.
- * Forced differences, each named (#47):
+ * Forced differences, each named (#47, #52):
  *
  * - `issueBody`, so the reviewer can parse acceptance criteria: story 5.
  * - the closing-keyword regex moved to `lib/linked-issue.ts`, one definition for
  *   the reviewer, the gate, the preflight and the retry handler (#13, #16).
- * - the issue body and its comments fetched separately: gh 2.95 prints only the
- *   comments under `--comments`, so a ticket with none arrived empty.
- * - the `gh issue view --json body` read throws instead of falling back to "", so a
+ * - the linked issue read through `--json` and rendered by `lib/ticket-context.ts`:
+ *   the text view carries no `author_association`, so nothing on it could be
+ *   filtered, and gh 2.95 prints only the comments under `--comments` anyway, so
+ *   a ticket with none arrived empty. One read now, body and comments together
+ *   (story 27, ADR 0002 amendment).
+ * - the `gh issue view --json` read throws instead of falling back to "", so an
  *   API error can never read as "this ticket has no criteria": story 5.
+ * - a required `TrustPolicy`, and the assembly split out of the fetch as the pure
+ *   `pullRequestContext`: everything a stranger can write is dropped before it
+ *   reaches an agent, the count goes in its place, and the split is what lets a
+ *   unit test prove it over fixtures with no network (story 27, ADR 0002
+ *   amendment).
  * - an optional `diff`, so the audit can pass the merged commit's: story 18.
  */
 import { gh, safeSh, sh } from "./common";
 import { parseDiffLines } from "./diff-lines";
 import { linkedIssueNumber } from "../../lib/linked-issue";
+import { renderIssue, type IssueView } from "../../lib/ticket-context";
+import type { TrustPolicy } from "../../lib/trusted-authors";
 
 export interface ReviewThreadComment {
   readonly commentId: string;
@@ -22,6 +32,49 @@ export interface ReviewThreadComment {
   readonly line: number | null;
   readonly author: string;
   readonly body: string;
+}
+
+/** A top-level comment on the PR, as `gh pr view --json comments` returns it. */
+export interface PullRequestComment {
+  readonly author?: { readonly login: string } | null;
+  /** GitHub's `author_association` for the commenter. Absent reads as an outsider. */
+  readonly authorAssociation?: string | null;
+  readonly body: string;
+  readonly createdAt?: string;
+}
+
+/** A submitted review, as `GET /pulls/{n}/reviews` returns it: REST, so snake_case. */
+export interface PullRequestReview {
+  readonly user?: { readonly login: string } | null;
+  readonly author_association?: string | null;
+  readonly body?: string | null;
+  readonly state: string;
+  readonly submitted_at?: string | null;
+}
+
+/** A review thread, as the GraphQL query below returns it. */
+export interface PullRequestReviewThread {
+  readonly id: string;
+  readonly isResolved: boolean;
+  readonly comments: {
+    readonly nodes: readonly {
+      readonly id: string;
+      readonly path: string | null;
+      readonly line: number | null;
+      readonly originalLine: number | null;
+      readonly body: string;
+      readonly author?: { readonly login: string } | null;
+      readonly authorAssociation?: string | null;
+    }[];
+  };
+}
+
+/** How much of each channel the trust policy dropped. */
+export interface DroppedComments {
+  readonly prComments: number;
+  readonly reviewSummaries: number;
+  readonly reviewThreadComments: number;
+  readonly issueComments: number;
 }
 
 export interface PullRequestContext {
@@ -36,57 +89,25 @@ export interface PullRequestContext {
   readonly prCommentsJson: string;
   readonly diffLines: Map<string, Set<number>>;
   readonly validReplyIds: Set<string>;
+  /** What the trust policy kept out of all of the above (story 27). */
+  readonly dropped: DroppedComments;
 }
 
-export const fetchPullRequestContext = (
-  prNumber: string,
-  options: {
-    /** The diff to judge; defaults to the branch's diff to main. The audit passes the merged commit's. */
-    readonly diff?: string;
-  } = {},
-): PullRequestContext => {
-  const prView = JSON.parse(
-    gh(["pr", "view", prNumber, "--json", "title,body,comments"]),
-  ) as {
-    title: string;
-    body?: string | null;
-    comments: {
-      author?: { login: string } | null;
-      body: string;
-      createdAt?: string;
-    }[];
+/** The four reads `fetchPullRequestContext` makes, before any judgement. */
+export interface PullRequestReads {
+  readonly pr: {
+    readonly title: string;
+    readonly body?: string | null;
+    readonly comments: readonly PullRequestComment[];
   };
+  /** The linked ticket, or undefined when the PR body links none. */
+  readonly issue: IssueView | undefined;
+  readonly reviews: readonly PullRequestReview[];
+  readonly threads: readonly PullRequestReviewThread[];
+  readonly diff: string;
+}
 
-  const issueNumber = linkedIssueNumber(prView.body);
-  const issueTitle = issueNumber
-    ? safeSh(`gh issue view ${issueNumber} --json title --jq .title`).trim()
-    : "";
-  // Throws on an API error: a missing body must never read as "no criteria".
-  const issueBody = issueNumber
-    ? gh(["issue", "view", issueNumber, "--json", "body", "--jq", ".body"])
-    : "";
-  // gh 2.95 prints only the comments under --comments, so fetch the issue and
-  // its comments separately or a ticket with no comments arrives empty.
-  const linkedIssue = issueNumber
-    ? [
-        safeSh(`gh issue view ${issueNumber}`),
-        safeSh(`gh issue view ${issueNumber} --comments`),
-      ]
-        .filter((part) => part.trim().length > 0)
-        .join("\n")
-    : "(no linked issue found)";
-
-  const reviews = JSON.parse(
-    gh(["api", `repos/{owner}/{repo}/pulls/${prNumber}/reviews`]),
-  ) as {
-    user?: { login: string } | null;
-    body?: string | null;
-    state: string;
-    submitted_at?: string | null;
-  }[];
-
-  const [owner, repo] = (process.env.GH_REPO ?? "").split("/");
-  const query = `
+const REVIEW_THREADS_QUERY = `
 query($owner:String!,$repo:String!,$number:Int!) {
   repository(owner:$owner,name:$repo) {
     pullRequest(number:$number) {
@@ -102,6 +123,7 @@ query($owner:String!,$repo:String!,$number:Int!) {
               line
               originalLine
               body
+              authorAssociation
               author { login }
             }
           }
@@ -110,6 +132,138 @@ query($owner:String!,$repo:String!,$number:Int!) {
     }
   }
 }`;
+
+/**
+ * The context an agent gets, from the reads, under one trust policy. Pure, so
+ * the filter is provable over fixtures with no network.
+ *
+ * The policy is a required argument, not an option with a default: the
+ * reviewer, implement-pr and the audit all come through here, and a call site
+ * that could omit it would read a stranger's words in silence (story 27).
+ */
+export const pullRequestContext = (
+  reads: PullRequestReads,
+  policy: TrustPolicy,
+): PullRequestContext => {
+  const issueNumber = linkedIssueNumber(reads.pr.body);
+  const issueComments = policy.keep(
+    reads.issue?.comments ?? [],
+    (comment) => comment.authorAssociation,
+  );
+  const linkedIssue = reads.issue
+    ? renderIssue(reads.issue, policy)
+    : "(no linked issue found)";
+
+  const prComments = policy.keep(
+    reads.pr.comments,
+    (comment) => comment.authorAssociation,
+  );
+  const reviewSummaries = policy.keep(
+    reads.reviews.filter((review) => review.body && review.body.trim().length > 0),
+    (review) => review.author_association,
+  );
+  const threadComments = policy.keep(
+    reads.threads
+      .filter((thread) => !thread.isResolved)
+      .flatMap((thread) =>
+        thread.comments.nodes.map((comment) => ({ thread, comment })),
+      ),
+    ({ comment }) => comment.authorAssociation,
+  );
+
+  const reviewThreads: ReviewThreadComment[] = threadComments.kept.map(
+    ({ thread, comment }) => ({
+      commentId: comment.id,
+      threadId: thread.id,
+      path: comment.path,
+      line: comment.line ?? comment.originalLine,
+      author: comment.author?.login ?? "unknown",
+      body: comment.body,
+    }),
+  );
+
+  const dropped: DroppedComments = {
+    prComments: prComments.dropped,
+    reviewSummaries: reviewSummaries.dropped,
+    reviewThreadComments: threadComments.dropped,
+    issueComments: issueComments.dropped,
+  };
+  const droppedOnThePr =
+    dropped.prComments + dropped.reviewSummaries + dropped.reviewThreadComments;
+
+  const payload = {
+    issue_comments: prComments.kept.map((comment) => ({
+      author: comment.author?.login ?? "unknown",
+      body: comment.body,
+      createdAt: comment.createdAt,
+    })),
+    review_summaries: reviewSummaries.kept.map((review) => ({
+      author: review.user?.login ?? "unknown",
+      state: review.state,
+      body: review.body,
+      submittedAt: review.submitted_at,
+    })),
+    review_threads: reviewThreads,
+    // The count stands in for what was taken out, so the agent reads a cut
+    // thread as cut rather than as the whole of it (story 27).
+    ...(droppedOnThePr > 0
+      ? {
+          dropped_untrusted: {
+            pr_comments: dropped.prComments,
+            review_summaries: dropped.reviewSummaries,
+            review_threads: dropped.reviewThreadComments,
+            note: policy.droppedNote(droppedOnThePr, "comment(s) on this PR"),
+          },
+        }
+      : {}),
+  };
+
+  return {
+    prTitle: reads.pr.title,
+    prBody: reads.pr.body ?? "",
+    issueNumber,
+    issueTitle: reads.issue?.title ?? "",
+    issueBody: reads.issue?.body ?? "",
+    linkedIssue,
+    diff: reads.diff,
+    prCommentsJson: JSON.stringify(payload, null, 2),
+    diffLines: parseDiffLines(reads.diff),
+    validReplyIds: new Set(reviewThreads.map((comment) => comment.commentId)),
+    dropped,
+  };
+};
+
+export const fetchPullRequestContext = (
+  prNumber: string,
+  policy: TrustPolicy,
+  options: {
+    /** The diff to judge; defaults to the branch's diff to main. The audit passes the merged commit's. */
+    readonly diff?: string;
+  } = {},
+): PullRequestContext => {
+  const prView = JSON.parse(
+    gh(["pr", "view", prNumber, "--json", "title,body,comments"]),
+  ) as {
+    title: string;
+    body?: string | null;
+    comments: PullRequestComment[];
+  };
+
+  const issueNumber = linkedIssueNumber(prView.body);
+  // One JSON read for the ticket: its title, its criteria, and its comments
+  // with the association the policy filters on. Throws on an API error, since
+  // a missing body must never read as "no criteria".
+  const issue = issueNumber
+    ? (JSON.parse(
+        gh(["issue", "view", issueNumber, "--json", "number,title,body,comments"]),
+      ) as IssueView)
+    : undefined;
+
+  const reviews = JSON.parse(
+    gh(["api", `repos/{owner}/{repo}/pulls/${prNumber}/reviews`]),
+  ) as PullRequestReview[];
+
+  const [owner, repo] = (process.env.GH_REPO ?? "").split("/");
 
   const threadsParsed = JSON.parse(
     gh([
@@ -122,79 +276,30 @@ query($owner:String!,$repo:String!,$number:Int!) {
       "-F",
       `number=${prNumber}`,
       "-f",
-      `query=${query}`,
+      `query=${REVIEW_THREADS_QUERY}`,
     ]),
   ) as {
     data?: {
       repository?: {
         pullRequest?: {
-          reviewThreads?: {
-            nodes?: {
-              id: string;
-              isResolved: boolean;
-              comments: {
-                nodes: {
-                  id: string;
-                  path: string | null;
-                  line: number | null;
-                  originalLine: number | null;
-                  body: string;
-                  author?: { login: string } | null;
-                }[];
-              };
-            }[];
-          };
+          reviewThreads?: { nodes?: PullRequestReviewThread[] };
         };
       };
     };
   };
 
-  const unresolvedThreads =
-    threadsParsed.data?.repository?.pullRequest?.reviewThreads?.nodes?.filter(
-      (thread) => !thread.isResolved,
-    ) ?? [];
+  const diff =
+    options.diff ?? (safeSh("git diff main...HEAD") || sh("git diff main..HEAD"));
 
-  const reviewThreads: ReviewThreadComment[] = unresolvedThreads.flatMap(
-    (thread) =>
-      thread.comments.nodes.map((comment) => ({
-        commentId: comment.id,
-        threadId: thread.id,
-        path: comment.path,
-        line: comment.line ?? comment.originalLine,
-        author: comment.author?.login ?? "unknown",
-        body: comment.body,
-      })),
+  return pullRequestContext(
+    {
+      pr: prView,
+      issue,
+      reviews,
+      threads:
+        threadsParsed.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [],
+      diff,
+    },
+    policy,
   );
-
-  const prComments = {
-    issue_comments: prView.comments.map((comment) => ({
-      author: comment.author?.login ?? "unknown",
-      body: comment.body,
-      createdAt: comment.createdAt,
-    })),
-    review_summaries: reviews
-      .filter((review) => review.body && review.body.trim().length > 0)
-      .map((review) => ({
-        author: review.user?.login ?? "unknown",
-        state: review.state,
-        body: review.body,
-        submittedAt: review.submitted_at,
-      })),
-    review_threads: reviewThreads,
-  };
-
-  const diff = options.diff ?? (safeSh("git diff main...HEAD") || sh("git diff main..HEAD"));
-
-  return {
-    prTitle: prView.title,
-    prBody: prView.body ?? "",
-    issueNumber,
-    issueTitle,
-    issueBody,
-    linkedIssue,
-    diff,
-    prCommentsJson: JSON.stringify(prComments, null, 2),
-    diffLines: parseDiffLines(diff),
-    validReplyIds: new Set(reviewThreads.map((comment) => comment.commentId)),
-  };
 };

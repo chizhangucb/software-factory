@@ -38,7 +38,7 @@ import { resolveRoleModel } from "../../lib/model";
 import { bundledReviewStep } from "../../lib/harness";
 import { installPluginsForAttempt } from "../../lib/plugins";
 import { fetchIssue, fetchParentIssue, ticketDocument } from "../../lib/ticket-context";
-import { trustedAuthorsFromEnv } from "../../lib/trusted-authors";
+import { trustPolicyFromEnv } from "../../lib/trusted-authors";
 import { retrySectionForRun } from "../../retry/context";
 
 const ISSUE_NUMBER = required("ISSUE_NUMBER");
@@ -52,10 +52,10 @@ try {
     gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).trim();
   // Whose words this run acts on (ADR 0002 amendment). One list for the ticket,
   // its comments, its parent spec, and the retry marker.
-  const trustedAuthors = trustedAuthorsFromEnv();
-  console.log(`Trusted authors: ${trustedAuthors.join(", ")}.`);
+  const policy = trustPolicyFromEnv();
+  console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
   // Throws on an API error: a missing body must never read as an empty ticket.
-  const issueContext = fetchIssue(ISSUE_NUMBER, trustedAuthors);
+  const issueContext = fetchIssue(ISSUE_NUMBER, policy);
   const parent = fetchParentIssue(repo, ISSUE_NUMBER);
   console.log(
     parent
@@ -65,10 +65,10 @@ try {
   const ticketFile = `ticket-${ISSUE_NUMBER}.md`;
   writeText(
     ticketFile,
-    ticketDocument({ number: ISSUE_NUMBER, issueContext, parent, trustedAuthors }),
+    ticketDocument({ number: ISSUE_NUMBER, issueContext, parent, policy }),
   );
   // A retry (#16) runs on the same branch with the previous failure in its prompt.
-  const retrySection = retrySectionForRun(ISSUE_NUMBER, trustedAuthors);
+  const retrySection = retrySectionForRun(ISSUE_NUMBER, policy);
 
   const labels = JSON.parse(
     gh(["issue", "view", ISSUE_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),

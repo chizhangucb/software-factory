@@ -107,10 +107,16 @@ test("the second miss on the same stranding escalates to needs-human with a comm
   const stranded = ticket(1, { stateSince: minutesAgo(20), marks: [{ miss: 1, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ issues: [stranded] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type, "escalate");
-  assert.deepEqual(d.action.type === "escalate" && d.action.remove, ["agent:in-progress"]);
   assert.equal(d.action.type === "escalate" && d.action.add, "needs-human");
   assert.match(d.log, /second miss: escalate to needs-human/);
   assert.match(d.comment ?? "", /needs-human/);
+});
+
+test("a ticket the reconciler escalates is left carrying needs-human alone, like one the retry handler escalates", () => {
+  const stranded = ticket(1, { stateSince: minutesAgo(20), marks: [{ miss: 1, at: minutesAgo(19) }] });
+  const d = only(reconcile(snapshot({ issues: [stranded] }), DEFAULT_DEADLINES));
+  assert.deepEqual(d.action.type === "escalate" && d.action.remove, ["ready-for-agent", "agent:in-progress"]);
+  assert.match(d.comment ?? "", /add `ready-for-agent` back/);
 });
 
 test("a mark from an older stranding does not count: the label was re-applied after it", () => {

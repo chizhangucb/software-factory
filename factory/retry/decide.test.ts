@@ -3,7 +3,6 @@ import { test } from "node:test";
 
 import {
   decide,
-  escalationLabels,
   isImplementerFailure,
   missingFailureReason,
   latestRetryContext,
@@ -68,14 +67,6 @@ test("the requeue comment says what moves the ticket or PR next", () => {
   const onPr = renderRequeueComment({ reason: "r", runUrl: "u", onPr: true });
   assert.match(onPr, /agent:blocked/);
   assert.match(onPr, /Re-add `agent:implement`/);
-});
-
-test("escalationLabels lists every agent:* label to remove and needs-human to add", () => {
-  assert.deepEqual(
-    escalationLabels(["ready-for-agent", "agent:in-progress", "agent:blocked", "factory:retry-1"]),
-    { remove: ["agent:in-progress", "agent:blocked"], add: "needs-human" },
-  );
-  assert.deepEqual(escalationLabels([]), { remove: [], add: "needs-human" });
 });
 
 const runUrl = "https://github.com/o/r/actions/runs/1";
@@ -161,6 +152,21 @@ test("renderEscalationComment links the run and the log, keeps the branch, names
   assert.match(body, /PR #12 was closed/);
   assert.match(body, /factory:retry-1/);
   assert.match(body, /## Verdict: fail/);
+});
+
+test("the escalation comment asks for ready-for-agent back, since escalation took it off", () => {
+  const body = renderEscalationComment({
+    issueNumber: "7",
+    reason: "the retry failed too (2 attempts, 1 retry allowed)",
+    summary: "verdict: 1/3 acceptance criteria met",
+    runUrl,
+    logUrl: undefined,
+    branch: "agent/issue-7-thing",
+    branchExists: true,
+    closedPr: "12",
+    output: "",
+  });
+  assert.match(body, /remove `needs-human` and `factory:retry-1`, then add `ready-for-agent` back/);
 });
 
 test("renderEscalationComment says when there is no branch and no PR", () => {

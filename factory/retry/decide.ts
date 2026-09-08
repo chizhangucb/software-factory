@@ -6,8 +6,8 @@
  * factory/test-integrity, the target's own CI) or factory/verdict came back
  * failing. The first failure earns one informed retry: the implementer runs
  * again on the same branch with the failing output in its prompt. A second
- * failure escalates: agent labels off, needs-human on, branch kept, log
- * linked, no open PR.
+ * failure escalates: agent labels and ready-for-agent off, needs-human on,
+ * branch kept, log linked, no open PR.
  *
  * Attempts are counted with a label on the ticket, `factory:retry-<n>`, so
  * the count survives across workflow runs and a human can see it. The
@@ -15,6 +15,8 @@
  * implementer run reads back. Pure functions here; `retry.ts` does the API
  * calls.
  */
+import { READY_LABEL } from "../dispatch/select.ts";
+import { ESCALATION_LABEL } from "./labels.ts";
 import { boundOutput } from "../lib/verdict";
 
 export type FailureKind = "implement" | "gate" | "ci" | "verdict";
@@ -25,8 +27,6 @@ export const FAILURE_KINDS: readonly FailureKind[] = ["implement", "gate", "ci",
 export const MAX_RETRIES = 1;
 
 export const RETRY_LABEL_PREFIX = "factory:retry-";
-export const ESCALATION_LABEL = "needs-human";
-const AGENT_LABEL_PREFIX = "agent:";
 
 export const retryLabel = (n: number): string => `${RETRY_LABEL_PREFIX}${n}`;
 
@@ -103,14 +103,6 @@ export const decide = (input: {
     reason: `the retry failed too (${attempts} attempts, ${MAX_RETRIES} retry allowed)`,
   };
 };
-
-/** Labels to take off and put on when escalating: every agent:* label goes. */
-export const escalationLabels = (
-  labels: readonly string[],
-): { readonly remove: string[]; readonly add: string } => ({
-  remove: labels.filter((label) => label.startsWith(AGENT_LABEL_PREFIX)),
-  add: ESCALATION_LABEL,
-});
 
 export interface RetryContext {
   /** Which retry this context is for: 1 for the one retry, matching the `factory:retry-1` label. */
@@ -260,7 +252,7 @@ export const renderEscalationComment = (input: EscalationInput): string => {
     `- Run log: ${input.logUrl ?? "see the run"}`,
     `- ${branchLine} ${prLine}`,
     "",
-    `To hand it back to the factory: fix the ticket, then remove \`${ESCALATION_LABEL}\` and \`${retryLabel(MAX_RETRIES)}\`. The dispatcher picks it up on the next event and the new run starts from main again${input.branchExists ? "; the kept branch is for reading" : ""}.`,
+    `To hand it back to the factory: fix the ticket, then remove \`${ESCALATION_LABEL}\` and \`${retryLabel(MAX_RETRIES)}\`, then add \`${READY_LABEL}\` back (escalation took it off). The dispatcher picks it up on the next event and the new run starts from main again${input.branchExists ? "; the kept branch is for reading" : ""}.`,
   ];
   if (input.output.trim().length > 0) {
     lines.push(

@@ -12,7 +12,9 @@
  * Stuck states and repairs:
  * - ticket in agent:implement or agent:in-progress with no live implement
  *   run: re-add agent:implement (remove then add, so the event fires);
- *   second miss on the same stranding escalates to needs-human.
+ *   second miss on the same stranding escalates to needs-human. Escalation
+ *   here leaves the same labels as the retry handler's (#50,
+ *   `factory/retry/labels.ts`): needs-human alone.
  * - PR in agent:review (or agent:implement, agent:in-progress) with no live
  *   review (implement-pr) run: same, with agent:review.
  * - factory PR with auto-merge armed and no factory/verdict on its head:
@@ -29,6 +31,7 @@
  * Imports use explicit `.ts` so the job can run on bare
  * `node --experimental-strip-types` without installing the engine.
  */
+import { escalationLabels, ESCALATION_LABEL } from "../retry/labels.ts";
 import { issuesClosedByPrs } from "./select.ts";
 
 export type Deadlines = {
@@ -42,7 +45,7 @@ export type Deadlines = {
 
 export const DEFAULT_DEADLINES: Deadlines = { stuckMinutes: 15, verdictMinutes: 30, updateMinutes: 30 };
 
-export const ESCALATION_LABEL = "needs-human";
+export { ESCALATION_LABEL };
 export const PARKED_LABELS = ["agent:blocked", ESCALATION_LABEL] as const;
 export const UPDATE_BRANCH_EVENT = "factory-update-branch";
 export const SWEEP_MARK = /^<!-- factory:sweep miss=(\d+) -->/;
@@ -155,7 +158,8 @@ type StuckInput = {
   /** Runs for this subject with a role that would consume the state, or an unknown role. */
   runs: readonly Run[];
   expected: string;
-  remove: string[];
+  /** The subject's labels: a relabel clears the agent:* ones, an escalation clears more. */
+  labels: readonly string[];
   add: string;
   ticket?: number;
 };
@@ -174,14 +178,14 @@ const markComment = (input: StuckInput, cause: string, miss: number, counted: bo
 const escalationComment = (input: StuckInput, cause: string, deadline: number, url?: string): string => {
   const handBack =
     input.subject.kind === "issue"
-      ? `remove \`${ESCALATION_LABEL}\`; the dispatcher picks the ticket up on its next event (\`ready-for-agent\` stays), or add \`${input.add}\` by hand.`
+      ? `remove \`${ESCALATION_LABEL}\`, then add \`ready-for-agent\` back and the dispatcher picks the ticket up on its next event, or add \`${input.add}\` by hand.`
       : `remove \`${ESCALATION_LABEL}\` here and on the ticket, then add \`${input.add}\` to this PR.`;
   return [
     `## Escalated: \`${ESCALATION_LABEL}\``,
     "",
     `The reconciler gave up on this ${input.subject.kind === "issue" ? "ticket" : "PR"}: \`${input.state}\` since ${input.since ?? "an unknown time"}, ${cause} after the ${deadline} min deadline, and the same after it was re-dispatched once. The event that starts the run was lost twice.`,
     "",
-    `- Labels: \`agent:*\` removed, \`${ESCALATION_LABEL}\` added.`,
+    `- Labels: \`${escalationLabels(input.labels).remove.join("`, `")}\` removed, \`${ESCALATION_LABEL}\` added.`,
     `- To hand it back: ${handBack}`,
     url ? `- Sweep: ${url}` : "",
   ].filter((line) => line !== "").join("\n");
@@ -222,9 +226,10 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
     .filter((m) => sinceMs === undefined || Date.parse(m.at) >= sinceMs - SLACK_MS)
     .reduce((max, m) => Math.max(max, m.miss), 0);
   if (counted && previous >= MAX_MISSES - 1) {
+    const escalation = escalationLabels(input.labels);
     return {
       subject: input.subject,
-      action: { type: "escalate", remove: input.remove, add: ESCALATION_LABEL, ticket: input.ticket },
+      action: { type: "escalate", remove: escalation.remove, add: escalation.add, ticket: input.ticket },
       log: `${head}, ${cause}, second miss: escalate to ${ESCALATION_LABEL}`,
       comment: escalationComment(input, cause, deadline, snap.sweepUrl),
     };
@@ -232,7 +237,7 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
   const miss = counted ? previous + 1 : previous;
   return {
     subject: input.subject,
-    action: { type: "relabel", remove: input.remove, add: input.add, miss },
+    action: { type: "relabel", remove: agentLabels(input.labels), add: input.add, miss },
     log: `${head}, ${cause}: re-add ${input.add} (miss ${miss})`,
     comment: markComment(input, cause, miss, counted, deadline, snap.sweepUrl),
   };
@@ -254,7 +259,7 @@ const decideTicket = (t: TicketState, snap: Snapshot, deadlines: Deadlines): Dec
   const state = has("agent:in-progress") ? "agent:in-progress" : "agent:implement";
   const runs = runsFor({ kind: "issue", title: t.title }, snap.runs).filter((r) => r.role === undefined || r.role === "implement");
   return decideStuck(
-    { subject, state, since: t.stateSince, marks: t.marks, runs, expected: "implement run", remove: agentLabels(t.labels), add: "agent:implement" },
+    { subject, state, since: t.stateSince, marks: t.marks, runs, expected: "implement run", labels: t.labels, add: "agent:implement" },
     snap,
     deadlines.stuckMinutes,
   );
@@ -274,7 +279,7 @@ const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decisi
   if (parked) return parked;
   const runs = runsFor({ kind: "pr", headRef: p.headRef }, snap.runs).filter((r) => r.role === undefined || state.roles.includes(r.role));
   return decideStuck(
-    { subject, state: state.label, since: p.stateSince, marks: p.marks, runs, expected: state.expected, remove: agentLabels(p.labels), add: state.add, ticket: p.closes },
+    { subject, state: state.label, since: p.stateSince, marks: p.marks, runs, expected: state.expected, labels: p.labels, add: state.add, ticket: p.closes },
     snap,
     deadlines.stuckMinutes,
   );

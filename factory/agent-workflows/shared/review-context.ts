@@ -1,3 +1,16 @@
+/**
+ * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/shared/review-context.ts`.
+ * Forced differences, each named (#47):
+ *
+ * - `issueBody`, so the reviewer can parse acceptance criteria: story 5.
+ * - the closing-keyword regex moved to `lib/linked-issue.ts`, one definition for
+ *   the reviewer, the gate, the preflight and the retry handler (#13, #16).
+ * - the issue body and its comments fetched separately: gh 2.95 prints only the
+ *   comments under `--comments`, so a ticket with none arrived empty.
+ * - the `gh issue view --json body` read throws instead of falling back to "", so a
+ *   API error can never read as "this ticket has no criteria": story 5.
+ * - an optional `diff`, so the audit can pass the merged commit's: story 18.
+ */
 import { gh, safeSh, sh } from "./common";
 import { parseDiffLines } from "./diff-lines";
 import { linkedIssueNumber } from "../../lib/linked-issue";

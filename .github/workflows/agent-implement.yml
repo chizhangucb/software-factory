@@ -236,6 +236,9 @@ jobs:
           fi
 
       - name: Install factory (pinned sandcastle, tsx, Claude Code)
+        # His three steps (npm ci, npm run build, npm i -g @anthropic-ai/claude-code) collapse
+        # into one: nothing here builds sandcastle, and the CLI is pinned in the factory's own
+        # lockfile rather than installed unpinned at run time (#21, ADR 0002).
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
         working-directory: factory
         run: |

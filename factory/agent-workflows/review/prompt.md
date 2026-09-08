@@ -13,7 +13,7 @@ Tick each of these, by number, in your output. This list is the whole test.
 
 {{ACCEPTANCE_CRITERIA}}
 
-# TICKET
+# LINKED ISSUE
 
 {{LINKED_ISSUE}}
 
@@ -37,7 +37,7 @@ The target's own test command, run by the workflow on this exact head before you
 {{PR_COMMENTS_JSON}}
 ```
 
-# HOW TO JUDGE
+# REVIEW PROCESS
 
 1. Read the ticket, then the diff, then the test output.
 2. Read `CONTEXT.md`, relevant ADRs, and the repo's `CLAUDE.md` or `AGENTS.md`; they are binding on the implementer and on your judgement.
@@ -46,8 +46,6 @@ The target's own test command, run by the workflow on this exact head before you
 5. A criterion that mentions passing tests or typecheck is met only if the test output above shows it passing.
 6. The verdict is `pass` only when every criterion is met. One unmet criterion is `fail`.
 7. Answer unresolved human review threads only when you have something to say; a reply never changes the verdict.
-
-# RULES
 
 Do not edit any file.
 Do not `git add`, `git commit`, `git stash`, `git checkout`, or `git push`.

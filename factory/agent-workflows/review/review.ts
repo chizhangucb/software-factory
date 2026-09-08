@@ -1,3 +1,21 @@
+/**
+ * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/review/review.ts`.
+ * His REST review payload, his inline-comment and reply filtering, his
+ * extraction run. Every line that differs is forced, and each is named here
+ * (#47 keeps this list true):
+ *
+ * - read-only: he lets the reviewer commit and push, ours must not. `assertReadOnly`,
+ *   no push step: story 5, ADR 0003 ("a reviewer that pushes commits is a second
+ *   implementer nobody reviews").
+ * - verdict instead of his `improved`/`clean`: acceptance criteria parsed from the
+ *   ticket, one judgement per criterion, a `factory/verdict` status and a PR body
+ *   section. A ticket with no criteria fails mechanically: stories 5, 6.
+ * - the target's test output in the prompt: story 5.
+ * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
+ * - `prompt.md` keeps his sections (TASK, LINKED ISSUE, DIFF TO MAIN, PR COMMENTS,
+ *   REVIEW PROCESS, then the trailing rules); the paragraphs are the factory's
+ *   (story 5, ADR 0003). `extraction.md` gains `verdict` and `criteria` (story 5).
+ */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";

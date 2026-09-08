@@ -58,7 +58,7 @@ export const conflictSection = (base: string, conflicts: readonly string[]): str
     "",
     ...conflicts.map((c) => `- ${c}`),
     "",
-    `Do this first: run \`git merge ${base}\` (\`${base}\` is a local branch, no network is needed), resolve every conflict so that both \`${base}\`'s changes and this branch's survive (for a list, keep every entry from both sides in order), run the repo's typecheck and full test suite, and commit the merge. Then continue with the rest of this task; when there is nothing else to do, the merge commit is the whole task.`,
+    `Do this first: run \`git merge ${base}\` (\`${base}\` is a local branch, no network is needed), then invoke the skill \`mattpocock-skills:resolving-merge-conflicts\` and resolve the merge through it. Then continue with the rest of this task; when there is nothing else to do, the merge commit is the whole task.`,
     "",
   ].join("\n");
 };

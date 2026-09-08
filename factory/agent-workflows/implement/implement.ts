@@ -11,6 +11,7 @@
  *   marker: ADR 0002 amendment.
  * - retry section in the prompt: stories 12, 13.
  * - factory plugins installed per attempt, so the prompt's skills exist: story 4.
+ * - the bundled-review step rendered for the harness in use: story 12 of #46.
  * - commits counted on `refs/heads/$BRANCH` against main, not on HEAD: a retry
  *   that inherits the last attempt's commits still has a branch to judge (#16).
  * - `prompt.md` keeps his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT);
@@ -22,7 +23,8 @@ import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 import { runWithRotation } from "../../lib/accounts";
 import { fail, gh, outputDir, required, sh, writeText } from "../shared/common";
 import { resolveRoleModel } from "../../lib/model";
-import { installFactoryPlugins } from "../../lib/plugins";
+import { FACTORY_HARNESS, bundledReviewStep } from "../../lib/harness";
+import { installPluginsForAttempt } from "../../lib/plugins";
 import { fetchIssue, fetchParentIssue, ticketDocument } from "../../lib/ticket-context";
 import { trustedAuthorsFromEnv } from "../../lib/trusted-authors";
 import { retrySectionForRun } from "../../retry/context";
@@ -65,10 +67,7 @@ try {
   const result = await runWithRotation(`implement-${ISSUE_NUMBER}`, model, (agent, log) => {
     // Each account runs in its own config dir, so the skills the prompt
     // invokes by name go into the dir of the account this attempt uses.
-    const configDir = agent.env.CLAUDE_CONFIG_DIR;
-    if (!configDir) return Promise.reject(new Error("The agent has no CLAUDE_CONFIG_DIR."));
-    const plugins = installFactoryPlugins(configDir);
-    console.log(`Installed factory plugins into ${configDir}: ${plugins.join(", ")}.`);
+    installPluginsForAttempt(agent.env.CLAUDE_CONFIG_DIR);
     return sandcastle.run({
       name: `implement-#${ISSUE_NUMBER}`,
       agent,
@@ -88,6 +87,7 @@ try {
         ISSUE_CONTEXT: issueContext,
         TICKET_FILE: path.join(outputDir(), ticketFile),
         RETRY_SECTION: retrySection,
+        BUNDLED_REVIEW_STEP: bundledReviewStep(FACTORY_HARNESS),
       },
     });
   }, { role: "implementer" });

@@ -20,18 +20,8 @@
  * `MEMBER`. Set `OWNER,MEMBER` there (#26 moves these repos to an org).
  */
 
-/** The `author_association` values GitHub sends. */
-export type AuthorAssociation =
-  | "OWNER"
-  | "MEMBER"
-  | "COLLABORATOR"
-  | "CONTRIBUTOR"
-  | "FIRST_TIME_CONTRIBUTOR"
-  | "FIRST_TIMER"
-  | "MANNEQUIN"
-  | "NONE";
-
-const ASSOCIATIONS: readonly string[] = [
+/** The `author_association` values GitHub sends. One list, and the type of it. */
+const ASSOCIATIONS = [
   "OWNER",
   "MEMBER",
   "COLLABORATOR",
@@ -40,7 +30,9 @@ const ASSOCIATIONS: readonly string[] = [
   "FIRST_TIMER",
   "MANNEQUIN",
   "NONE",
-];
+] as const;
+
+export type AuthorAssociation = (typeof ASSOCIATIONS)[number];
 
 /**
  * What GitHub sent, as one of its own values. Absent, or a value GitHub does
@@ -50,7 +42,9 @@ export const authorAssociation = (
   value: string | null | undefined,
 ): AuthorAssociation => {
   const upper = String(value ?? "NONE").toUpperCase();
-  return ASSOCIATIONS.includes(upper) ? (upper as AuthorAssociation) : "NONE";
+  return (ASSOCIATIONS as readonly string[]).includes(upper)
+    ? (upper as AuthorAssociation)
+    : "NONE";
 };
 
 /** The default: only the repo owner's own words. */

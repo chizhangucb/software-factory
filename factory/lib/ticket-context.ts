@@ -15,9 +15,6 @@ export interface ParentIssue {
   readonly authorAssociation: AuthorAssociation;
 }
 
-const normaliseAssociation = (value: unknown): AuthorAssociation =>
-  authorAssociation(typeof value === "string" ? value : undefined);
-
 const PARENT_QUERY =
   "query($owner: String!, $repo: String!, $num: Int!) { repository(owner: $owner, name: $repo) { issue(number: $num) { parent { number title body authorAssociation } } } }";
 
@@ -33,13 +30,18 @@ export const parentIssueFromGraphql = (json: string): ParentIssue | undefined =>
     parsed as { data?: { repository?: { issue?: { parent?: unknown } } } }
   )?.data?.repository?.issue?.parent;
   if (typeof parent !== "object" || parent === null) return undefined;
-  const { number, title, body, authorAssociation } = parent as Record<string, unknown>;
+  const { number, title, body, authorAssociation: association } = parent as Record<
+    string,
+    unknown
+  >;
   if (typeof number !== "number" || typeof title !== "string") return undefined;
   return {
     number,
     title,
     body: typeof body === "string" ? body : "",
-    authorAssociation: normaliseAssociation(authorAssociation),
+    authorAssociation: authorAssociation(
+      typeof association === "string" ? association : undefined,
+    ),
   };
 };
 
@@ -94,7 +96,13 @@ export interface IssueView {
  * knows the thread is not the whole thread. The ticket body itself is the
  * dispatcher's business (only a trusted author's ticket is ever dispatched).
  */
-export const renderIssue = (issue: IssueView, policy: TrustPolicy): string => {
+/** The ticket as the agent reads it, with the count of what the policy took out. */
+export interface RenderedIssue {
+  readonly text: string;
+  readonly droppedComments: number;
+}
+
+export const renderIssue = (issue: IssueView, policy: TrustPolicy): RenderedIssue => {
   const parts = [`Issue #${issue.number}: ${issue.title}`, (issue.body ?? "").trim()];
   const { kept, dropped } = policy.keep(
     issue.comments ?? [],
@@ -111,7 +119,7 @@ export const renderIssue = (issue: IssueView, policy: TrustPolicy): string => {
       `## Dropped comments\n\n${policy.droppedNote(dropped, "comment(s) on the ticket")}`,
     );
   }
-  return parts.join("\n\n");
+  return { text: parts.join("\n\n"), droppedComments: dropped };
 };
 
 /** Fetch and render the ticket with the job's gh token. Throws on an API error. */
@@ -121,7 +129,7 @@ export const fetchIssue = (issueNumber: string, policy: TrustPolicy): string =>
       gh(["issue", "view", issueNumber, "--json", "number,title,body,comments"]),
     ) as IssueView,
     policy,
-  );
+  ).text;
 
 /**
  * The ticket and its spec, as one file the prompt points at. A spec written by

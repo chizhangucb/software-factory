@@ -146,13 +146,11 @@ export const pullRequestContext = (
   policy: TrustPolicy,
 ): PullRequestContext => {
   const issueNumber = linkedIssueNumber(reads.pr.body);
-  const issueComments = policy.keep(
-    reads.issue?.comments ?? [],
-    (comment) => comment.authorAssociation,
-  );
-  const linkedIssue = reads.issue
+  // One application of the policy to the ticket, not two: the rendered text and
+  // the count come back together, so they cannot drift apart.
+  const issue = reads.issue
     ? renderIssue(reads.issue, policy)
-    : "(no linked issue found)";
+    : { text: "(no linked issue found)", droppedComments: 0 };
 
   const prComments = policy.keep(
     reads.pr.comments,
@@ -186,10 +184,13 @@ export const pullRequestContext = (
     prComments: prComments.dropped,
     reviewSummaries: reviewSummaries.dropped,
     reviewThreadComments: threadComments.dropped,
-    issueComments: issueComments.dropped,
+    issueComments: issue.droppedComments,
   };
-  const droppedOnThePr =
-    dropped.prComments + dropped.reviewSummaries + dropped.reviewThreadComments;
+  const droppedInAll =
+    dropped.prComments +
+    dropped.reviewSummaries +
+    dropped.reviewThreadComments +
+    dropped.issueComments;
 
   const payload = {
     issue_comments: prComments.kept.map((comment) => ({
@@ -206,13 +207,15 @@ export const pullRequestContext = (
     review_threads: reviewThreads,
     // The count stands in for what was taken out, so the agent reads a cut
     // thread as cut rather than as the whole of it (story 27).
-    ...(droppedOnThePr > 0
+    ...(droppedInAll > 0
       ? {
           dropped_untrusted: {
             pr_comments: dropped.prComments,
             review_summaries: dropped.reviewSummaries,
             review_threads: dropped.reviewThreadComments,
-            note: policy.droppedNote(droppedOnThePr, "comment(s) on this PR"),
+            // The ticket's own count, also written into LINKED ISSUE above.
+            linked_issue_comments: dropped.issueComments,
+            note: policy.droppedNote(droppedInAll, "comment(s) on this PR and its ticket"),
           },
         }
       : {}),
@@ -224,7 +227,7 @@ export const pullRequestContext = (
     issueNumber,
     issueTitle: reads.issue?.title ?? "",
     issueBody: reads.issue?.body ?? "",
-    linkedIssue,
+    linkedIssue: issue.text,
     diff: reads.diff,
     prCommentsJson: JSON.stringify(payload, null, 2),
     diffLines: parseDiffLines(reads.diff),

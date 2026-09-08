@@ -76,8 +76,8 @@ jobs:
       factory_ref: main
       # node_version: "24"
       # Optional: whose words the reviewer reads, on the PR and on the linked ticket.
-      # Set it on every job below that takes it, or the factory reads a stranger on
-      # one path and not another.
+      # Set it on every job that takes it (dispatch, implement, review, implement-pr,
+      # audit), or the factory reads a stranger on one path and not another.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
   implement-pr:
     if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:implement'

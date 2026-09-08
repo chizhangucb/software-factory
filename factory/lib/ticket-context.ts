@@ -104,9 +104,10 @@ export interface RenderedIssue {
 
 export const renderIssue = (issue: IssueView, policy: TrustPolicy): RenderedIssue => {
   const parts = [`Issue #${issue.number}: ${issue.title}`, (issue.body ?? "").trim()];
+  // Association alone: a ticket comment is a channel anyone can reach, and the
+  // factory's own comments here are usage reports the agent does not need.
   const { kept, dropped } = policy.keep(issue.comments ?? [], (comment) => ({
     association: comment.authorAssociation,
-    login: comment.author?.login,
   }));
   if (kept.length > 0) {
     parts.push("## Comments");
@@ -122,14 +123,18 @@ export const renderIssue = (issue: IssueView, policy: TrustPolicy): RenderedIssu
   return { text: parts.join("\n\n"), droppedComments: dropped };
 };
 
-/** Fetch and render the ticket with the job's gh token. Throws on an API error. */
-export const fetchIssue = (issueNumber: string, policy: TrustPolicy): string =>
+/**
+ * Fetch and render the ticket with the job's gh token. Throws on an API error.
+ * Returns the count as well as the text: the implement run reports what its
+ * policy took out, like the three PR runs do.
+ */
+export const fetchIssue = (issueNumber: string, policy: TrustPolicy): RenderedIssue =>
   renderIssue(
     JSON.parse(
       gh(["issue", "view", issueNumber, "--json", "number,title,body,comments"]),
     ) as IssueView,
     policy,
-  ).text;
+  );
 
 /**
  * The ticket and its spec, as one file the prompt points at. A spec written by

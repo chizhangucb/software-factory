@@ -54,16 +54,23 @@ export const DEFAULT_TRUSTED_AUTHORS = ["OWNER"] as const;
 export const TRUSTED_AUTHORS_VAR = "TRUSTED_AUTHOR_ASSOCIATIONS";
 
 /**
- * The factory's own voice. A workflow that posts with GITHUB_TOKEN comments as
- * the Actions bot, and GitHub reports `author_association: NONE` for it on
- * every repo, so the association alone would drop the reviewer's own summary
- * and inline findings before implement-pr ever read them. The login is spelled
- * two ways across the reads (`github-actions[bot]` on REST, `github-actions` on
+ * The factory's own voice. `agent-review.yml` posts its review summary and its
+ * thread comments with GITHUB_TOKEN, and GitHub reports
+ * `author_association: NONE` for that identity on every repo, so the
+ * association alone would drop the reviewer's own findings before implement-pr,
+ * whose whole job is to address them, ever read them. The login is spelled two
+ * ways across the reads (`github-actions[bot]` on REST, `github-actions` on
  * gh's JSON and on GraphQL), so it is normalised before the comparison.
  * Comments posted with FACTORY_PAT come from the owner and need no exemption.
  *
- * Not a widening: posting under this login needs a workflow in the target,
- * which needs write access, the same bar as adding the `agent:implement` label.
+ * This login is NOT proof of trust and the exemption is not a widening only
+ * because of where it is applied. `github-actions` is what every workflow in
+ * the target posts under, the factory's and the target's own alike, and a
+ * coverage reporter or size-diff bot routinely quotes a fork PR's branch name,
+ * commit message or failing test output. Trusting the login wherever it
+ * appeared would launder a stranger's words straight through this control. So
+ * `factoryLogin` is set on the two channels the factory itself writes and
+ * nowhere else; every other channel goes through the association alone.
  */
 export const FACTORY_LOGINS: readonly string[] = ["github-actions"];
 
@@ -72,10 +79,16 @@ const normaliseLogin = (login: string | null | undefined): string =>
     .toLowerCase()
     .replace(/\[bot\]$/, "");
 
-/** Who wrote something: GitHub's association, and the login it was posted under. */
+/** Who wrote something, as the policy judges it. */
 export interface Author {
   readonly association?: string | null;
-  readonly login?: string | null;
+  /**
+   * The login, on the channels the factory itself writes and nowhere else: its
+   * review summaries and its review-thread comments. Setting it on a channel a
+   * stranger can reach trusts every bot in the target, which is the hole this
+   * field exists inside, not the one it closes. See `FACTORY_LOGINS`.
+   */
+  readonly factoryLogin?: string | null;
 }
 
 /** What survived the policy, and how much did not. */
@@ -119,7 +132,7 @@ export const trustPolicy = (value: string | undefined): TrustPolicy => {
   const associations: readonly string[] =
     parsed.length > 0 ? parsed : [...DEFAULT_TRUSTED_AUTHORS];
   const trusts = (author: Author): boolean =>
-    FACTORY_LOGINS.includes(normaliseLogin(author.login)) ||
+    FACTORY_LOGINS.includes(normaliseLogin(author.factoryLogin)) ||
     associations.includes(authorAssociation(author.association));
   return {
     associations,

@@ -55,7 +55,13 @@ try {
   const policy = trustPolicyFromEnv();
   console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
   // Throws on an API error: a missing body must never read as an empty ticket.
-  const issueContext = fetchIssue(ISSUE_NUMBER, policy);
+  const issue = fetchIssue(ISSUE_NUMBER, policy);
+  const issueContext = issue.text;
+  console.log(
+    issue.droppedComments === 0
+      ? "Untrusted comments dropped: none."
+      : `Untrusted comments dropped: ${issue.droppedComments} on the ticket.`,
+  );
   const parent = fetchParentIssue(repo, ISSUE_NUMBER);
   console.log(
     parent

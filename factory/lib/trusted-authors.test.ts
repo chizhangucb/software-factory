@@ -60,10 +60,18 @@ test("the environment carries the caller's input to the run scripts", () => {
 test("the factory's own login is never a stranger, whichever way the API spells it", () => {
   // GITHUB_TOKEN comments come back as author_association NONE on every repo.
   const policy = trustPolicy("OWNER");
-  assert.equal(policy.trusts({ association: "NONE", login: "github-actions[bot]" }), true);
-  assert.equal(policy.trusts({ association: "NONE", login: "github-actions" }), true);
-  assert.equal(policy.trusts({ association: "NONE", login: "github-actions-impostor" }), false);
-  assert.equal(policy.trusts({ association: "NONE", login: "stranger" }), false);
+  assert.equal(policy.trusts({ association: "NONE", factoryLogin: "github-actions[bot]" }), true);
+  assert.equal(policy.trusts({ association: "NONE", factoryLogin: "github-actions" }), true);
+  assert.equal(policy.trusts({ association: "NONE", factoryLogin: "github-actions-impostor" }), false);
+  assert.equal(policy.trusts({ association: "NONE", factoryLogin: "stranger" }), false);
+});
+
+test("the same bot on a channel the factory does not write is a stranger", () => {
+  // github-actions is what every workflow in the target posts under. Only the
+  // channels the factory itself writes pass factoryLogin, so the same comment
+  // read off a channel a stranger can reach stays untrusted.
+  const policy = trustPolicy("OWNER");
+  assert.equal(policy.trusts({ association: "NONE" }), false);
 });
 
 test("keep returns what a trusted author wrote and counts what it dropped", () => {

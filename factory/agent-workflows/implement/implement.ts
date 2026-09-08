@@ -27,7 +27,9 @@
  *   #46). The paragraphs inside every section are the factory's (stories 4, 7, 8,
  *   23); EXECUTION and REVIEW AND FIX invoke `mattpocock-skills:tdd` and
  *   `mattpocock-skills:code-review` by name rather than restating them (story 12
- *   of #46).
+ *   of #46). Every paragraph then went through `writing-for-agents` (story 14
+ *   of #46), which is where NO PLACEHOLDERS states its rules as targets to hit
+ *   rather than as a list of things not to do.
  */
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";

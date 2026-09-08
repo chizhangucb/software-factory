@@ -17,7 +17,10 @@
  * - `prompt.md` keeps his sections (TASK, LINKED ISSUE, DIFF TO MAIN, PR COMMENTS,
  *   REVIEW PROCESS, then the trailing rules) and gains two: ACCEPTANCE CRITERIA,
  *   one judgement per criterion (stories 5, 6), and TEST OUTPUT, the target's own
- *   test run (story 5). The paragraphs are the factory's (story 5, ADR 0003).
+ *   test run (story 5). The paragraphs are the factory's (story 5, ADR 0003), and
+ *   went through `writing-for-agents` (story 14 of #46): the trailing rules now
+ *   say where the output goes before what never to do, and name the read-only
+ *   check that enforces them (`assertReadOnly`).
  * - `extraction.md` gains `verdict` and `criteria`, and its `summary` field asks
  *   what the PR does and why the verdict is what it is, where his asked what the
  *   reviewer changed: he has no verdict (story 5).

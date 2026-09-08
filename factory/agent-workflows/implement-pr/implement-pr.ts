@@ -19,12 +19,17 @@
  * - trusted authors over the PR comments, the review threads, the linked issue
  *   with its comments, and the retry marker: story 27, ADR 0002 amendment.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
- * - `prompt.md` is his, plus: the CONFLICT and RETRY placeholders and the line
- *   that sends the agent at the conflict first (#19); the no-credentials line
- *   (the agent gets no GitHub token, ADR 0002); and his `npm run typecheck`
- *   line widened to the repo's own typecheck and full suite, with what the gate
- *   re-checks on a retry push, since nothing here is specific to one repo
- *   (story 23) and the gate is the factory's, not his (stories 7, 8, 9, #13).
+ * - `prompt.md` keeps his shape and his four outcomes for a thread, plus: the
+ *   CONFLICT and RETRY placeholders and the line that sends the agent at the
+ *   conflict first (#19); the no-credentials line (the agent gets no GitHub
+ *   token, ADR 0002); his `npm run typecheck` line widened to the repo's own
+ *   typecheck and full suite, with what the gate re-checks on a retry push,
+ *   since nothing here is specific to one repo (story 23) and the gate is the
+ *   factory's, not his (stories 7, 8, 9, #13); and his prose through
+ *   `writing-for-agents` (story 14 of #46), which is where the completion
+ *   criterion on the thread list and the positive framing of his prohibitions
+ *   come from. `extraction.md` stays his to the line: it is a format contract,
+ *   and the audit's copy keeps his shape so the three read alike.
  */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";

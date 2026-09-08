@@ -1,19 +1,8 @@
 # software-factory
 
-## Agent skills
+Four pointers. Each says what the material is and when to reach it.
 
-### Issue tracker
-
-Issues live in GitHub Issues on `chizhangucb/software-factory`, driven with the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five canonical triage roles, with label strings unchanged. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
-
-### Build and review
-
-Every ticket: `mattpocock-skills:tdd`, then `mattpocock-skills:code-review` on two axes, then the bundled `code-review`, by name. Binds subagent briefs and implementer runs alike. See `docs/agents/build-and-review.md`.
+- **Building or reviewing a ticket**: `mattpocock-skills:tdd`, then `mattpocock-skills:code-review` on two axes, then the bundled `code-review`, by name. The order, and what makes each step done: `docs/agents/build-and-review.md`. It binds a subagent brief and an implementer run alike.
+- **Naming a domain concept**, in a ticket title, a test name, a proposal, a commit message: `CONTEXT.md` is the glossary and `docs/adr/` holds the decisions. Read them as `docs/agents/domain.md` says, and flag an output that contradicts an ADR.
+- **Creating, reading, labelling or closing a ticket**: GitHub Issues on `chizhangucb/software-factory`, driven with `gh`. Commands in `docs/agents/issue-tracker.md`.
+- **Applying a triage label**: the five canonical roles map to this repo's label strings in `docs/agents/triage-labels.md`.

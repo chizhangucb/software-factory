@@ -165,13 +165,19 @@ export const pullRequestContext = (
     ? renderIssue(reads.issue, policy)
     : { text: "(no linked issue found)", droppedComments: 0 };
 
+  // No `factoryLogin` here: a top-level PR comment is a channel any workflow in
+  // the target writes, and a bot that echoes a fork PR's text would arrive
+  // trusted. The factory's own review output is the two channels below.
   const prComments = policy.keep(reads.pr.comments, (comment) => ({
     association: comment.authorAssociation,
-    login: comment.author?.login,
   }));
   const reviewSummaries = policy.keep(
     reads.reviews.filter((review) => review.body && review.body.trim().length > 0),
-    (review) => ({ association: review.author_association, login: review.user?.login }),
+    // The factory's own reviewer posts its summary here, with GITHUB_TOKEN.
+    (review) => ({
+      association: review.author_association,
+      factoryLogin: review.user?.login,
+    }),
   );
   const threadComments = policy.keep(
     reads.threads
@@ -179,9 +185,10 @@ export const pullRequestContext = (
       .flatMap((thread) =>
         thread.comments.nodes.map((comment) => ({ thread, comment })),
       ),
+    // And its inline findings here, so implement-pr can act on them and reply.
     ({ comment }) => ({
       association: comment.authorAssociation,
-      login: comment.author?.login,
+      factoryLogin: comment.author?.login,
     }),
   );
 
@@ -226,9 +233,12 @@ export const pullRequestContext = (
     ...(droppedInAll > 0
       ? {
           dropped_untrusted: {
-            pr_comments: dropped.prComments,
+            // Keyed as the lists above are, so a count cannot be read as
+            // belonging to a different list. `review_threads` is a list of
+            // comments, so its count says comments.
+            issue_comments: dropped.prComments,
             review_summaries: dropped.reviewSummaries,
-            review_threads: dropped.reviewThreadComments,
+            review_thread_comments: dropped.reviewThreadComments,
             // The ticket's own count, also written into LINKED ISSUE above.
             linked_issue_comments: dropped.issueComments,
             note: policy.droppedNote(droppedInAll, "comment(s) on this PR and its ticket"),

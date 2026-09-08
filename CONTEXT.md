@@ -13,7 +13,7 @@ _Avoid_: PRD (Matt's word, same thing), plan.
 **Ticket**:
 One vertical slice of a spec, sized to one fresh context window, carrying acceptance criteria. Produced by /to-tickets. The unit the factory picks up.
 _Avoid_: task, issue (the tracker's word for the container), sub-issue.
-_Except_ as a heading: sandcastle's prompt skeleton heads these sections `# ISSUE` and `# LINKED ISSUE`, and the vendored prompts under `factory/agent-workflows/` keep his headings so an upstream diff stays readable. The prose under them says ticket, and a factory-authored prompt with no counterpart of his heads the same section `# TICKET`.
+_Except_ as a heading: `# ISSUE` and `# LINKED ISSUE` are the vendored prompts' section headings and stay sandcastle's. The prose under them says ticket.
 
 **Acceptance criteria**:
 The checklist on a ticket that says what done means. Written before any agent starts. The reviewer ticks each one with evidence.
@@ -38,7 +38,7 @@ _Avoid_: failure, blocked (the tracker's dependency word).
 A repo the factory is allowed to work on. First one is chronicle.
 
 **Caller**:
-The one workflow file a target repo carries, at its own `.github/workflows/factory.yml`. It calls the factory's reusable workflows and holds that target's inputs. Copied from `templates/factory.yml`; `templates/` is sandcastle's word for the folder.
+The one workflow file a target repo carries, at its own `.github/workflows/factory.yml`. It calls the factory's reusable workflows and holds that target's inputs. Copied from `templates/factory.yml`.
 _Avoid_: client, consumer, the target's workflow.
 
 **Implementer**:

@@ -390,7 +390,9 @@ jobs:
           set -euo pipefail
           {
             echo "reason<<FACTORY_HANDOFF_EOF"
-            if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then cat "${OUTPUT_DIR}/failure_reason.txt"; echo; fi
+            # A reason line equal to the delimiter would end the value early, and the reason
+            # can carry the agent's own words: drop any such line rather than trust it.
+            if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then grep -vFx 'FACTORY_HANDOFF_EOF' "${OUTPUT_DIR}/failure_reason.txt" || true; echo; fi
             echo "FACTORY_HANDOFF_EOF"
             if [ -f "${OUTPUT_DIR}/rate_limited.txt" ]; then echo "rate_limited=true"; else echo "rate_limited=false"; fi
           } >> "$GITHUB_OUTPUT"
@@ -405,10 +407,11 @@ jobs:
 
   retry:
     # The failure handler is a job, not a step of `implement` (#51). A `timeout-minutes`
-    # kill cancels that job, so `failure()` is false and a step gated on it never runs:
-    # a stuck agent used to leave the ticket for the reconciler's stuck sweep instead of
-    # for retry and escalation. A job that `needs` it and runs `always()` is reached
-    # however the attempt ended, kill included.
+    # kill cancels that job, so `failure()` is false and a step gated on it never ran:
+    # a stuck agent left the ticket for the reconciler's stuck sweep instead of for retry
+    # and escalation. Widening that step to `always()` is not enough, because a cancelled
+    # job runs its remaining steps only inside the runner's cancellation window; a job that
+    # `needs` the killed one is scheduled after it and is not on that clock.
     # One informed retry, then needs-human (#16), for a failure of the implementer itself.
     # FACTORY_PAT so the label that starts the retry fires its event. A failure elsewhere
     # in the implement job (checkout, push, PR), or a handler that cannot reach GitHub,
@@ -427,7 +430,6 @@ jobs:
       ISSUE_NUMBER: ${{ github.event.issue.number }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
-      OUTPUT_DIR: ${{ runner.temp }}/factory-out
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
     steps:
@@ -458,9 +460,12 @@ jobs:
           RATE_LIMITED: ${{ needs.implement.outputs.rate_limited }}
         run: |
           set -euo pipefail
-          mkdir -p "$OUTPUT_DIR"
-          if [ -n "$FAILURE_REASON" ]; then printf '%s\n' "$FAILURE_REASON" > "${OUTPUT_DIR}/failure_reason.txt"; fi
-          if [ "$RATE_LIMITED" = "true" ]; then printf 'every account was rate limited\n' > "${OUTPUT_DIR}/rate_limited.txt"; fi
+          # runner.temp is not available in job-level env, so OUTPUT_DIR is set here for the steps after this one.
+          out="${RUNNER_TEMP}/factory-out"
+          echo "OUTPUT_DIR=$out" >> "$GITHUB_ENV"
+          mkdir -p "$out"
+          if [ -n "$FAILURE_REASON" ]; then printf '%s\n' "$FAILURE_REASON" > "$out/failure_reason.txt"; fi
+          if [ "$RATE_LIMITED" = "true" ]; then printf 'every account was rate limited\n' > "$out/rate_limited.txt"; fi
 
       - name: Download the run log
         # Absent when the kill landed before the upload; the handler reports what it has.
@@ -476,8 +481,7 @@ jobs:
           BRANCH: ${{ needs.implement.outputs.branch }}
           FAILURE_KIND: implement
           ARTIFACT_NAME: factory-implement-issue-${{ github.event.issue.number }}-run-${{ github.run_attempt }}
-          # The step's own outcome, or the job's when the kill took the step outputs with it.
-          IMPLEMENTER_OUTCOME: ${{ needs.implement.outputs.outcome || needs.implement.result }}
+          IMPLEMENTER_OUTCOME: ${{ needs.implement.outputs.outcome }}
         run: |
           if factory/node_modules/.bin/tsx factory/factory/retry/retry.ts; then
             exit 0

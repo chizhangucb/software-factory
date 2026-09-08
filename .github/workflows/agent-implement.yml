@@ -275,8 +275,10 @@ jobs:
         run: git push --force "https://x-access-token:${FACTORY_PAT}@${PUSH_URL#*://}" "refs/heads/$BRANCH:refs/heads/$BRANCH"
 
       - name: Open PR
-        # Not a draft: GitHub refuses auto-merge on drafts, and the required factory/verdict
-        # status (absent until the reviewer posts it, failure on a fail) is what holds the merge.
+        # Sandcastle calls this "Open draft PR" and #61 restores his step names, but not here:
+        # not a draft, because GitHub refuses auto-merge on drafts (ADR 0003 amendment), and the
+        # required factory/verdict status (absent until the reviewer posts it, failure on a fail)
+        # is what holds the merge. His name over this step would say the opposite of what it does.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
         id: open_pr
         working-directory: target
@@ -318,9 +320,10 @@ jobs:
 
       - name: Request automated review
         # Sandcastle's AGENT_PAT-or-GITHUB_TOKEN fallback, with FACTORY_PAT for his AGENT_PAT.
-        # FACTORY_PAT is a required secret, so the PAT always acts and the fallback is the
-        # PAT-call-failed path only. A label GITHUB_TOKEN applies fires no event on the target,
-        # so a review started that way waits for the reconciler's sweep to re-apply the label.
+        # FACTORY_PAT is declared required, but the caller passes `secrets: inherit`, which skips
+        # that check, so an unset PAT arrives empty: hence the -n guard as well as the retry.
+        # A label GITHUB_TOKEN applies fires no event on the target, so a review started that way
+        # waits for the reconciler's sweep to re-apply it. The warning says so in the run log.
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && success()
         env:
           PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
@@ -335,6 +338,7 @@ jobs:
               exit 0
             fi
           fi
+          echo "::warning::agent:review applied with GITHUB_TOKEN: no event fires, the reconciler's sweep re-applies the label"
           GH_TOKEN="$GITHUB_TOKEN_FALLBACK" gh pr edit "$PR_NUMBER" --add-label "agent:review"
 
       - name: Post usage comment

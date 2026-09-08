@@ -67,3 +67,7 @@ A throwaway target repo with a tiny project, used only by the proof run and tick
 
 **Rotation**:
 Choosing which subscription account a run uses, by remaining quota, and retrying once on the next one when a run is rate limited.
+
+**Agent workflow**:
+A workflow that runs a model. Named with sandcastle's `agent-` prefix, so the prefix is how a reader tells which jobs spend a subscription: `agent-implement`, `agent-review`, `agent-implement-pr`, `agent-audit`. Everything else under `.github/workflows/` runs no model and keeps a plain name.
+_Avoid_: agent job (Actions' word for a step group inside a workflow).

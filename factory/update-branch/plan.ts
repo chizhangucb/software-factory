@@ -117,17 +117,42 @@ export const findVerdict = (
   }
 };
 
+/**
+ * Where the conflict was seen. The scan reads it from the PR's `mergeable`
+ * state before any call; `update-branch` is GitHub refusing the update call
+ * itself with a 422, which is the same conflict found a moment later and
+ * says so in the reason.
+ */
+export type ConflictSource = "scan" | "update-branch";
+
+/**
+ * What to do with a PR that conflicts with its base. No API call resolves a
+ * conflict, and no merge queue would either; the implementer does, on the
+ * branch (agent-implement-pr.yml). Two decisions: a PR an agent already
+ * holds is left alone, which is a `skip` whose reason names the label
+ * holding it; one nobody holds is a `hand-off`, and the caller writes the
+ * comment and the `agent:implement` label that send it to implement-pr.
+ *
+ * The one copy of this decision. The plan reaches it through `planUpdate`
+ * before any call is made, and `update-branch.ts` reaches it again when
+ * GitHub refuses the call it made anyway (`mergeable: UNKNOWN` is tried).
+ */
+export const planConflict = (
+  pr: { readonly number: number; readonly labels: readonly string[] },
+  source: ConflictSource,
+): Plan => {
+  const prefix = source === "update-branch" ? "update-branch refused: " : "";
+  const held = pr.labels.find((l) => HANDED_OFF_LABELS.includes(l));
+  return held
+    ? { number: pr.number, action: "skip", carry: false, reason: `${prefix}conflicts with main, already ${held}` }
+    : { number: pr.number, action: "hand-off", carry: false, reason: `${prefix}conflicts with main; handing the PR to the implementer` };
+};
+
 export const planUpdate = (pr: OpenPr): Plan => {
   const plan = (action: PlanAction, reason: string, carry = false): Plan =>
     ({ number: pr.number, action, carry, reason });
   if (!pr.autoMerge) return plan("skip", "auto-merge not enabled");
-  // No API call resolves a conflict; the implementer does, on the branch (agent-implement-pr.yml).
-  if (pr.mergeable === "CONFLICTING") {
-    const held = pr.labels.find((l) => HANDED_OFF_LABELS.includes(l));
-    return held
-      ? plan("skip", `conflicts with main, already ${held}`)
-      : plan("hand-off", "conflicts with main; handing the PR to the implementer");
-  }
+  if (pr.mergeable === "CONFLICTING") return planConflict(pr, "scan");
   const { verdict } = pr;
   // The reviewer is on this PR; moving the head now would strand the verdict on the
   // old sha. The review's dispatch triggers another run once it lands.

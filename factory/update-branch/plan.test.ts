@@ -9,6 +9,7 @@ import {
   carriedVerdict,
   findVerdict,
   isUpdateMerge,
+  planConflict,
   planUpdate,
   planUpdates,
   requestedByFactory,
@@ -60,18 +61,40 @@ test("a PR whose verdict failed is not updated, wherever that verdict sits; it c
   assert.deepEqual(actions([pr(7, { verdict: { state: "error", sha: "h0" } })]), ["7:skip"]);
 });
 
-test("a stale PR that conflicts with main is handed to the implementer, not updated", () => {
-  const conflicting = pr(7, { mergeable: "CONFLICTING" });
-  assert.deepEqual(actions([conflicting]), ["7:hand-off"]);
-  assert.match(planUpdate(conflicting).reason, /conflicts with main; handing/);
+test("hand-off: a conflicting PR nobody holds goes to the implementer, whoever found the conflict", () => {
+  assert.deepEqual(planConflict({ number: 7, labels: [] }, "scan"), {
+    number: 7,
+    action: "hand-off",
+    carry: false,
+    reason: "conflicts with main; handing the PR to the implementer",
+  });
 });
 
-test("a conflicting PR the implementer already holds, or that is parked, is not handed off twice", () => {
+test("held: a conflicting PR an agent already holds, or that is parked, is skipped and the reason names the label", () => {
   for (const label of [IMPLEMENT_LABEL, "agent:in-progress", "agent:review", BLOCKED_LABEL]) {
-    const already = pr(7, { mergeable: "CONFLICTING", labels: [label] });
-    assert.deepEqual(actions([already]), ["7:skip"], label);
-    assert.equal(planUpdate(already).reason, `conflicts with main, already ${label}`);
+    assert.deepEqual(planConflict({ number: 7, labels: ["ready-for-agent", label] }, "scan"), {
+      number: 7,
+      action: "skip",
+      carry: false,
+      reason: `conflicts with main, already ${label}`,
+    }, label);
   }
+});
+
+test("skip: the same two decisions when update-branch's own call is refused, with the refusal in the reason", () => {
+  const refused = (labels: readonly string[]) => planConflict({ number: 7, labels }, "update-branch");
+  assert.equal(refused([]).action, "hand-off");
+  assert.equal(refused([]).reason, "update-branch refused: conflicts with main; handing the PR to the implementer");
+  assert.equal(refused(["agent:review"]).action, "skip");
+  assert.equal(refused(["agent:review"]).reason, "update-branch refused: conflicts with main, already agent:review");
+});
+
+test("the plan takes the conflict decision before it looks at any verdict", () => {
+  assert.deepEqual(actions([pr(7, { mergeable: "CONFLICTING" })]), ["7:hand-off"]);
+  // A failing verdict would give its own skip reason; the conflict decision gets there first.
+  const held = pr(8, { mergeable: "CONFLICTING", labels: ["agent:review"], verdict: { state: "failure", sha: "h1" } });
+  assert.deepEqual(actions([held]), ["8:skip"]);
+  assert.equal(planUpdate(held).reason, "conflicts with main, already agent:review");
 });
 
 test("an unknown mergeability is tried anyway; the API answers with a conflict if there is one", () => {

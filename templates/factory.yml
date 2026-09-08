@@ -63,8 +63,8 @@ jobs:
       # Optional: whose words the implementer acts on. Keep it equal to the dispatch job's,
       # or a trusted author's ticket is dispatched and their comments are then dropped.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
-      # Optional, same on every job: raise the per-account concurrency cap (default 3).
-      # per_account_slots: 5
+      # Optional, same on every job: runs in flight per account (default 5).
+      # per_account_slots: 8
   review:
     if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:review'
     uses: chizhangucb/software-factory/.github/workflows/agent-review.yml@main

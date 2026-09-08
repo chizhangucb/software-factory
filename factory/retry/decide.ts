@@ -2,7 +2,7 @@
  * Retry and escalation (#16): what the factory does when a run fails.
  *
  * A run fails when the implementer run failed (no commits, an agent error,
- * the turn cap), or when the PR's gate (factory/red-green,
+ * the job timeout), or when the PR's gate (factory/red-green,
  * factory/test-integrity, the target's own CI) or factory/verdict came back
  * failing. The first failure earns one informed retry: the implementer runs
  * again on the same branch with the failing output in its prompt. A second

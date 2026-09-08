@@ -84,8 +84,8 @@ const RATE_LIMIT_TEXT =
  * Whether a raw result event reports a rate limit. Reads the event only:
  * `claude -p` exits 0 on a usage limit, so the exit code says nothing. An
  * event without `is_error` is never a rate limit, whatever its text says.
- * Auth failures (401, 403) and turn or budget caps are errors but not rate
- * limits; rotating to another account would not fix them.
+ * Auth failures (401, 403) and budget stops are errors but not rate limits;
+ * rotating to another account would not fix them.
  */
 export const isRateLimited = (result: ResultEvent): boolean => {
   if (result.is_error !== true) return false;

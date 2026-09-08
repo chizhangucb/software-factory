@@ -25,7 +25,7 @@ on:
       per_account_slots:
         description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
         type: number
-        default: 3
+        default: 5
       node_version:
         description: The Node the target's own tests and tooling run on. Match the target's own CI.
         type: string
@@ -103,7 +103,7 @@ jobs:
           SLOTS: ${{ inputs.per_account_slots }}
         run: |
           case "$SLOTS" in
-            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 3." >&2; SLOTS=3 ;;
+            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 5." >&2; SLOTS=5 ;;
           esac
           index=$(( PR_NUMBER % SLOTS ))
           echo "index=$index" >> "$GITHUB_OUTPUT"
@@ -225,7 +225,6 @@ jobs:
           AUDIT_LIMIT: ${{ inputs.audit_limit }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           TEST_OUTPUT_FILE: ${{ runner.temp }}/factory-out/test-output.txt
-          FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
         run: tsx ../factory/factory/audit/audit.ts
 
       - name: Upload run log

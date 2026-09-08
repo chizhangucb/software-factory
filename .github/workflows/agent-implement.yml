@@ -10,14 +10,10 @@ on:
         description: Default model for the implementer. A model:<name> label on the issue overrides it for that run.
         type: string
         default: claude-opus-5
-      implementer_max_turns:
-        description: Turn cap passed to the CLI as --max-turns. The 60 minute job timeout is the other bound.
-        type: number
-        default: 200
       per_account_slots:
         description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
         type: number
-        default: 3
+        default: 5
       trusted_author_associations:
         description: >-
           Comma-separated GitHub author_association values whose words the factory acts on
@@ -63,7 +59,7 @@ jobs:
           SLOTS: ${{ inputs.per_account_slots }}
         run: |
           case "$SLOTS" in
-            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 3." >&2; SLOTS=3 ;;
+            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 5." >&2; SLOTS=5 ;;
           esac
           index=$(( NUMBER % SLOTS ))
           echo "index=$index" >> "$GITHUB_OUTPUT"
@@ -251,10 +247,8 @@ jobs:
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
           IMPLEMENTER_MODEL: ${{ inputs.implementer_model }}
-          IMPLEMENTER_MAX_TURNS: ${{ inputs.implementer_max_turns }}
           TRUSTED_AUTHOR_ASSOCIATIONS: ${{ inputs.trusted_author_associations }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
-          FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: tsx ../factory/factory/agent-workflows/implement/implement.ts
 

@@ -3,14 +3,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 
-import {
-  forcedRateLimitEvent,
-  parseAccounts,
-  parseForcedAccounts,
-  runOnAccounts,
-} from "./accounts";
+import { parseAccounts, runOnAccounts } from "./accounts";
 import { type ResultEvent, type RunLog, runFailure } from "./run-log";
-import { type AccountToken, isRateLimited } from "./rotation";
+import type { AccountToken } from "./rotation";
 
 const fixture = (name: string): ResultEvent =>
   JSON.parse(
@@ -147,72 +142,26 @@ test("an auth error does not rotate; it fails on the account it happened on", as
   assert.deepEqual(logs, ["t.account-1"]);
 });
 
-test("a forced rate limit skips the agent on that account's first attempt and rotates", async () => {
+test("nothing can skip the agent on an account; only a rate-limited result rotates", async () => {
+  const attempted: string[] = [];
   const { logs, createLog } = fakeLogs();
-  const lines: string[] = [];
   const outcome = await runOnAccounts({
     name: "t",
     accounts,
-    forced: new Set([1]),
+    // `forced` was the deleted FACTORY_FORCE_RATE_LIMIT_ON knob (#49). No option
+    // reads it now, so account 1 runs and the run finishes there.
+    ...({ forced: new Set([1]) } as Record<string, unknown>),
     agentFor: (a) => a.token,
-    run: scripted({ "tok-2": fixture("success") }),
+    run: (agent: string, log: RunLog) => {
+      attempted.push(agent);
+      return scripted({ "tok-1": fixture("success") })(agent, log);
+    },
     createLog,
-    log: (line) => lines.push(line),
+    log: () => {},
   });
   assert.equal(outcome.ok, true);
-  assert.deepEqual(logs, ["t.account-1", "t.account-2"]);
-  assert.ok(lines.some((l) => /alpha/.test(l) && /rate-limited/.test(l)));
-  assert.ok(lines.some((l) => /FACTORY_FORCE_RATE_LIMIT_ON/.test(l)));
-  assert.ok(!lines.some((l) => /tok-/.test(l)), "no token in any log line");
-});
-
-test("a forced index that names no configured account is logged, not silently ignored", async () => {
-  const { createLog } = fakeLogs();
-  const lines: string[] = [];
-  const outcome = await runOnAccounts({
-    name: "t",
-    accounts,
-    forced: new Set([9]),
-    agentFor: (a) => a.token,
-    run: scripted({ "tok-1": fixture("success") }),
-    createLog,
-    log: (line) => lines.push(line),
-  });
-  assert.equal(outcome.ok, true);
-  assert.ok(lines.some((l) => /FACTORY_FORCE_RATE_LIMIT_ON/.test(l) && /9/.test(l) && /no configured account/.test(l)));
-});
-
-test("the forced event has the exact shape isRateLimited detects", () => {
-  const event = forcedRateLimitEvent(accounts[0]);
-  assert.equal(isRateLimited(event), true);
-  assert.equal(event.subtype, "success");
-  assert.equal(event.api_error_status, 429);
-  assert.doesNotMatch(JSON.stringify(event), /tok-/);
-});
-
-test("parseForcedAccounts reads a comma-separated list and is off by default", () => {
-  assert.deepEqual([...parseForcedAccounts(undefined).forced], []);
-  assert.deepEqual([...parseForcedAccounts("").forced], []);
-  assert.deepEqual([...parseForcedAccounts("1").forced], [1]);
-  assert.deepEqual([...parseForcedAccounts(" 2, 3 ").forced], [2, 3]);
-  assert.deepEqual([...parseForcedAccounts("x").forced], []);
-});
-
-test("parseForcedAccounts scopes an <index>@<run> entry to that run only", () => {
-  assert.deepEqual([...parseForcedAccounts("1@implement-65", "implement-65").forced], [1]);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65", "review-72").forced], []);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65", "implement-650").forced], []);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65").forced], [], "no run name, scoped entry is off");
-  assert.deepEqual([...parseForcedAccounts(" 1 @ implement-65 , 2", "implement-65").forced], [1, 2]);
-  assert.deepEqual([...parseForcedAccounts("1@implement-65,2", "audit-73").forced], [2], "unscoped entries still apply everywhere");
-  assert.deepEqual([...parseForcedAccounts("@implement-65", "implement-65").forced], []);
-});
-
-test("parseForcedAccounts reports malformed entries instead of dropping them silently", () => {
-  assert.deepEqual(parseForcedAccounts("1@implement-65@review-70", "implement-65").invalid, ["1@implement-65@review-70"]);
-  const mixed = parseForcedAccounts("one@implement-65, 2, x, 1@", "implement-65");
-  assert.deepEqual([...mixed.forced], [2]);
-  assert.deepEqual(mixed.invalid, ["one@implement-65", "x", "1@"]);
+  assert.deepEqual(attempted, ["tok-1"]);
+  assert.deepEqual(logs, ["t.account-1"]);
 });
 
 test("parseAccounts validates the workflow's file and sorts by index", () => {

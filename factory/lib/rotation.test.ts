@@ -100,10 +100,6 @@ test("isRateLimited: auth errors are not rate limits", () => {
   assert.equal(isRateLimited(resultEvent("auth-revoked")), false);
 });
 
-test("isRateLimited: other errors are not rate limits", () => {
-  assert.equal(isRateLimited(resultEvent("max-turns")), false);
-});
-
 test("isRateLimited: an error whose text merely mentions a limit is not a rate limit", () => {
   for (const text of [
     "The session process exited with code 1. Last output before exit: GitHub API rate limit exceeded for user",

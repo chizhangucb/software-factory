@@ -11,6 +11,8 @@
  *   its own crash as resolved (#53). His own `update-branch` agent does this
  *   upstream; kept as built because the proof run exercised it (story 5 of #46).
  * - retry section in the prompt: stories 12, 13.
+ * - factory plugins installed per attempt, so the conflict section's
+ *   `mattpocock-skills:resolving-merge-conflicts` exists: story 12 of #46.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
  * - `prompt.md` is his, plus: the CONFLICT and RETRY placeholders and the line
  *   that sends the agent at the conflict first (#19); the no-credentials line
@@ -33,6 +35,7 @@ import {
   writeText,
 } from "../shared/common";
 import { resolveRoleModel } from "../../lib/model";
+import { installPluginsForAttempt } from "../../lib/plugins";
 import { fetchPullRequestContext } from "../shared/review-context";
 import {
   filterInlineComments,
@@ -83,33 +86,38 @@ try {
       : `Conflicts with ${BASE_BRANCH} (${conflicts.join(", ")}): the prompt asks the agent to merge and resolve first.`,
   );
 
-  const result = await runWithRotation(`implement-pr-${PR_NUMBER}`, model, (agent, log) => runWithExtraction({
-    name: `implement-pr-${PR_NUMBER}`,
-    agent,
-    sandbox: noSandbox(),
-    logging: log.logging,
-    promptFile: path.join(import.meta.dirname, "prompt.md"),
-    promptArgs: {
-      PR_NUMBER,
-      BRANCH,
-      PR_TITLE: context.prTitle,
-      ISSUE_NUMBER: context.issueNumber || "(none)",
-      ISSUE_TITLE: context.issueTitle || "(no linked issue)",
-      LINKED_ISSUE: context.linkedIssue,
-      DIFF_TO_MAIN: context.diff,
-      PR_COMMENTS_JSON: context.prCommentsJson,
-      RETRY_SECTION: retrySection,
-      CONFLICT_SECTION: conflictSection(BASE_BRANCH, conflicts),
-    },
-    output: sandcastle.Output.object({
-      tag: "output",
-      schema: implementPrOutputSchema,
-    }),
-    extractionPrompt: fs.readFileSync(
-      path.join(import.meta.dirname, "extraction.md"),
-      "utf8",
-    ),
-  }), { role: "implementer" });
+  const result = await runWithRotation(`implement-pr-${PR_NUMBER}`, model, (agent, log) => {
+    // Each account runs in its own config dir, so the skills the prompt
+    // invokes by name go into the dir of the account this attempt uses.
+    installPluginsForAttempt(agent.env.CLAUDE_CONFIG_DIR);
+    return runWithExtraction({
+      name: `implement-pr-${PR_NUMBER}`,
+      agent,
+      sandbox: noSandbox(),
+      logging: log.logging,
+      promptFile: path.join(import.meta.dirname, "prompt.md"),
+      promptArgs: {
+        PR_NUMBER,
+        BRANCH,
+        PR_TITLE: context.prTitle,
+        ISSUE_NUMBER: context.issueNumber || "(none)",
+        ISSUE_TITLE: context.issueTitle || "(no linked issue)",
+        LINKED_ISSUE: context.linkedIssue,
+        DIFF_TO_MAIN: context.diff,
+        PR_COMMENTS_JSON: context.prCommentsJson,
+        RETRY_SECTION: retrySection,
+        CONFLICT_SECTION: conflictSection(BASE_BRANCH, conflicts),
+      },
+      output: sandcastle.Output.object({
+        tag: "output",
+        schema: implementPrOutputSchema,
+      }),
+      extractionPrompt: fs.readFileSync(
+        path.join(import.meta.dirname, "extraction.md"),
+        "utf8",
+      ),
+    });
+  }, { role: "implementer" });
 
   const threadReplies = filterReplies(
     result.output.threadReplies,

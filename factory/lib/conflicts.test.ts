@@ -55,11 +55,11 @@ test("a probe that exits with an unexpected code fails, naming the exit", () => 
   assert.throws(() => parseMergeTreeConflicts({ status: null, stdout: "" }), /no exit status/);
 });
 
-test("the prompt section names the base, the files, and the merge command; empty without conflicts", () => {
+test("the prompt section names the base, the files, the merge command and the resolving skill; empty without conflicts", () => {
   assert.equal(conflictSection("main", []), "");
   const section = conflictSection("main", ["README.md"]);
   assert.match(section, /^# CONFLICT WITH MAIN/);
   assert.match(section, /- README\.md/);
   assert.match(section, /`git merge main`/);
-  assert.match(section, /commit the merge/);
+  assert.match(section, /mattpocock-skills:resolving-merge-conflicts/);
 });

@@ -14,8 +14,13 @@
  * - the bundled-review step rendered for the agent provider in hand: story 12 of #46.
  * - commits counted on `refs/heads/$BRANCH` against main, not on HEAD: a retry
  *   that inherits the last attempt's commits still has a branch to judge (#16).
- * - `prompt.md` keeps his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT);
- *   the paragraphs inside them are the factory's (stories 4, 7, 8, 23).
+ * - `prompt.md` keeps his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT) and
+ *   gains two: NO PLACEHOLDERS, since the gate is the factory's (stories 7, 8, 9,
+ *   #13), and REVIEW AND FIX, which names the review skills (story 4, story 12 of
+ *   #46). The paragraphs inside every section are the factory's (stories 4, 7, 8,
+ *   23); EXECUTION and REVIEW AND FIX invoke `mattpocock-skills:tdd` and
+ *   `mattpocock-skills:code-review` by name rather than restating them (story 12
+ *   of #46).
  */
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";

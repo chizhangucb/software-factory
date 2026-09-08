@@ -35,3 +35,11 @@ Chronicle is the first public target (#20). The consequence above says isolation
 - `OWNER` is nobody on an org-owned repo, where the owner's own issues read `MEMBER`. Moving these repos to an org (#26) means setting `OWNER,MEMBER` in the same change.
 
 Deferred, not rejected: a sandbox provider is still one line in `factory/shared/common.ts`, and the case for it returns when a target has contributors whose tickets the factory should run, or when the factory gets a credential worth stealing. Nothing here changes ADR 0001 or the vendoring decision.
+
+## Amendment, 2026-09-08: the tarball is a release asset, not a tree file
+
+The decision above says "a lockfile and a committed tarball". The tarball is no longer committed. It is attached to the `engine-0.12.0` release on this repo, and `vendor/` is gone along with the CI step that recomputed its hash (#48).
+
+- The live check is `package-lock.json`: the `integrity` field for `node_modules/@ai-hero/sandcastle` is what `npm ci` verifies on every run, in CI and in every factory job. A second hash comparison in CI checked a file nothing installed from.
+- The release asset is cold storage, in case the registry copy of 0.12.0 goes away. No workflow, script, or install path fetches it. Its sha512 matches the lockfile's integrity, recorded in the release notes.
+- Dependabot is unchanged: it still watches `@ai-hero/sandcastle` and `@anthropic-ai/claude-code` in `package.json`, and still merges nothing by itself.

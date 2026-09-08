@@ -34,7 +34,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { RATE_LIMITED_FILE } from "../lib/accounts";
 import { gh, outputDir, required } from "../agent-workflows/shared/common";
-import { errorMessage } from "../lib/errors.ts";
+import { errorMessage } from "../lib/errors";
 import { linkedIssueNumber } from "../lib/linked-issue";
 import { SECTION_END, SECTION_START, boundOutput } from "../lib/verdict";
 import {

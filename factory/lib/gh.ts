@@ -20,8 +20,12 @@
  */
 import { execFileSync } from "node:child_process";
 
-/** 64 MB. Projected reads are KBs; this is the margin, not the plan (#19). */
-export const GH_MAX_BUFFER = 64 * 1024 * 1024;
+/**
+ * 64 MB. Projected reads are KBs; this is the margin, not the plan (#19).
+ * Not exported: the buffer is this wrapper's business, so no caller can spawn
+ * `gh` with a smaller one and bring the ENOBUFS back.
+ */
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
 
 /**
  * Run `gh` with the given arguments and return its stdout. Throws the

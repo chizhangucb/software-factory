@@ -17,7 +17,7 @@ import {
   sh,
   writeText,
 } from "../agent-workflows/shared/common";
-import { errorMessage } from "./errors.ts";
+import { errorMessage } from "./errors";
 import {
   createRunLog,
   type ResultEvent,

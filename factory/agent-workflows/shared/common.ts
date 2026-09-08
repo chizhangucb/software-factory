@@ -46,7 +46,7 @@ export const safeSh = (cmd: string): string => {
 
 // #47: his four-line wrapper now re-exports the factory's one gh wrapper, which
 // carries the 64 MB buffer a busy repo's listing needs (ENOBUFS, #19).
-export { gh } from "../../lib/gh.ts";
+export { gh } from "../../lib/gh";
 
 export const writeJson = (filename: string, value: unknown): void => {
   fs.mkdirSync(outputDir(), { recursive: true });

@@ -8,15 +8,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
-import { runWithRotation } from "../shared/accounts";
-import { fail, required, sh, writeJson, writeText } from "../shared/common";
-import { resolveRoleModel } from "../shared/model";
-import { assertReadOnly, worktreeState } from "../shared/read-only";
-import { fetchPullRequestContext } from "../shared/review-context";
-import { runWithExtraction } from "../shared/run-with-extraction";
-import { formatUsageComment } from "../shared/usage";
-import { readUsageRecords } from "../shared/usage-record";
-import { boundOutput, parseAcceptanceCriteria, resolveVerdict } from "../shared/verdict";
+import { runWithRotation } from "../lib/accounts";
+import { fail, required, sh, writeJson, writeText } from "../agent-workflows/shared/common";
+import { resolveRoleModel } from "../lib/model";
+import { assertReadOnly, worktreeState } from "../lib/read-only";
+import { fetchPullRequestContext } from "../agent-workflows/shared/review-context";
+import { runWithExtraction } from "../agent-workflows/shared/run-with-extraction";
+import { formatUsageComment } from "../lib/usage";
+import { readUsageRecords } from "../lib/usage-record";
+import { boundOutput, parseAcceptanceCriteria, resolveVerdict } from "../lib/verdict";
 import { auditOutputSchema } from "./output";
 import {
   AUDIT_COMMENT_URL_PLACEHOLDER,

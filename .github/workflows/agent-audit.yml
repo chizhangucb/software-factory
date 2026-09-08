@@ -252,7 +252,7 @@ jobs:
       - name: Comment the audit result on the PR
         id: comment
         if: success()
-        run: bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/audit-comment.md"
+        run: bash factory/factory/lib/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/audit-comment.md"
 
       - name: Open a revert PR on a miss
         # `git revert` of the merged commit on a branch from main, pushed and opened with
@@ -314,7 +314,7 @@ jobs:
           body_file="${RUNNER_TEMP}/failure-comment.md"
           printf '<!-- factory:audit -->\n## Audit: run failed\n\nMerged factory PR %s of the first %s was not audited. **Reason:** %s\n\n**Workflow run:** %s\n' \
             "$AUDIT_ORDINAL" "$AUDIT_LIMIT" "$reason" "$RUN_URL" > "$body_file"
-          bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$body_file" || gh pr comment "$PR_NUMBER" --body-file "$body_file"
+          bash factory/factory/lib/upsert-comment.sh "$PR_NUMBER" "$body_file" || gh pr comment "$PR_NUMBER" --body-file "$body_file"
 
       - name: Always remove the accounts file
         if: always()

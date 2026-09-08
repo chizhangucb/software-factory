@@ -1,6 +1,6 @@
-import { gh } from "../shared/common";
-import { trustedComments } from "../shared/ticket-context";
-import { trustedAuthorsFromEnv } from "../shared/trusted-authors";
+import { gh } from "../agent-workflows/shared/common";
+import { trustedComments } from "../lib/ticket-context";
+import { trustedAuthorsFromEnv } from "../lib/trusted-authors";
 import { latestRetryContext, type RetryContext, retryPromptSection } from "./decide";
 
 /**

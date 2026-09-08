@@ -12,12 +12,12 @@ import {
   asRecord,
   asString,
   claudeAgent,
-  errorMessage,
   fail,
   required,
   sh,
   writeText,
-} from "./common";
+} from "../agent-workflows/shared/common";
+import { errorMessage } from "./errors.ts";
 import {
   createRunLog,
   type ResultEvent,

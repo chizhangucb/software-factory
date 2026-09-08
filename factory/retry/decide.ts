@@ -15,7 +15,7 @@
  * implementer run reads back. Pure functions here; `retry.ts` does the API
  * calls.
  */
-import { boundOutput } from "../shared/verdict";
+import { boundOutput } from "../lib/verdict";
 
 export type FailureKind = "implement" | "gate" | "ci" | "verdict";
 

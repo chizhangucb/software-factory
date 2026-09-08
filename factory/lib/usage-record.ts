@@ -6,7 +6,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { outputDir } from "./common";
+import { outputDir } from "../agent-workflows/shared/common";
 import { formatUsageComment, type RunUsageRecord } from "./usage";
 
 const RECORDS_FILE = "usage.json";

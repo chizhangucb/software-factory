@@ -146,10 +146,10 @@ jobs:
 
       - name: Preflight existing PR
         # The same closing-keyword test as the reviewer, the gate, and the retry handler
-        # (factory/shared/linked-issue.ts). Builtins only: runs before the engine is installed.
+        # (factory/lib/linked-issue.ts). Builtins only: runs before the engine is installed.
         if: steps.shape.outputs.proceed == 'true'
         id: preflight
-        run: node --experimental-strip-types factory/factory/implement/preflight.ts
+        run: node --experimental-strip-types factory/factory/lib/preflight.ts
 
       - name: Refuse existing PR
         if: steps.preflight.outputs.refused == 'true'
@@ -255,7 +255,7 @@ jobs:
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: tsx ../factory/factory/implement/implement.ts
+        run: tsx ../factory/factory/agent-workflows/implement/implement.ts
 
       - name: Upload run log
         if: always() && steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
@@ -346,7 +346,7 @@ jobs:
         if: always() && steps.open_pr.outputs.pr_number != ''
         env:
           PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
-        run: bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-implementer.md"
+        run: bash factory/factory/lib/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-implementer.md"
 
       - name: Keep partial work on failure
         # The branch is what a retry continues on and what an escalation keeps for the human. A first

@@ -9,14 +9,11 @@
  * runs `gh api --paginate --jq <projection>`: gh follows the Link headers,
  * applies the projection to each page as it arrives, and prints one
  * compact item per line, so the process output is KBs whatever the page
- * count. The spawn buffer is generous on top.
+ * count. The spawn buffer (`lib/gh.ts`) is generous on top.
  *
  * Imports use explicit `.ts` so the job runs on bare
  * `node --experimental-strip-types` without installing the engine.
  */
-
-/** 64 MB. Projected reads are KBs; this is the margin, not the plan. */
-export const GH_MAX_BUFFER = 64 * 1024 * 1024;
 
 /** jq programs, one item per line: each keeps the fields `reconcile.ts` maps, under the raw GitHub names. */
 export const PROJECTIONS = {

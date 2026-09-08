@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentStreamEvent, LoggingOption } from "@ai-hero/sandcastle";
-import { errorMessage, fail, outputDir } from "./common";
+import { fail, outputDir } from "../agent-workflows/shared/common";
+import { errorMessage } from "./errors.ts";
 
 /**
  * Claude's final `result` event from stream-json, kept raw.

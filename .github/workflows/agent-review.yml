@@ -220,7 +220,7 @@ jobs:
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           TEST_OUTPUT_FILE: ${{ runner.temp }}/factory-out/test-output.txt
           FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
-        run: tsx ../factory/factory/review/review.ts
+        run: tsx ../factory/factory/agent-workflows/review/review.ts
 
       - name: Upload run log
         if: always()
@@ -233,7 +233,7 @@ jobs:
       - name: Post usage comment
         # Token usage and wall time of every attempt in this job, one comment per role (#18).
         if: always()
-        run: bash factory/factory/shared/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-reviewer.md"
+        run: bash factory/factory/lib/upsert-comment.sh "$PR_NUMBER" "$RUNNER_TEMP/factory-out/usage-reviewer.md"
 
       - name: Write verdict into the PR body
         if: success()

@@ -5,7 +5,7 @@ import {
   asString,
   standardSchema,
 } from "./common";
-import type { CriterionJudgement } from "./verdict";
+import type { CriterionJudgement } from "../../lib/verdict";
 
 export interface InlineComment {
   readonly path: string;

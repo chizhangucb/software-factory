@@ -1,5 +1,5 @@
-import { asArray, asOptionalString, asRecord, asString, standardSchema } from "../shared/common";
-import type { CriterionJudgement } from "../shared/verdict";
+import { asArray, asOptionalString, asRecord, asString, standardSchema } from "../agent-workflows/shared/common";
+import type { CriterionJudgement } from "../lib/verdict";
 import type { PlaceholderFinding } from "./report";
 
 export interface AuditOutput {

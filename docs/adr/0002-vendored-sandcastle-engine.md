@@ -63,19 +63,21 @@ The 2026-09-07 amendment above left one hole open, named there as follow-up #43:
 - The linked issue's own title and body are read whatever their author's association, on all three paths. The issue number comes from the PR body's closing keyword, so this is not the dispatcher's vetted ticket by construction: on the factory's own PRs it is, because the dispatcher labeled that ticket, but a PR labeled by hand can link any issue. That is the hand-labeled case ADR 0002 already records as deliberate, since the label needs write access and the person adding it is making the trust decision. Closing it properly needs the issue's own `author_association`, which `gh issue view --json` does not expose, so it is a second read and a behaviour change (a stranger's ticket would have no criteria and fail mechanically). Not done here; it is a follow-up, not a rationale.
 - The 2026-09-07 amendment's remaining items stand: a ticket labeled `agent:implement` by hand skips the dispatcher, and `OWNER` is nobody on an org-owned repo.
 
-## Amendment, 2026-09-08: the copy count, the provenance document, and the local orchestrator as a second execution path
+## Note, 2026-09-08: three workflows were copied, not five, and the provenance document says which
 
-Two records and one v1 note, from the reconciliation of 2026-09-08 (#46, stories 9 and 26).
+Two corrections of record from the reconciliation of 2026-09-08 (#46, story 9). Neither changes the decision.
 
 **The copy count above was wrong when written.** It said "the five workflows"; three were copied (`agent-implement`, `agent-review`, `agent-implement-pr`). `agent-update-branch` and `agent-explore` were left behind on purpose, for reasons #9 and #21 gave at the time. The sentence is corrected in place rather than left standing, because a stranger counting files would find three.
 
 **The provenance document is `docs/provenance/sandcastle.md`.** It maps every file in this repo to its origin, lists what was not copied and why, records where a rewrite was avoidable and which of those have since been undone, and maps spec #9's stories onto sandcastle's pipeline. It is the answer to "why not just fork it", and it carries the line counts. Read it before changing anything under `factory/agent-workflows/`.
 
-**Sandcastle's local Docker orchestrator becomes a second execution path, not a second product.** The considered-options list above defers it, not rejects it. Recording now what "undeferred" would mean, so the shape is decided before the story exists:
+## Amendment, 2026-09-08: the local orchestrator is a second execution path, not a second product
+
+Story 26 of #46. The considered-options list above defers sandcastle's local Docker orchestrator, it does not reject it. Recording now what "undeferred" would mean, so the shape is settled before the story exists and a local path cannot arrive as a second product:
 
 - Shared, unchanged: the dispatcher decides what runs, the gate decides what may merge, the reviewer decides the verdict. None of the three runs a model over a sandbox; they read and write GitHub. A local path changes where `sandcastle.run()` happens, not who says go and who says ship.
 - Swapped: the sandbox provider (`noSandbox()` to `docker()` or `podman()`, one line in `factory/agent-workflows/shared/common.ts`) and the machine the job sits on. Both are sandcastle's own options and both are already inside the pinned package, so this costs no new dependency.
 - Bought: Actions minutes stop being the price of a private target, and a real sandbox around the agent becomes available, which is what the first consequence above and the 2026-09-07 amendment both keep pointing at.
 - Paid: the Mini has to be awake. That is why v0 is cloud-only and why this is a note and not a path.
 
-The point of writing it down is that sandcastle's templates and sandbox providers can arrive later as options on this product rather than as a second one. Nothing here ships in v0: no local path exists until a story asks for it, and this amendment changes no file.
+Nothing here ships in v0 and this amendment changes no file. It is written down because the alternative is deciding it under pressure later, when someone wants the Mini's compute and the fastest route is a second pipeline beside this one.

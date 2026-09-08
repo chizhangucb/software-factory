@@ -18,28 +18,13 @@ import {
   writeText,
 } from "../agent-workflows/shared/common";
 import { errorMessage } from "./errors";
-import {
-  createRunLog,
-  type ResultEvent,
-  type RunLog,
-  type Settled,
-  settleRun,
-} from "./run-log";
+import { createRunLog, type RunLog, settleRun } from "./run-log";
 import { type AccountToken, isRateLimited, pickToken } from "./rotation";
 import { summarizeResultEvents } from "./usage";
 import { appendUsageRecord } from "./usage-record";
 
 /** Path of the JSON file the workflow writes: `[{ index, label, token }]`. */
 export const ACCOUNTS_FILE_VAR = "FACTORY_ACCOUNTS_FILE";
-
-/**
- * Comma-separated entries naming accounts whose first attempt is treated as
- * rate limited without running the agent. `<index>` applies to every run,
- * `<index>@<run>` only to the run with that name (`implement-<issue>`,
- * `review-<pr>`, `implement-pr-<pr>`, `audit-<pr>`), so the proof run (#19)
- * can force exactly one rotation. Off unless set.
- */
-export const FORCE_RATE_LIMIT_VAR = "FACTORY_FORCE_RATE_LIMIT_ON";
 
 /** Attempts per run: the first, plus one re-run on the next account. */
 const MAX_ATTEMPTS = 2;
@@ -59,30 +44,6 @@ export const parseAccounts = (value: unknown): AccountToken[] =>
       };
     })
     .sort((a, b) => a.index - b.index);
-
-/**
- * The forced accounts for one run: unscoped entries plus those scoped to
- * `runName`. Entries that are not `<index>` or `<index>@<run>` come back as
- * `invalid` so the caller can say so (a typo must not read as a benign scope
- * mismatch). Pure.
- */
-export const parseForcedAccounts = (
-  value: string | undefined,
-  runName?: string,
-): { forced: Set<number>; invalid: string[] } => {
-  const forced = new Set<number>();
-  const invalid: string[] = [];
-  for (const part of (value ?? "").split(",").map((p) => p.trim()).filter((p) => p.length > 0)) {
-    const fields = part.split("@").map((f) => f.trim());
-    const index = Number(fields[0]);
-    if (fields.length > 2 || !Number.isInteger(index) || index < 1 || fields[1] === "") {
-      invalid.push(part);
-    } else if (fields.length === 1 || fields[1] === runName) {
-      forced.add(index);
-    }
-  }
-  return { forced, invalid };
-};
 
 /**
  * Read the accounts file, mask every token before anything else prints, and
@@ -107,21 +68,9 @@ export const loadAccounts = (file = required(ACCOUNTS_FILE_VAR)): AccountToken[]
   return accounts;
 };
 
-/** The exact event shape `isRateLimited` detects, as Claude Code 2.1.263 emits it on a usage limit. */
-export const forcedRateLimitEvent = (account: AccountToken): ResultEvent => ({
-  type: "result",
-  subtype: "success",
-  is_error: true,
-  api_error_status: 429,
-  num_turns: 0,
-  stop_reason: null,
-  result: `You've hit your session limit · resets in 5h (forced by ${FORCE_RATE_LIMIT_VAR} for account ${account.index})`,
-});
-
 export interface RunOnAccountsOptions<A, T> {
   readonly name: string;
   readonly accounts: readonly AccountToken[];
-  readonly forced?: ReadonlySet<number>;
   readonly agentFor: (account: AccountToken) => A;
   readonly run: (agent: A, log: RunLog) => Promise<T>;
   readonly createLog?: (name: string, account: AccountToken, attempt: number) => RunLog;
@@ -155,7 +104,6 @@ export const runOnAccounts = async <A, T>(
   const {
     name,
     accounts,
-    forced = new Set<number>(),
     createLog = createRunLog,
     log = console.log,
     restore = () => {},
@@ -166,12 +114,6 @@ export const runOnAccounts = async <A, T>(
     `[${name}] ${accounts.length} account(s) configured: ` +
       accounts.map((a) => `${a.index} (${a.label})`).join(", "),
   );
-  const unknownForced = [...forced].filter((i) => !accounts.some((a) => a.index === i));
-  if (unknownForced.length > 0) {
-    log(
-      `[${name}] ${FORCE_RATE_LIMIT_VAR} names account ${unknownForced.join(", ")} but no configured account has that index; nothing forced for it`,
-    );
-  }
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const account = pickToken(accounts, undefined, rateLimited);
@@ -180,18 +122,9 @@ export const runOnAccounts = async <A, T>(
     log(`[${name}] attempt ${attempt} on ${describe(account)}`);
     const runLog = createLog(`${name}.account-${account.index}`, account, attempt);
 
-    let settled: Settled<T>;
-    if (forced.has(account.index)) {
-      log(
-        `[${name}] ${FORCE_RATE_LIMIT_VAR} includes ${account.index}: treating this attempt as rate limited without running the agent`,
-      );
-      runLog.record(forcedRateLimitEvent(account));
-      settled = { ok: false, failure: runLog.finish() ?? "forced rate limit" };
-    } else {
-      settled = await settleRun(runLog, () =>
-        options.run(options.agentFor(account), runLog),
-      );
-    }
+    const settled = await settleRun(runLog, () =>
+      options.run(options.agentFor(account), runLog),
+    );
 
     const limit = settled.ok ? undefined : runLog.resultEvents.find(isRateLimited);
     if (limit) {
@@ -284,10 +217,10 @@ const recordingLog = (
 export const RATE_LIMITED_FILE = "rate_limited.txt";
 
 /**
- * The scripts' entry point: accounts from the workflow's file, the forced
- * set from the repo variable, the factory's Claude provider per account.
- * Exits the process on failure, like `runOrFail`. Rate limits on every
- * account leave a marker so the failure is not charged to the ticket.
+ * The scripts' entry point: accounts from the workflow's file, the factory's
+ * Claude provider per account. Exits the process on failure, like
+ * `runOrFail`. Rate limits on every account leave a marker so the failure is
+ * not charged to the ticket.
  */
 export const runWithRotation = async <T>(
   name: string,
@@ -295,20 +228,9 @@ export const runWithRotation = async <T>(
   run: (agent: AgentProvider, log: RunLog) => Promise<T>,
   options: RunWithRotationOptions = { role: "agent" },
 ): Promise<T> => {
-  const forcedValue = process.env[FORCE_RATE_LIMIT_VAR];
-  const { forced, invalid } = parseForcedAccounts(forcedValue, name);
-  for (const entry of invalid) {
-    console.warn(`::warning::[${name}] ${FORCE_RATE_LIMIT_VAR} entry "${entry}" is not <index> or <index>@<run>; ignored`);
-  }
-  if (forcedValue && forced.size === 0) {
-    console.log(
-      `[${name}] ${FORCE_RATE_LIMIT_VAR} is set (${forcedValue}) but none of its entries apply to this run; not forcing`,
-    );
-  }
   const outcome = await runOnAccounts({
     name,
     accounts: loadAccounts(),
-    forced,
     agentFor: (account) => claudeAgent(model, account),
     run,
     createLog: recordingLog(options.role, model),

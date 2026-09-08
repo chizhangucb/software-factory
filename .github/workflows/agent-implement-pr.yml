@@ -13,7 +13,7 @@ on:
       per_account_slots:
         description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
         type: number
-        default: 3
+        default: 5
       node_version:
         description: The Node the target's own tests and tooling run on. Match the target's own CI.
         type: string
@@ -69,7 +69,7 @@ jobs:
           SLOTS: ${{ inputs.per_account_slots }}
         run: |
           case "$SLOTS" in
-            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 3." >&2; SLOTS=3 ;;
+            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 5." >&2; SLOTS=5 ;;
           esac
           index=$(( NUMBER % SLOTS ))
           echo "index=$index" >> "$GITHUB_OUTPUT"
@@ -195,7 +195,6 @@ jobs:
         env:
           IMPLEMENTER_MODEL: ${{ inputs.implementer_model }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
-          FACTORY_FORCE_RATE_LIMIT_ON: ${{ vars.FACTORY_FORCE_RATE_LIMIT_ON }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: tsx ../factory/factory/agent-workflows/implement-pr/implement-pr.ts
 

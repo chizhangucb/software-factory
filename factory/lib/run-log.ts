@@ -99,7 +99,7 @@ export const runFailure = (
   const last = events[events.length - 1];
   if (!last) return NO_RESULT_EVENT_FAILURE;
   if (last.is_error !== true) return undefined;
-  // A turn cap or budget stop puts its message in `errors`, not `result`.
+  // A budget stop puts its message in `errors`, not `result`.
   const errors = Array.isArray(last.errors)
     ? last.errors.filter((e): e is string => typeof e === "string" && e.trim().length > 0)
     : [];

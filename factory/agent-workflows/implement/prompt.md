@@ -4,7 +4,7 @@ Implement ticket #{{ISSUE_NUMBER}}: {{ISSUE_TITLE}}
 
 You are the implementer. You are on branch `{{BRANCH}}`, already created from `main` (or, on a retry, continued from the previous attempt), in a clean checkout of the target repo. One run, one ticket, one branch. The workflow around you pushes the branch and opens the PR; you only commit.
 
-This run has a turn cap and a 60 minute limit. Spend turns on the ticket, not on exploration for its own sake.
+This run has a 60 minute limit. Spend it on the ticket, not on exploration for its own sake.
 
 {{RETRY_SECTION}}
 # ISSUE

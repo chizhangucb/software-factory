@@ -6,7 +6,6 @@
  *
  * - account rotation, one config dir per account: stories 15, 16, 17, ADR 0004.
  * - model as a workflow input plus a `model:` label override: story 20.
- * - turn cap: story 14 (`claudeCode()` cannot pass `--max-turns`).
  * - ticket document, parent spec and `ticket-N.md`: stories 22, 23.
  * - trusted authors over the ticket, its comments, the parent and the retry
  *   marker: ADR 0002 amendment.
@@ -26,19 +25,14 @@ import { resolveRoleModel } from "../../lib/model";
 import { installFactoryPlugins } from "../../lib/plugins";
 import { fetchIssue, fetchParentIssue, ticketDocument } from "../../lib/ticket-context";
 import { trustedAuthorsFromEnv } from "../../lib/trusted-authors";
-import { withMaxTurns } from "../../lib/turn-cap";
 import { retrySectionForRun } from "../../retry/context";
 
 const ISSUE_NUMBER = required("ISSUE_NUMBER");
 const ISSUE_TITLE = required("ISSUE_TITLE");
 const BRANCH = required("BRANCH");
 const IMPLEMENTER_MODEL = required("IMPLEMENTER_MODEL");
-const IMPLEMENTER_MAX_TURNS = Number(required("IMPLEMENTER_MAX_TURNS"));
 
 try {
-  if (!Number.isInteger(IMPLEMENTER_MAX_TURNS) || IMPLEMENTER_MAX_TURNS < 1) {
-    fail(`IMPLEMENTER_MAX_TURNS must be a positive integer, got ${process.env.IMPLEMENTER_MAX_TURNS}.`);
-  }
   const repo =
     process.env.GH_REPO ??
     gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).trim();
@@ -66,7 +60,7 @@ try {
     gh(["issue", "view", ISSUE_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),
   ) as string[];
   const { model, source } = resolveRoleModel("implementer", IMPLEMENTER_MODEL, labels);
-  console.log(`Implementer model: ${model} (from ${source}), turn cap ${IMPLEMENTER_MAX_TURNS}.`);
+  console.log(`Implementer model: ${model} (from ${source}).`);
 
   const result = await runWithRotation(`implement-${ISSUE_NUMBER}`, model, (agent, log) => {
     // Each account runs in its own config dir, so the skills the prompt
@@ -77,12 +71,12 @@ try {
     console.log(`Installed factory plugins into ${configDir}: ${plugins.join(", ")}.`);
     return sandcastle.run({
       name: `implement-#${ISSUE_NUMBER}`,
-      agent: withMaxTurns(agent, IMPLEMENTER_MAX_TURNS),
+      agent,
       sandbox: noSandbox(),
       logging: log.logging,
       // The review skills run in sub-agents whose output never reaches this
-      // stream, so the parent can be silent for a while. The turn cap and the
-      // job timeout are the real bounds; the library's 10 minute idle default
+      // stream, so the parent can be silent for a while. The 60 minute job
+      // timeout is the only bound (#49); the library's 10 minute idle default
       // would cut a long review short.
       idleTimeoutSeconds: 30 * 60,
       promptFile: path.join(import.meta.dirname, "prompt.md"),

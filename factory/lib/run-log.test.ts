@@ -51,17 +51,17 @@ test("an errored turn the library retried to success is a success", () => {
   assert.equal(runFailure([rateLimited, success]), undefined);
 });
 
-test("a turn cap stop reports the message from errors, not the whole event", () => {
-  const capped: ResultEvent = {
+test("a stop with no result text reports the message from errors, not the whole event", () => {
+  const stopped: ResultEvent = {
     type: "result",
-    subtype: "error_max_turns",
+    subtype: "error_during_execution",
     is_error: true,
-    errors: ["Reached maximum number of turns (5)"],
+    errors: ["Max budget limit reached"],
     num_turns: 6,
   };
   assert.equal(
-    runFailure([capped]),
-    "Agent reported an error (error_max_turns): Reached maximum number of turns (5)",
+    runFailure([stopped]),
+    "Agent reported an error (error_during_execution): Max budget limit reached",
   );
 });
 

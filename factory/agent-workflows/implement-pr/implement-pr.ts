@@ -12,7 +12,10 @@
  *   upstream; kept as built because the proof run exercised it (story 5 of #46).
  * - retry section in the prompt: stories 12, 13.
  * - factory plugins installed per attempt, so the conflict section's
- *   `mattpocock-skills:resolving-merge-conflicts` exists: story 12 of #46.
+ *   `mattpocock-skills:resolving-merge-conflicts` exists: story 12 of #46. The
+ *   whole plugin goes in, so TASK fences the run to the skills the prompt names:
+ *   the other 24 are in the list and some of them describe work this run is not
+ *   doing (story 11 of #46).
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
  * - `prompt.md` is his, plus: the CONFLICT and RETRY placeholders and the line
  *   that sends the agent at the conflict first (#19); the no-credentials line

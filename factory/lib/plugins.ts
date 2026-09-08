@@ -14,7 +14,7 @@ import * as path from "node:path";
  * records the pin and how to bump it). Skills the harness itself bundles are
  * `harness.ts`.
  */
-export const FACTORY_PLUGINS_DIR = path.join(import.meta.dirname, "..", "plugins");
+const FACTORY_PLUGINS_DIR = path.join(import.meta.dirname, "..", "plugins");
 
 /** One vendored plugin, as it now sits in an account's config dir. */
 export interface InstalledPlugin {
@@ -39,11 +39,8 @@ const readManifest = (pluginDir: string): Omit<InstalledPlugin, "name"> => {
 };
 
 /**
- * Copy every vendored plugin into `configDir/skills/`, and report what the
- * run now has: the pinned version and the skills a prompt may invoke. The
- * job log carries that line, so a run whose prompt names a skill the pin
- * does not ship is visible in the log rather than only in the agent's
- * confusion.
+ * Copy every vendored plugin into `configDir/skills/`, and return what the run
+ * now has: the pinned version and the skills a prompt may invoke.
  */
 export const installFactoryPlugins = (configDir: string): InstalledPlugin[] => {
   const skillsDir = path.join(configDir, "skills");
@@ -62,10 +59,12 @@ export const installFactoryPlugins = (configDir: string): InstalledPlugin[] => {
 };
 
 /**
- * Install into the config dir of the account an attempt is running on, and
- * log the pin and the skills. Both implementer runs call this: rotation gives
- * each account its own config dir, so the skills their prompts invoke by name
- * have to be put in the dir of the account this attempt drew.
+ * Install into the config dir of the account an attempt is running on, and log
+ * the pin and the skills. Both implementer runs call this: rotation gives each
+ * account its own config dir, so the skills their prompts invoke by name have
+ * to be put in the dir of the account this attempt drew. The job log carries
+ * that line, so a run whose prompt names a skill the pin does not ship shows up
+ * in the log rather than only in the agent's confusion.
  */
 export const installPluginsForAttempt = (configDir: string | undefined): void => {
   if (!configDir) throw new Error("The agent has no CLAUDE_CONFIG_DIR.");

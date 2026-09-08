@@ -15,8 +15,7 @@
  * implementer run reads back. Pure functions here; `retry.ts` does the API
  * calls.
  */
-import { READY_LABEL } from "../dispatch/select.ts";
-import { ESCALATION_LABEL } from "./labels.ts";
+import { ESCALATION_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { boundOutput } from "../lib/verdict";
 
 export type FailureKind = "implement" | "gate" | "ci" | "verdict";

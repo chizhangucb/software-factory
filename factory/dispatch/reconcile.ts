@@ -31,7 +31,8 @@
  * Imports use explicit `.ts` so the job can run on bare
  * `node --experimental-strip-types` without installing the engine.
  */
-import { escalationLabels, ESCALATION_LABEL } from "../retry/labels.ts";
+import { agentLabels, ESCALATION_LABEL, READY_LABEL } from "../lib/labels.ts";
+import { escalationLabels } from "../retry/escalation.ts";
 import { issuesClosedByPrs } from "./select.ts";
 
 export type Deadlines = {
@@ -120,7 +121,7 @@ export type Subject = { kind: "issue" | "pr"; number: number };
 export type Action =
   | { type: "none" }
   | { type: "relabel"; remove: string[]; add: string; miss?: number }
-  | { type: "escalate"; remove: string[]; add: typeof ESCALATION_LABEL; ticket?: number }
+  | { type: "escalate"; remove: string[]; add: typeof ESCALATION_LABEL; ticket?: EscalatedTicket }
   | { type: "dispatch"; eventType: typeof UPDATE_BRANCH_EVENT; pr: number };
 
 export type Decision = {
@@ -134,7 +135,6 @@ export type Decision = {
 
 const minutesSince = (now: number, iso: string): number => Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
 const isLive = (run: Run): boolean => run.status !== "completed";
-const agentLabels = (labels: readonly string[]): string[] => labels.filter((l) => l.startsWith("agent:"));
 const byNewest = (a: Run, b: Run): number => Date.parse(b.createdAt) - Date.parse(a.createdAt);
 
 /** The runs that belong to a ticket (by title on `issues` events) or a PR (by head on `pull_request_target`). */
@@ -150,6 +150,9 @@ const isUpdateBranchRun = (run: Run, base: string): boolean =>
   (run.event === "push" && run.headBranch === base) ||
   (run.event === "repository_dispatch" && run.title === UPDATE_BRANCH_EVENT);
 
+/** The ticket a PR closes, parked with the PR: it loses the same labels. */
+export type EscalatedTicket = { number: number; remove: string[] };
+
 type StuckInput = {
   subject: Subject;
   state: string;
@@ -161,7 +164,7 @@ type StuckInput = {
   /** The subject's labels: a relabel clears the agent:* ones, an escalation clears more. */
   labels: readonly string[];
   add: string;
-  ticket?: number;
+  ticket?: EscalatedTicket;
 };
 
 const markComment = (input: StuckInput, cause: string, miss: number, counted: boolean, deadline: number, url?: string): string => {
@@ -175,17 +178,17 @@ const markComment = (input: StuckInput, cause: string, miss: number, counted: bo
   ].join("\n");
 };
 
-const escalationComment = (input: StuckInput, cause: string, deadline: number, url?: string): string => {
+const escalationComment = (input: StuckInput, remove: readonly string[], cause: string, deadline: number, url?: string): string => {
   const handBack =
     input.subject.kind === "issue"
-      ? `remove \`${ESCALATION_LABEL}\`, then add \`ready-for-agent\` back and the dispatcher picks the ticket up on its next event, or add \`${input.add}\` by hand.`
+      ? `remove \`${ESCALATION_LABEL}\`, then add \`${READY_LABEL}\` back and the dispatcher picks the ticket up on its next event, or add \`${input.add}\` by hand.`
       : `remove \`${ESCALATION_LABEL}\` here and on the ticket, then add \`${input.add}\` to this PR.`;
   return [
     `## Escalated: \`${ESCALATION_LABEL}\``,
     "",
     `The reconciler gave up on this ${input.subject.kind === "issue" ? "ticket" : "PR"}: \`${input.state}\` since ${input.since ?? "an unknown time"}, ${cause} after the ${deadline} min deadline, and the same after it was re-dispatched once. The event that starts the run was lost twice.`,
     "",
-    `- Labels: \`${escalationLabels(input.labels).remove.join("`, `")}\` removed, \`${ESCALATION_LABEL}\` added.`,
+    `- Labels: ${remove.length > 0 ? `\`${remove.join("`, `")}\` removed, ` : ""}\`${ESCALATION_LABEL}\` added.`,
     `- To hand it back: ${handBack}`,
     url ? `- Sweep: ${url}` : "",
   ].filter((line) => line !== "").join("\n");
@@ -231,7 +234,7 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
       subject: input.subject,
       action: { type: "escalate", remove: escalation.remove, add: escalation.add, ticket: input.ticket },
       log: `${head}, ${cause}, second miss: escalate to ${ESCALATION_LABEL}`,
-      comment: escalationComment(input, cause, deadline, snap.sweepUrl),
+      comment: escalationComment(input, escalation.remove, cause, deadline, snap.sweepUrl),
     };
   }
   const miss = counted ? previous + 1 : previous;
@@ -271,6 +274,16 @@ const PR_STATES: readonly { label: string; roles: readonly RunRole[]; expected: 
   { label: "agent:implement", roles: ["implement-pr"], expected: "implement-pr run", add: "agent:implement" },
 ];
 
+/**
+ * The ticket a stranded PR closes, with the labels it loses when the PR is
+ * escalated. Parking the PR parks the ticket, so the ticket ends up carrying
+ * `needs-human` alone like any other escalation (#50).
+ */
+const escalatedTicket = (number: number | undefined, snap: Snapshot): EscalatedTicket | undefined =>
+  number === undefined
+    ? undefined
+    : { number, remove: escalationLabels(snap.issues.find((t) => t.number === number)?.labels ?? []).remove };
+
 const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decision | undefined => {
   const state = PR_STATES.find((s) => p.labels.includes(s.label));
   if (!state) return undefined;
@@ -279,7 +292,7 @@ const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decisi
   if (parked) return parked;
   const runs = runsFor({ kind: "pr", headRef: p.headRef }, snap.runs).filter((r) => r.role === undefined || state.roles.includes(r.role));
   return decideStuck(
-    { subject, state: state.label, since: p.stateSince, marks: p.marks, runs, expected: state.expected, labels: p.labels, add: state.add, ticket: p.closes },
+    { subject, state: state.label, since: p.stateSince, marks: p.marks, runs, expected: state.expected, labels: p.labels, add: state.add, ticket: escalatedTicket(p.closes, snap) },
     snap,
     deadlines.stuckMinutes,
   );

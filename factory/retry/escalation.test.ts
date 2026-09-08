@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { escalationLabels, prCloseLabels } from "./labels.ts";
+import { escalationLabels, prCloseLabels } from "./escalation.ts";
 
 test("an escalated ticket is left carrying needs-human and nothing else of the factory's", () => {
   assert.deepEqual(

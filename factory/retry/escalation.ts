@@ -10,14 +10,7 @@
  * Imports use explicit `.ts` so the dispatch job can run this on bare `node
  * --experimental-strip-types` without installing the engine.
  */
-import { READY_LABEL } from "../dispatch/select.ts";
-
-export const ESCALATION_LABEL = "needs-human";
-
-const AGENT_LABEL_PREFIX = "agent:";
-
-/** Factory state on a ticket or PR: which step holds it right now. */
-const isAgentLabel = (label: string): boolean => label.startsWith(AGENT_LABEL_PREFIX);
+import { agentLabels, ESCALATION_LABEL, isAgentLabel, READY_LABEL } from "../lib/labels.ts";
 
 /**
  * Escalating: `needs-human` on, every `agent:*` label off, and
@@ -27,7 +20,8 @@ const isAgentLabel = (label: string): boolean => label.startsWith(AGENT_LABEL_PR
  * `ready-for-agent` to rerun it.
  *
  * Only labels the subject carries are named, so no caller asks GitHub to
- * remove a label that is not there.
+ * remove a label that is not there, and a PR, which never carries
+ * `ready-for-agent`, loses only its `agent:*` ones.
  */
 export const escalationLabels = (
   labels: readonly string[],
@@ -37,10 +31,10 @@ export const escalationLabels = (
 });
 
 /**
- * Closing a PR: every `agent:*` label off. A closed PR carries no state.
- * `ready-for-agent` is the ticket's intent and never the PR's, so this
- * touches only the factory's own labels.
+ * Closing a PR: every `agent:*` label off. A closed PR carries no state, and
+ * closing it says nothing about the ticket, which keeps its own labels until
+ * the escalation decides them.
  */
 export const prCloseLabels = (labels: readonly string[]): { readonly remove: string[] } => ({
-  remove: labels.filter(isAgentLabel),
+  remove: agentLabels(labels),
 });

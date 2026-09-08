@@ -230,7 +230,8 @@ const apply = (d: Decision): void => {
       edit(subject, ["--add-label", action.add]);
       if (d.comment) comment(subject, d.comment);
       if (action.ticket !== undefined) {
-        const ticket = { kind: "issue" as const, number: action.ticket };
+        const ticket = { kind: "issue" as const, number: action.ticket.number };
+        for (const label of action.ticket.remove) edit(ticket, ["--remove-label", label]);
         edit(ticket, ["--add-label", action.add]);
         comment(ticket, `PR #${subject.number} was escalated by the reconciler: ${d.log}${runUrl ? `\n\nSweep: ${runUrl}` : ""}`);
       }

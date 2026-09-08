@@ -13,7 +13,7 @@ _Avoid_: PRD (Matt's word, same thing), plan.
 **Ticket**:
 One vertical slice of a spec, sized to one fresh context window, carrying acceptance criteria. Produced by /to-tickets. The unit the factory picks up.
 _Avoid_: task, issue (the tracker's word for the container), sub-issue.
-One exception, and it is a heading: sandcastle's prompt skeleton heads these sections `# ISSUE` and `# LINKED ISSUE`, and the vendored prompts under `factory/agent-workflows/` keep his headings so an upstream diff stays readable. The prose under them says ticket, and a factory-authored prompt with no counterpart of his heads the same section `# TICKET`.
+_Except_ as a heading: sandcastle's prompt skeleton heads these sections `# ISSUE` and `# LINKED ISSUE`, and the vendored prompts under `factory/agent-workflows/` keep his headings so an upstream diff stays readable. The prose under them says ticket, and a factory-authored prompt with no counterpart of his heads the same section `# TICKET`.
 
 **Acceptance criteria**:
 The checklist on a ticket that says what done means. Written before any agent starts. The reviewer ticks each one with evidence.

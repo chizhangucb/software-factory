@@ -84,6 +84,13 @@ jobs:
     concurrency:
       group: account-slot-${{ needs.slot.outputs.index }}
       cancel-in-progress: false
+    outputs:
+      # Everything the `retry` job needs from this one. That job runs on its own
+      # runner, so nothing it reads is here for free (#51). The PR's state and its
+      # head branch come straight off the event, so they are not repeated here.
+      outcome: ${{ steps.run.outcome }}
+      reason: ${{ steps.handoff.outputs.reason }}
+      rate_limited: ${{ steps.handoff.outputs.rate_limited }}
     permissions:
       contents: write
       issues: read # the linked ticket, its retry marker, and its labels
@@ -294,20 +301,107 @@ jobs:
           GH_TOKEN: ${{ secrets.FACTORY_PAT }}
         run: gh pr edit "$PR_NUMBER" --add-label "agent:review"
 
+      - name: Collect the retry handoff
+        # What the `retry` job cannot read off this runner: the failure reason the run wrote
+        # and the marker that says every account was rate limited. The run log travels in the
+        # uploaded artifact instead. always(), because a `timeout-minutes` kill cancels this
+        # job and failure() would skip it (#51).
+        if: always() && github.event.pull_request.state == 'open'
+        id: handoff
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
+        run: |
+          set -euo pipefail
+          {
+            echo "reason<<FACTORY_HANDOFF_EOF"
+            if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then cat "${OUTPUT_DIR}/failure_reason.txt"; echo; fi
+            echo "FACTORY_HANDOFF_EOF"
+            if [ -f "${OUTPUT_DIR}/rate_limited.txt" ]; then echo "rate_limited=true"; else echo "rate_limited=false"; fi
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Always remove the accounts file
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
+
+      - name: Always remove in-progress
+        if: always() && github.event.pull_request.state == 'open'
+        run: gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true
+
+  retry:
+    # The failure handler is a job, not a step of `implement-pr` (#51), for the same reason
+    # as on the ticket path: a `timeout-minutes` kill cancels that job, so `failure()` is
+    # false and a step gated on it never runs, leaving the PR with no label and no comment.
+    # One informed retry, then needs-human (#16), for a failure of the implementer itself.
+    # FACTORY_PAT so the label that starts the retry fires its event. A failure elsewhere in
+    # the implement-PR job (a push refused because the branch moved, say), or a handler that
+    # cannot reach GitHub, gets the plain blocked comment.
+    needs: implement-pr
+    if: always() && github.event.pull_request.state == 'open' && github.event.pull_request.head.repo.full_name == github.repository && needs.implement-pr.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read # the linked ticket and its labels
+      pull-requests: write
+      actions: read # the handler links the uploaded run log (#16)
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      OUTPUT_DIR: ${{ runner.temp }}/factory-out
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Checkout factory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install factory (pinned sandcastle, tsx, Claude Code)
+        working-directory: factory
+        run: npm ci
+
+      - name: Rebuild the failing attempt's output
+        # The handler reads the attempt's output from OUTPUT_DIR, which died with the
+        # implement-PR job's runner. The reason and the rate-limit marker come back from that
+        # job's outputs, the run log from the artifact it uploaded.
+        env:
+          FAILURE_REASON: ${{ needs.implement-pr.outputs.reason }}
+          RATE_LIMITED: ${{ needs.implement-pr.outputs.rate_limited }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUTPUT_DIR"
+          if [ -n "$FAILURE_REASON" ]; then printf '%s\n' "$FAILURE_REASON" > "${OUTPUT_DIR}/failure_reason.txt"; fi
+          if [ "$RATE_LIMITED" = "true" ]; then printf 'every account was rate limited\n' > "${OUTPUT_DIR}/rate_limited.txt"; fi
+
+      - name: Download the run log
+        # Absent when the kill landed before the upload; the handler reports what it has.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: factory-implement-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/factory-out/logs
+
       - name: Retry or escalate
-        # One informed retry, then needs-human (#16), for a failure of the implementer itself. FACTORY_PAT so
-        # the label that starts the retry fires its event. A failure elsewhere in the job (a push refused because
-        # the branch moved, say), or a handler that cannot reach GitHub, gets the plain blocked comment.
-        if: github.event.pull_request.state == 'open' && failure()
         env:
           FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
           FAILURE_KIND: implement
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ARTIFACT_NAME: factory-implement-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
-          OUTPUT_DIR: ${{ runner.temp }}/factory-out
-          IMPLEMENTER_OUTCOME: ${{ steps.run.outcome }}
+          # The step's own outcome, or the job's when the kill took the step outputs with it.
+          IMPLEMENTER_OUTCOME: ${{ needs.implement-pr.outputs.outcome || needs.implement-pr.result }}
         run: |
-          if [ "$IMPLEMENTER_OUTCOME" = "failure" ] && factory/node_modules/.bin/tsx factory/factory/retry/retry.ts; then
+          if factory/node_modules/.bin/tsx factory/factory/retry/retry.ts; then
             exit 0
           fi
           reason="(no reason file written; check workflow logs)"
@@ -318,11 +412,3 @@ jobs:
           printf '`agent:implement` PR run failed outside the implementer, or the retry handler could not run.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:implement` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
           gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
           gh pr comment "$PR_NUMBER" --body-file "$body_file"
-
-      - name: Always remove the accounts file
-        if: always()
-        run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
-
-      - name: Always remove in-progress
-        if: always() && github.event.pull_request.state == 'open'
-        run: gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true

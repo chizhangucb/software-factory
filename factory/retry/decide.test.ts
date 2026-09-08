@@ -4,6 +4,8 @@ import { test } from "node:test";
 import {
   decide,
   escalationLabels,
+  isImplementerFailure,
+  missingFailureReason,
   latestRetryContext,
   parseRetryComment,
   renderEscalationComment,
@@ -176,4 +178,22 @@ test("renderEscalationComment says when there is no branch and no PR", () => {
   assert.match(body, /No branch was pushed/);
   assert.match(body, /no PR was open/i);
   assert.match(body, /Run log: see the run/);
+});
+
+test("a run killed at the job timeout spends a retry, a failure around the implementer does not", () => {
+  // The implementer's own attempt ended badly: this is what the one retry is for.
+  assert.equal(isImplementerFailure("failure"), true);
+  // `timeout-minutes` kills the job, and GitHub reports the killed step as cancelled (#51).
+  assert.equal(isImplementerFailure("cancelled"), true);
+  // A push, a PR step or a checkout failed around it: the blocked comment, not the retry.
+  assert.equal(isImplementerFailure("skipped"), false);
+  assert.equal(isImplementerFailure("success"), false);
+  assert.equal(isImplementerFailure(""), false);
+});
+
+test("a killed attempt that wrote no reason file says it was killed", () => {
+  assert.match(missingFailureReason("cancelled"), /killed/);
+  assert.match(missingFailureReason("cancelled"), /timeout/);
+  // Nothing killed it, so the reason really is missing and the log is where to look.
+  assert.match(missingFailureReason("failure"), /no reason file/);
 });

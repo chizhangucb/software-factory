@@ -72,6 +72,14 @@ jobs:
     concurrency:
       group: account-slot-${{ needs.slot.outputs.index }}
       cancel-in-progress: false
+    outputs:
+      # Everything the `retry` job needs from this one. That job runs on its own
+      # runner, so nothing it reads is here for free (#51).
+      handle: ${{ steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' }}
+      branch: ${{ steps.branch.outputs.name }}
+      outcome: ${{ steps.run.outcome }}
+      reason: ${{ steps.handoff.outputs.reason }}
+      rate_limited: ${{ steps.handoff.outputs.rate_limited }}
     permissions:
       contents: write
       issues: write
@@ -347,7 +355,9 @@ jobs:
         # The branch is what a retry continues on and what an escalation keeps for the human. A first
         # attempt that committed nothing deletes a stale origin branch left by an earlier cycle, so the
         # retry starts from main as its prompt says, instead of resuming work nobody in this cycle made.
-        if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && failure() && steps.branch.outputs.name != ''
+        # always() && !success(): a `timeout-minutes` kill cancels the job, and failure() is
+        # false for a cancelled job, so the retry would otherwise resume from main (#51).
+        if: always() && !success() && steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && steps.branch.outputs.name != ''
         working-directory: target
         env:
           BRANCH: ${{ steps.branch.outputs.name }}
@@ -367,21 +377,109 @@ jobs:
             echo "Pushed $(git rev-list --count "main..refs/heads/$BRANCH") commit(s) to $BRANCH."
           fi
 
+      - name: Collect the retry handoff
+        # What the `retry` job cannot read off this runner: the failure reason the run wrote
+        # and the marker that says every account was rate limited. The run log travels in the
+        # uploaded artifact instead. always(), because a `timeout-minutes` kill cancels this
+        # job and failure() would skip it (#51).
+        if: always() && steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
+        id: handoff
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
+        run: |
+          set -euo pipefail
+          {
+            echo "reason<<FACTORY_HANDOFF_EOF"
+            if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then cat "${OUTPUT_DIR}/failure_reason.txt"; echo; fi
+            echo "FACTORY_HANDOFF_EOF"
+            if [ -f "${OUTPUT_DIR}/rate_limited.txt" ]; then echo "rate_limited=true"; else echo "rate_limited=false"; fi
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Always remove the accounts file
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
+
+      - name: Always remove in-progress
+        if: always() && steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
+        run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:in-progress" || true
+
+  retry:
+    # The failure handler is a job, not a step of `implement` (#51). A `timeout-minutes`
+    # kill cancels that job, so `failure()` is false and a step gated on it never runs:
+    # a stuck agent used to leave the ticket for the reconciler's stuck sweep instead of
+    # for retry and escalation. A job that `needs` it and runs `always()` is reached
+    # however the attempt ended, kill included.
+    # One informed retry, then needs-human (#16), for a failure of the implementer itself.
+    # FACTORY_PAT so the label that starts the retry fires its event. A failure elsewhere
+    # in the implement job (checkout, push, PR), or a handler that cannot reach GitHub,
+    # gets the plain blocked comment instead of burning the retry.
+    needs: implement
+    if: always() && needs.implement.outputs.handle == 'true' && needs.implement.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read # the handler links the uploaded run log (#16)
+
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      OUTPUT_DIR: ${{ runner.temp }}/factory-out
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Checkout factory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.factory_repo }}
+          ref: ${{ inputs.factory_ref }}
+          path: factory
+          token: ${{ secrets.FACTORY_PAT }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install factory (pinned sandcastle, tsx, Claude Code)
+        working-directory: factory
+        run: npm ci
+
+      - name: Rebuild the failing attempt's output
+        # The handler reads the attempt's output from OUTPUT_DIR, which died with the
+        # implement job's runner. The reason and the rate-limit marker come back from that
+        # job's outputs, the run log from the artifact it uploaded.
+        env:
+          FAILURE_REASON: ${{ needs.implement.outputs.reason }}
+          RATE_LIMITED: ${{ needs.implement.outputs.rate_limited }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUTPUT_DIR"
+          if [ -n "$FAILURE_REASON" ]; then printf '%s\n' "$FAILURE_REASON" > "${OUTPUT_DIR}/failure_reason.txt"; fi
+          if [ "$RATE_LIMITED" = "true" ]; then printf 'every account was rate limited\n' > "${OUTPUT_DIR}/rate_limited.txt"; fi
+
+      - name: Download the run log
+        # Absent when the kill landed before the upload; the handler reports what it has.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: factory-implement-issue-${{ github.event.issue.number }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/factory-out/logs
+
       - name: Retry or escalate
-        # One informed retry, then needs-human (#16), for a failure of the implementer itself. FACTORY_PAT so
-        # the label that starts the retry fires its event. A failure elsewhere in the job (checkout, push, PR),
-        # or a handler that cannot reach GitHub, gets the plain blocked comment instead of burning the retry.
-        if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true' && failure()
         env:
           FACTORY_PAT: ${{ secrets.FACTORY_PAT }}
-          BRANCH: ${{ steps.branch.outputs.name }}
+          BRANCH: ${{ needs.implement.outputs.branch }}
           FAILURE_KIND: implement
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ARTIFACT_NAME: factory-implement-issue-${{ github.event.issue.number }}-run-${{ github.run_attempt }}
-          OUTPUT_DIR: ${{ runner.temp }}/factory-out
-          IMPLEMENTER_OUTCOME: ${{ steps.run.outcome }}
+          # The step's own outcome, or the job's when the kill took the step outputs with it.
+          IMPLEMENTER_OUTCOME: ${{ needs.implement.outputs.outcome || needs.implement.result }}
         run: |
-          if [ "$IMPLEMENTER_OUTCOME" = "failure" ] && factory/node_modules/.bin/tsx factory/factory/retry/retry.ts; then
+          if factory/node_modules/.bin/tsx factory/factory/retry/retry.ts; then
             exit 0
           fi
           reason="(no reason file written; check workflow logs)"
@@ -392,11 +490,3 @@ jobs:
           printf '`agent:implement` run failed outside the implementer, or the retry handler could not run.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:implement` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
           gh issue edit "$ISSUE_NUMBER" --add-label "agent:blocked" || true
           gh issue comment "$ISSUE_NUMBER" --body-file "$body_file"
-
-      - name: Always remove the accounts file
-        if: always()
-        run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
-
-      - name: Always remove in-progress
-        if: always() && steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'
-        run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:in-progress" || true

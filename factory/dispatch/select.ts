@@ -12,6 +12,7 @@
  * --experimental-strip-types` without installing the engine.
  */
 
+import { READY_LABEL } from "../lib/labels.ts";
 import {
   DEFAULT_TRUSTED_AUTHORS,
   isTrustedAuthor,
@@ -19,7 +20,8 @@ import {
 
 export { DEFAULT_TRUSTED_AUTHORS, parseTrustedAuthors } from "../lib/trusted-authors.ts";
 
-export const READY_LABEL = "ready-for-agent";
+/** Re-exported so the dispatcher's callers keep reading its rules from one module. */
+export { READY_LABEL };
 export const DISPATCH_LABEL = "agent:implement";
 
 /** A human claimed this work; the factory must never automate it. */

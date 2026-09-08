@@ -52,7 +52,8 @@ import {
   summariseFailures,
   unretryableReason,
 } from "./checks";
-import { ESCALATION_LABEL, escalationLabels, prCloseLabels } from "./labels.ts";
+import { ESCALATION_LABEL } from "../lib/labels.ts";
+import { escalationLabels, prCloseLabels } from "./escalation.ts";
 import {
   decide,
   type FailureKind,

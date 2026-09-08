@@ -96,12 +96,12 @@ Two files sit inside that subtree and are ours, because he ships no tests at all
 | `.github/workflows/ci.yml` | this repo's own CI |
 | `.github/dependabot.yml` | watches the sandcastle and Claude Code pins |
 | `factory/audit/` | `audit.ts`, `decide.ts`, `fill-links.ts`, `output.ts`, `plan.ts`, `plan.test.ts`, `report.ts`, `report.test.ts`, `prompt.md`, `extraction.md`, `state.sh` |
-| `factory/dispatch/` | `dispatch.ts`, `sweep.ts`, `select.ts`, `reconcile.ts`, `gh-read.ts`, their four `.test.ts`, `workflow-names.test.ts`, `fixtures/pages/*.json` |
+| `factory/dispatch/` | `dispatch.ts`, `sweep.ts`, `select.ts`, `reconcile.ts`, `gh-read.ts`, a `.test.ts` for the last three, `workflow-names.test.ts`, `fixtures/pages/*.json` |
 | `factory/gate/` | `gate.ts`, `changed-files.ts`, `red-green.ts`, `removes.ts`, `test-integrity.ts`, their four `.test.ts` |
 | `factory/retry/` | `retry.ts`, `context.ts`, `checks.ts`, `decide.ts`, `checks.test.ts`, `decide.test.ts` |
 | `factory/update-branch/` | `update-branch.ts`, `plan.ts`, `plan.test.ts` |
-| `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `gh.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `turn-cap.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, `upsert-comment.sh`, their `.test.ts` siblings, `fixtures/` |
-| `factory/plugins/mattpocock-skills/` | Matt's skills plugin, vendored and pinned at 1.2.3; a different upstream, not sandcastle |
+| `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `gh.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `turn-cap.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, `upsert-comment.sh`, a `.test.ts` sibling for each of them except `errors.ts` and `read-only.ts`, `fixtures/` |
+| `factory/plugins/mattpocock-skills/` | a vendored subset of Matt's skills plugin pinned at 1.2.3, today the `code-review` skill alone (`LICENSE`, `.claude-plugin/plugin.json`, `skills/code-review/SKILL.md`). A different upstream, not sandcastle; #54 is what widens the subset |
 | `templates/factory.yml` | the caller a target copies. The file is ours; `templates/` is sandcastle's word for the folder |
 | `scripts/onboard.sh` | labels, auto-merge, and the `factory` ruleset on a target |
 | `AGENTS.md`, `CONTEXT.md`, `README.md`, `docs/**` | all this repo's, including this file |
@@ -270,7 +270,7 @@ The mapping that answers "how much of this did sandcastle already do".
 - Story 20, the model. His is hardcoded.
 - Story 22, sub-issues. He refuses them; `/to-tickets` output is sub-issues by design.
 - Story 23, coding standards. His prompts cite `.sandcastle/CODING_STANDARDS.md`; ours cite the target repo's own docs.
-- Story 27, usage. His library returns per-iteration usage and nothing posts it.
+- Story 27, usage. His library returns usage per entry in `RunResult.iterations[]` and nothing posts it.
 
 **Absent from his pipeline entirely:** stories 1, 2, 4, 6, 7, 8, 9, 10, 13, 16, 17, 18, 19, 24, 26, 28, 29, 30.
 

@@ -32,7 +32,7 @@ GitHub offers merge queues only on organization-owned repos (public, or private 
 ### Consequences of the amendment
 
 - Two PRs opened together both land: the first merges, its push to main triggers update-branch for the second, whose new head is re-tested and then merged. Each extra in-flight PR costs one more CI round per merge ahead of it, where a queue would batch; acceptable at the factory's v0 volume.
-- The update happens in the target's workflow, so a target that does not carry the `push` and `repository_dispatch` triggers in its caller file stalls PRs behind main. `examples/factory.yml` has both.
+- The update happens in the target's workflow, so a target that does not carry the `push` and `repository_dispatch` triggers in its caller file stalls PRs behind main. `templates/factory.yml` has both.
 - Commit statuses are always posted with GITHUB_TOKEN: the fine-grained FACTORY_PAT cannot write them (verified, 403), which also rules out a `status` event as the trigger.
 - #27 removes the update-branch call, its triggers, and the verdict carry, and makes the three factory checks report on `merge_group`.
 

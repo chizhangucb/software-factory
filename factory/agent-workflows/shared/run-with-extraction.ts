@@ -2,8 +2,8 @@
  * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/shared/run-with-extraction.ts`.
  * No forced differences (#47, #87): below this header the file is identical to
  * upstream, so the list #47 keeps true is empty here.
- * `docs/provenance/sandcastle.md` section 6 carries the row and its counts,
- * unmoved, since that table's method excludes comments.
+ * `docs/provenance/sandcastle-files.md` section 3 carries the row and its
+ * counts, unmoved, since that table's method excludes comments.
  */
 import {
   run,

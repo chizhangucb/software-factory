@@ -75,6 +75,12 @@ Two corrections of record from the reconciliation of 2026-09-08. Neither changes
 
 **The provenance document is `docs/provenance/sandcastle.md`.** It maps every file in this repo to its origin, lists what was not copied and why, records where a rewrite was avoidable and which of those have since been undone, and maps spec #9's stories onto sandcastle's pipeline. It is the answer to "why not just fork it", and it carries the line counts. Read it before changing anything under `factory/agent-workflows/`.
 
+**Amended 2026-09-09 (#90).** The paragraph above stands as written; what changed is that the record is two files, not one, because the sentence describes two audiences. A maintainer authorised the split that #90 recommended and could not make on its own authority.
+
+- `docs/provenance/sandcastle.md` keeps its path and is the essay a stranger meets: what sandcastle is, his pipeline's real autonomy, his five workflows and what happened to each, what was not copied and why, what the factory added with no counterpart of his, spec #9's stories on him, and the answer to "why not just fork it".
+- `docs/provenance/sandcastle-files.md` is the file-by-file half, the part an agent reads a row at a time: the file map with every tree enumerated, the three copied workflows stepped through, the vendored scripts and prompts row by row, and the avoidable-rewrite list. **The line counts are here**, and so is the rule that a change to a vendored script, prompt or workflow updates that row's counts in the same PR. Read it before changing anything under `factory/agent-workflows/`.
+- Each file opens by naming the other. Nothing was cut in the move: every count, row, forced reason, identifier, ticket, SHA and step name is in one of the two.
+
 ### 2026-09-08: the local orchestrator is a second execution path, not a second product (#46, story 26)
 
 The considered-options list above defers sandcastle's local Docker orchestrator, it does not reject it. Recording now what "undeferred" would mean, so the shape is settled before the story exists and a local path cannot arrive as a second product:

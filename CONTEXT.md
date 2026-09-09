@@ -11,7 +11,7 @@ It binds the factory's own prose, not vendored text: where a name is sandcastle'
 **Spec**:
 A grilled, human-approved description of a feature. Produced by a grilling session then /to-spec. The parent issue of its tickets.
 _Avoid_: PRD (Matt's word, same thing), plan.
-_Except_ as a vendored step name: the `Refuse PRD-shaped issue` step in `.github/workflows/agent-implement.yml` stays sandcastle's. `docs/provenance/sandcastle.md` records that row as kept, wording only.
+_Except_ as a vendored step name: the `Refuse PRD-shaped issue` step in `.github/workflows/agent-implement.yml` stays sandcastle's. `docs/provenance/sandcastle-files.md` records that row as kept, wording only.
 
 **Ticket**:
 One vertical slice of a spec, sized to one fresh context window, carrying acceptance criteria. Produced by /to-tickets. The unit the factory picks up.

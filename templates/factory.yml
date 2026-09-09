@@ -20,8 +20,8 @@ on:
     #   gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep
     types: [factory-update-branch, factory-sweep]
   schedule:
-    # The fallback, not the heartbeat: measured on one private target over 21 hours this fired 6
-    # times against about 129 expected, so run the heartbeat above and treat this as belt and
+    # The fallback, not the heartbeat: measured on one private target over 21 and a half hours this
+    # fired 6 times against about 129 expected, so run the heartbeat above and treat it as belt and
     # braces. Each run bills a minute on a private repo. Off the :00 slots, since GitHub delays
     # crons on busy minutes.
     - cron: "4,14,24,34,44,54 * * * *"

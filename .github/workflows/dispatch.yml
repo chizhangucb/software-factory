@@ -9,9 +9,10 @@
 # `repository_dispatch: [factory-sweep]`.
 #
 # The schedule is the fallback, not the heartbeat: measured on one private
-# target it fired 6 times against about 129 expected in 21 hours, and a seven
-# hour gap was seen. So a heartbeat outside GitHub is required, every 10
-# minutes, with a PAT that has contents: write on the target and nothing else:
+# target it fired 6 times against about 129 expected in 21 and a half hours,
+# and a seven hour gap was seen. So a heartbeat outside GitHub is required,
+# every 10 minutes, with a PAT that has contents: write on the target and
+# nothing else:
 # gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep
 name: factory dispatch
 

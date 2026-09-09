@@ -33,7 +33,7 @@ A failing implementer run or check in steps 3 to 5 earns one informed retry, the
 
 5. **Let this repo serve its workflows.** Settings, Actions, General, Access. A private factory repo will not serve them otherwise.
 
-6. **Add a heartbeat.** The caller's `schedule` is the fallback, not the heartbeat: on one private target over 21 hours it fired 6 times against about 129 expected. Send `gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep` every 10 minutes, from anything that is not a GitHub cron, with a token that has contents write on the target and nothing else. One sender covers any number of targets. Without it the dispatcher and the reconciler run only as often as GitHub's cron fires, so a ticket whose last blocker just closed, a stranded run and a PR whose auto-merge failed all wait.
+6. **Add a heartbeat.** The caller's `schedule` is the fallback, not the heartbeat: on one private target over 21 and a half hours it fired 6 times against about 129 expected. Send `gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep` every 10 minutes, from anything that is not a GitHub cron, with a token that has contents write on the target and nothing else. One sender covers any number of targets. Without it the dispatcher and the reconciler run only as often as GitHub's cron fires, so a stranded run, a PR whose auto-merge failed, and a ticket whose blocker closed without firing an event on the target all wait.
 
 Then label a ticket `ready-for-agent` and the pipeline above runs. Labeling `agent:implement` by hand still works. `docs/pipeline.md` has the reasoning behind each step, what `FACTORY_PAT` cannot do, and the re-copy a target onboarded before #61 needs.
 

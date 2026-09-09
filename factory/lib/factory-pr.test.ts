@@ -25,7 +25,7 @@ test("a human PR the factory worked on carries the reviewer's verdict section", 
     "## Verdict: pass",
     "<!-- /factory:verdict -->",
   ].join("\n");
-  assert.equal(isFactoryPr({ headRef: "chi/flaky-login", body }), true);
+  assert.equal(isFactoryPr({ headRef: "maintainer/flaky-login", body }), true);
 });
 
 test("the definition is the branch prefix, the body marker and the verdict section, nothing else", () => {

@@ -5,7 +5,7 @@ import { AUDIT_LIMIT, planAudit } from "./plan.ts";
 
 test("a human PR the factory worked on is audited and counted", () => {
   const body = "Fixes the flaky login test.\n\n<!-- factory:verdict -->\n## Verdict: pass\n<!-- /factory:verdict -->";
-  assert.deepEqual(planAudit({ audited: 4, merged: true, headRef: "chi/flaky-login", body }), {
+  assert.deepEqual(planAudit({ audited: 4, merged: true, headRef: "maintainer/flaky-login", body }), {
     audit: true,
     next: 5,
     reason: "merged factory PR 5 of the first 20",
@@ -37,7 +37,7 @@ test("a PR closed without merging, or not made by the factory, is neither audite
   assert.deepEqual(planAudit({ audited: 3, merged: true, headRef: "docs/readme", body: "hi" }), {
     audit: false,
     next: 3,
-    reason: "not a factory PR (branch docs/readme, no factory marker in the body)",
+    reason: "not a factory PR (branch docs/readme, no factory marker or verdict section in the body)",
   });
 });
 

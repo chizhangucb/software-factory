@@ -21,6 +21,14 @@
  * is the durable body-level record that the factory worked on this PR, on
  * the same field the audit's decide job already reads.
  *
+ * The body is the signal on purpose, and a human who edits the section out
+ * does hide the PR from the audit. The two alternatives cost a mechanism
+ * this spec does not add: the `factory/verdict` status needs GITHUB_TOKEN,
+ * which the decide job does not hold (it runs on FACTORY_PAT, and a
+ * fine-grained PAT cannot read statuses), and the `agent:*` timeline needs a
+ * second read of labels that both agent workflows take back off on the way
+ * out. Revisit if a body edit is ever seen in the wild.
+ *
  * Imports nothing, so a job can run it on bare
  * `node --experimental-strip-types` with no install. Every sparse-checkout
  * cone that reaches it lists it.

@@ -339,7 +339,7 @@ test("ticketFromGitHub and prFromGitHub map the tracker shapes and detect factor
   assert.equal(prFromGitHub({ ...raw, headRefName: "feature/x", body: "hand made", autoMergeRequest: null }).factory, false);
   assert.equal(prFromGitHub({ ...raw, headRefName: "feature/x", body: "hand made", autoMergeRequest: null }).autoMerge, false);
   // A human opened it and implement-pr worked on it; the reviewer's verdict section is the record.
-  const worked = { ...raw, headRefName: "chi/flaky-login", body: "Fixes it.\n\n<!-- factory:verdict -->\n## Verdict: pass\n<!-- /factory:verdict -->" };
+  const worked = { ...raw, headRefName: "maintainer/flaky-login", body: "Fixes it.\n\n<!-- factory:verdict -->\n## Verdict: pass\n<!-- /factory:verdict -->" };
   assert.equal(prFromGitHub(worked).factory, true);
 });
 

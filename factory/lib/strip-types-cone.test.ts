@@ -56,16 +56,25 @@ const jobOf = (yaml: string, id: string): string => {
   return end < 0 ? rest : rest.slice(0, end + 1);
 };
 
-/** Top-level job ids: two-space indented keys, from the `jobs:` line on. */
-const jobIdsOf = (yaml: string): string[] =>
-  [...yaml.slice(yaml.indexOf("\njobs:")).matchAll(/^ {2}([a-z][a-z0-9_-]*):$/gm)].map((m) => m[1]!);
+/**
+ * Top-level job ids: two-space indented keys, from the `jobs:` line on. The
+ * `jobs:` key is asserted, not searched for and shrugged off: a workflow this
+ * cannot parse would contribute no runs, and the table test below would then
+ * call it covered.
+ */
+const jobIdsOf = (yaml: string, workflow: string): string[] => {
+  const at = yaml.search(/^jobs:$/m);
+  assert.ok(at >= 0, `${workflow} has a top-level jobs: key`);
+  return [...yaml.slice(at).matchAll(/^ {2}([a-z][a-z0-9_-]*):$/gm)].map((m) => m[1]!);
+};
 
 /** Every strip-types run in the tree, keyed the way the table above writes one. */
 const stripTypesRuns = (): string[] => {
   const runs: string[] = [];
   for (const workflow of fs.readdirSync(workflowsDir).sort()) {
+    if (!/\.ya?ml$/.test(workflow)) continue;
     const yaml = fs.readFileSync(new URL(workflow, workflowsDir), "utf8");
-    for (const job of jobIdsOf(yaml)) {
+    for (const job of jobIdsOf(yaml, workflow)) {
       const matches = jobOf(yaml, job).matchAll(/node --experimental-strip-types factory\/(\S+)/g);
       for (const match of matches) runs.push(`${workflow}#${job} ${match[1]!}`);
     }
@@ -73,8 +82,16 @@ const stripTypesRuns = (): string[] => {
   return runs.sort();
 };
 
-/** A job's steps, split on the `- name:` boundary, so a step's `with:` stays with the step it belongs to. */
-const stepsOf = (job: string): string[] => job.split(/\n(?= {6}- name:)/);
+/**
+ * A job's steps, split on the six-space list boundary, so a step's `with:`
+ * stays with the step it belongs to. The boundary is `- `, not `- name:`: a
+ * step written straight as `- uses:` would otherwise fold into the step above
+ * it and hand its neighbour's `sparse-checkout:` to the reader below.
+ */
+const stepsOf = (job: string): string[] => job.split(/\n(?= {6}- )/);
+
+/** One cone entry as git reads it: no trailing comment, no trailing slash. */
+const coneEntry = (raw: string): string => raw.replace(/\s+#.*$/, "").trim().replace(/\/+$/, "");
 
 /**
  * The sparse-checkout a step declares, in either form the repo writes: a block
@@ -86,12 +103,13 @@ const coneOf = (step: string): string[] | null => {
   const at = lines.findIndex((line) => /^\s*sparse-checkout:/.test(line));
   if (at < 0) return null;
   const [, indent, inline] = lines[at]!.match(/^(\s*)sparse-checkout:\s*(.*)$/)!;
-  if (!inline!.startsWith("|")) return [inline!];
+  if (!inline!.startsWith("|")) return [coneEntry(inline!)];
   const block: string[] = [];
   for (const line of lines.slice(at + 1)) {
     if (line.trim() === "") continue;
     if (!line.startsWith(`${indent!} `)) break;
-    block.push(line.trim());
+    if (line.trim().startsWith("#")) continue;
+    block.push(coneEntry(line));
   }
   return block;
 };
@@ -100,7 +118,8 @@ const coneOf = (step: string): string[] | null => {
 const factoryCheckoutOf = (workflow: string, job: string): string => {
   const yaml = fs.readFileSync(new URL(workflow, workflowsDir), "utf8");
   const steps = stepsOf(jobOf(yaml, job)).filter(
-    (step) => step.includes("uses: actions/checkout") && step.includes("path: factory"),
+    // `path: factory` whole, not as a prefix: `path: factory-out` is a different directory.
+    (step) => step.includes("uses: actions/checkout") && /^\s*path: factory\s*$/m.test(step),
   );
   assert.equal(steps.length, 1, `${workflow} job ${job} checks the factory out in exactly one step`);
   return steps[0]!;
@@ -214,4 +233,15 @@ test("a cone is read from either form a workflow writes it in", () => {
   assert.deepEqual(coneOf(scalar), ["factory/audit"]);
   assert.deepEqual(coneOf(block), ["factory/audit", "factory/lib/gh.ts"]);
   assert.equal(coneOf(["        with:", "          path: factory"].join("\n")), null);
+  // A trailing slash and a trailing comment are both things git ignores, so
+  // neither may turn a covered file into a reported miss.
+  const noisy = [
+    "        with:",
+    "          sparse-checkout: |",
+    "            # the dispatcher's own tree",
+    "            factory/dispatch/",
+    "            factory/lib/gh.ts # and the one module it reaches",
+    "        env:",
+  ].join("\n");
+  assert.deepEqual(coneOf(noisy), ["factory/dispatch", "factory/lib/gh.ts"]);
 });

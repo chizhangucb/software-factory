@@ -5,7 +5,7 @@ date: 2026-09-06
 
 # Subscription plans first, any vendor, API keys through the same seam
 
-Decided 2026-09-06 under the title "Subscription OAuth tokens only, no API keys". Generalised 2026-09-08 (#46, story 24); the 2026-09-08 amendment is the operative rule. The text above the amendments is the decision as it was made, apart from three edits of 2026-09-08 that that amendment lists in full: one paragraph rewritten as plain fact (#46, story 25) and two Consequences bullets narrowed so they no longer say the ADR forbids what it now allows.
+Decided 2026-09-06 under the title "Subscription OAuth tokens only, no API keys". Generalised 2026-09-08 (#46, story 24); the 2026-09-08 amendment is the operative rule. The text above the amendments is the decision as it was made, apart from the edits the amendments list in full: three of 2026-09-08, which the 2026-09-08 amendment lists (one paragraph rewritten as plain fact (#46, story 25) and two Consequences bullets narrowed so they no longer say the ADR forbids what it now allows), and the reshaping of 2026-09-09, which added `Considered options` and reworded this paragraph.
 
 The rule: as long as a subscription plan can do the work, use it, across as many accounts as needed, and avoid API billing. The factory therefore authenticates every agent run with per-account OAuth tokens from `claude setup-token`, one secret per account, rotated by the factory's own rotation module (ADR 0004).
 

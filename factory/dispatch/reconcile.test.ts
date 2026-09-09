@@ -14,6 +14,7 @@ import {
   roleFromJobs,
   runFromGitHub,
   runsFor,
+  slotCancelFromJobs,
   stateSinceFromTimeline,
   ticketFromGitHub,
 } from "./reconcile.ts";
@@ -163,12 +164,53 @@ test("a run whose jobs could not be read is treated as covering while live", () 
 });
 
 test("a ticket whose only run was cancelled by slot contention is re-dispatched without spending a miss", () => {
-  const cancelled = run(100, { conclusion: "cancelled", createdAt: minutesAgo(19) });
+  const cancelled = run(100, { conclusion: "cancelled", slotCancel: true, createdAt: minutesAgo(19) });
   const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks: [{ miss: 1, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ issues: [stranded], runs: [cancelled] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type, "relabel");
   assert.equal(d.action.type === "relabel" && d.action.miss, 1);
-  assert.match(d.log, /run 100 cancelled/);
+  assert.match(d.log, /run 100 cancelled by slot contention/);
+});
+
+test("a ticket cancelled by slot contention over and over stops re-dispatching and escalates: the re-dispatch loop is capped at the same two attempts a miss gets", () => {
+  const cancelled = run(100, { conclusion: "cancelled", slotCancel: true, createdAt: minutesAgo(19) });
+  const marked = (marks: { miss: number; at: string }[]) =>
+    only(reconcile(snapshot({ issues: [ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks })], runs: [cancelled] }), DEFAULT_DEADLINES));
+
+  const second = marked([{ miss: 0, at: minutesAgo(18) }]);
+  assert.equal(second.action.type, "relabel");
+  assert.equal(second.action.type === "relabel" && second.action.miss, 0);
+  assert.match(second.comment ?? "", /Re-dispatch 2 of 2/);
+
+  const third = marked([{ miss: 0, at: minutesAgo(18) }, { miss: 0, at: minutesAgo(17) }]);
+  assert.equal(third.action.type, "escalate");
+  assert.match(third.log, /run 100 cancelled by slot contention, re-dispatched 2 times: escalate to needs-human/);
+  assert.match(third.comment ?? "", /The same after 2 re-dispatches/);
+});
+
+test("re-dispatches from an older stranding do not use up the cap", () => {
+  const cancelled = run(100, { conclusion: "cancelled", slotCancel: true, createdAt: minutesAgo(19) });
+  const old = ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks: [{ miss: 0, at: minutesAgo(200) }, { miss: 0, at: minutesAgo(199) }] });
+  const d = only(reconcile(snapshot({ issues: [old], runs: [cancelled] }), DEFAULT_DEADLINES));
+  assert.equal(d.action.type, "relabel");
+});
+
+test("a run cancelled for any other reason counts as a miss: a cancel is not slot contention by its conclusion alone", () => {
+  const cancelled = run(100, { conclusion: "cancelled", slotCancel: false, createdAt: minutesAgo(19) });
+  const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"] });
+  const d = only(reconcile(snapshot({ issues: [stranded], runs: [cancelled] }), DEFAULT_DEADLINES));
+  assert.equal(d.action.type, "relabel");
+  assert.equal(d.action.type === "relabel" && d.action.miss, 1);
+  assert.match(d.log, /run 100 cancelled, not by slot contention/);
+  assert.match(d.comment ?? "", /Miss 1 of 2/);
+});
+
+test("a cancelled run whose jobs could not be read counts as a miss: unknown is not assumed to be contention", () => {
+  const cancelled = run(100, { conclusion: "cancelled", slotCancel: undefined, createdAt: minutesAgo(19) });
+  const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"] });
+  const d = only(reconcile(snapshot({ issues: [stranded], runs: [cancelled] }), DEFAULT_DEADLINES));
+  assert.equal(d.action.type === "relabel" && d.action.miss, 1);
+  assert.match(d.log, /run 100 cancelled, jobs not read/);
 });
 
 test("a completed run that left the label behind counts as a miss", () => {
@@ -317,6 +359,19 @@ test("roleFromJobs reads the called job's name and ignores skipped caller jobs",
   assert.equal(roleFromJobs([{ name: "dispatch / dispatch", conclusion: "success" }, { name: "implement", conclusion: "skipped" }]), "dispatch");
   assert.equal(roleFromJobs([{ name: "implement", conclusion: "skipped" }, { name: "review", conclusion: "skipped" }]), "none");
   assert.equal(roleFromJobs([{ name: "update-branch / update", conclusion: "success" }]), "update-branch");
+});
+
+test("slotCancelFromJobs names the slot cancel by job name: the slot job finished and the job the group holds is the cancelled one", () => {
+  assert.equal(slotCancelFromJobs([{ name: "implement / slot", conclusion: "success" }, { name: "implement / implement", conclusion: "cancelled" }]), true);
+  assert.equal(slotCancelFromJobs([{ name: "review / refuse-fork", conclusion: "success" }, { name: "review / slot", conclusion: "success" }, { name: "review / review", conclusion: "cancelled" }]), true);
+  // Cancelled before the group was ever entered: a maintainer's cancel or a superseded push, not contention.
+  assert.equal(slotCancelFromJobs([{ name: "implement / slot", conclusion: "cancelled" }, { name: "implement / implement", conclusion: "cancelled" }]), false);
+  // The cancelled job is not one the slot group holds.
+  assert.equal(slotCancelFromJobs([{ name: "update-branch / update", conclusion: "cancelled" }]), false);
+  assert.equal(slotCancelFromJobs([{ name: "implement / slot", conclusion: "success" }, { name: "implement / implement", conclusion: "failure" }]), false);
+  // A caller job with no called part is the caller's own skipped job, never the held one.
+  assert.equal(slotCancelFromJobs([{ name: "implement", conclusion: "cancelled" }]), false);
+  assert.equal(slotCancelFromJobs([]), false);
 });
 
 test("runFromGitHub maps the REST run shape", () => {

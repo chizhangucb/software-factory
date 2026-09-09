@@ -20,6 +20,7 @@ import {
   stateSinceFromTimeline,
   ticketFromGitHub,
 } from "./reconcile.ts";
+import { planUpdate } from "../update-branch/plan.ts";
 
 const NOW = "2026-09-07T20:00:00Z";
 const minutesAgo = (m: number): string => new Date(Date.parse(NOW) - m * 60_000).toISOString();
@@ -83,7 +84,7 @@ const only = (decisions: readonly Decision[]): Decision => {
 test("a healthy snapshot produces no repairs, and a second pass over it none either", () => {
   const healthy = snapshot({
     issues: [ticket(1, { labels: ["ready-for-agent"] }), ticket(2, { labels: [] })],
-    prs: [pr(11, { autoMerge: false }), pr(12, { verdict: "success", behindBy: 0 })],
+    prs: [pr(11, { autoMerge: false, factory: false }), pr(12, { verdict: "success", behindBy: 0 })],
     runs: [run(100, { role: "dispatch", event: "schedule", title: "factory" })],
   });
   assert.deepEqual(repairs(reconcile(healthy, DEFAULT_DEADLINES)), []);
@@ -346,13 +347,49 @@ test("an unjudged PR within the verdict deadline, or with a pending or failed ve
   assert.match(ds[2]!.log, /verdict failure/);
 });
 
-test("the verdict rule skips PRs that are not factory PRs, have no auto-merge, or carry an agent label", () => {
+test("the merge rules skip PRs that are not factory PRs or carry an agent label", () => {
   const human = pr(11, { verdict: "none", headSince: minutesAgo(45), factory: false });
-  const manual = pr(12, { verdict: "none", headSince: minutesAgo(45), autoMerge: false });
   const reviewing = pr(13, { verdict: "none", headSince: minutesAgo(45), labels: ["agent:review"], stateSince: minutesAgo(1) });
-  const ds = reconcile(snapshot({ prs: [human, manual, reviewing] }), DEFAULT_DEADLINES);
+  const ds = reconcile(snapshot({ prs: [human, reviewing] }), DEFAULT_DEADLINES);
   assert.deepEqual(repairs(ds), []);
   assert.equal(ds.filter((d) => d.subject.number === 13).length, 1, "only the review-label rule sees #13");
+});
+
+test("a factory PR with auto-merge not enabled past the deadline is re-armed", () => {
+  const unarmed = pr(11, { autoMerge: false, verdict: undefined, behindBy: undefined, headSince: minutesAgo(45) });
+  const d = only(reconcile(snapshot({ prs: [unarmed] }), DEFAULT_DEADLINES));
+  assert.deepEqual(d.action, { type: "auto-merge", pr: 11 });
+  assert.match(d.log, /#11 \(pr\) factory PR with auto-merge not enabled since .*45 min ago, deadline 15 min: re-arm auto-merge/);
+  assert.equal(d.log.split("\n").length, 1);
+});
+
+test("a factory PR whose auto-merge is still within the deadline is left alone, and an armed one is not re-armed", () => {
+  const young = pr(11, { autoMerge: false, verdict: undefined, behindBy: undefined, headSince: minutesAgo(5) });
+  const armed = pr(12, { verdict: "success", behindBy: 0 });
+  const ds = reconcile(snapshot({ prs: [young, armed] }), DEFAULT_DEADLINES);
+  assert.deepEqual(repairs(ds), []);
+  assert.match(ds[0]!.log, /auto-merge not enabled since .*5 min ago, deadline 15 min: within deadline/);
+});
+
+test("the re-arm leaves a human PR and a parked factory PR alone", () => {
+  const human = pr(11, { autoMerge: false, factory: false, verdict: undefined, headSince: minutesAgo(45) });
+  const parked = pr(12, { autoMerge: false, labels: ["needs-human"], verdict: undefined, headSince: minutesAgo(45) });
+  assert.deepEqual(repairs(reconcile(snapshot({ prs: [human, parked] }), DEFAULT_DEADLINES)), []);
+});
+
+test("the update-branch plan's auto-merge-not-enabled skip is no longer permanent for a factory PR", () => {
+  const skipped = planUpdate({
+    number: 11,
+    autoMerge: false,
+    behindBy: 2,
+    mergeable: "MERGEABLE",
+    labels: [],
+    head: { sha: "abcdef1234567890", parents: ["0".repeat(40)], committerLogin: "factory" },
+    verdict: { state: "success", sha: "abcdef1234567890" },
+  });
+  assert.deepEqual(skipped, { number: 11, action: "skip", carry: false, reason: "auto-merge not enabled" });
+  const unarmed = pr(11, { autoMerge: false, verdict: undefined, behindBy: undefined, headSince: minutesAgo(45) });
+  assert.deepEqual(only(reconcile(snapshot({ prs: [unarmed] }), DEFAULT_DEADLINES)).action, { type: "auto-merge", pr: 11 });
 });
 
 test("a merge-ready PR behind main with no update-branch run in the window gets one dispatched", () => {

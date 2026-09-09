@@ -18,6 +18,10 @@
  *   `factory/retry/escalation.ts`): needs-human alone.
  * - PR in agent:review (or agent:implement, agent:in-progress) with no live
  *   review (implement-pr) run: same, with agent:review.
+ * - factory PR with auto-merge not enabled: re-arm it (#83). The implement
+ *   workflow's own step is non-fatal by design, so a refusal there left the
+ *   PR unmergeable forever and the update-branch plan skipping it forever
+ *   with "auto-merge not enabled".
  * - factory PR with auto-merge armed and no factory/verdict on its head:
  *   add agent:review.
  * - merge-ready PR behind main with no update-branch run in the window:
@@ -130,7 +134,7 @@ export type PrState = {
   verdict?: VerdictState;
   /** Commits on main the head lacks; undefined when not read. */
   behindBy?: number;
-  /** The later of the PR's creation and its head commit; undefined when not read. */
+  /** The later of the PR's creation and its head commit, or just its creation when auto-merge is off; undefined when not read. */
   headSince?: string;
   stateSince: string | undefined;
   marks: readonly SweepMark[];
@@ -152,7 +156,8 @@ export type Action =
   | { type: "none" }
   | { type: "relabel"; remove: string[]; add: string; miss?: number }
   | { type: "escalate"; remove: string[]; add: typeof ESCALATION_LABEL; ticket?: number }
-  | { type: "dispatch"; eventType: typeof UPDATE_BRANCH_EVENT; pr: number };
+  | { type: "dispatch"; eventType: typeof UPDATE_BRANCH_EVENT; pr: number }
+  | { type: "auto-merge"; pr: number };
 
 export type Decision = {
   subject: Subject;
@@ -334,13 +339,26 @@ const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decisi
   );
 };
 
-/** Auto-merge factory PRs with no agent on them: judged, or stale behind main, or neither. */
+/** Factory PRs with no agent on them: unarmed, or judged, or stale behind main, or none of those. */
 const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decision | undefined => {
-  if (!p.autoMerge || !p.factory || agentLabels(p.labels).length > 0 || PARKED_LABELS.some((l) => p.labels.includes(l))) return undefined;
+  if (!p.factory || agentLabels(p.labels).length > 0 || PARKED_LABELS.some((l) => p.labels.includes(l))) return undefined;
   const subject: Subject = { kind: "pr", number: p.number };
   const none = (log: string): Decision => ({ subject, action: { type: "none" }, log });
   const sha = p.headSha.slice(0, 7);
   const now = Date.parse(snap.now);
+
+  // Enabling auto-merge can fail on the implement run, where the step is non-fatal on
+  // purpose (the PR exists and the preflight would refuse a retry, so the review must
+  // still run). Nothing else ever retries it: the update-branch plan skips a PR with no
+  // auto-merge, so the PR could never merge. Re-arm it here (#83). Safe at any point in
+  // the PR's life: the required factory/verdict holds the merge until the reviewer passes
+  // it. The deadline keeps the sweep from racing the implement run's own step.
+  if (!p.autoMerge) {
+    const age = p.headSince === undefined ? undefined : minutesSince(now, p.headSince);
+    const head = `#${p.number} (pr) factory PR with auto-merge not enabled since ${p.headSince === undefined ? "unknown" : `${p.headSince}, ${age} min ago`}, deadline ${deadlines.stuckMinutes} min`;
+    if (age !== undefined && age < deadlines.stuckMinutes) return none(`${head}: within deadline`);
+    return { subject, action: { type: "auto-merge", pr: p.number }, log: `${head}: re-arm auto-merge` };
+  }
 
   if (p.verdict === undefined) return none(`#${p.number} (pr) auto-merge armed, factory/verdict on ${sha} not read, deadline ${deadlines.verdictMinutes} min: skip`);
   if (p.verdict === "none") {

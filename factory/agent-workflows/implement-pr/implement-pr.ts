@@ -29,12 +29,13 @@
  *   does not have (story 12 of #46); and an exhaustive completion criterion in
  *   his PROCESS opener (story 14 of #46), which still stands and is why the
  *   trailing "Done when every thread carries one of those four outcomes" went.
- *   Story 14 of #75 then cut what a mechanism already
- *   carries: the gate's own description, now that `factory/red-green` and
- *   `factory/test-integrity` are required checks and the retry marker feeds
- *   back the failing excerpt, and the sentence that sent the agent at the
- *   conflict first, which `conflictSection` in `factory/lib/conflicts.ts` says
- *   only when there is a conflict.
+ *   Story 14 of #75 cut that restatement, the gate's own description, now that
+ *   `factory/red-green` and `factory/test-integrity` are required checks and
+ *   the retry marker feeds back the failing excerpt, and the sentence that
+ *   sent the agent at the conflict first, which `conflictSection` in
+ *   `factory/lib/conflicts.ts` says only when there is a conflict. His TASK
+ *   opener, his fourth outcome and his four flat prohibitions came back with
+ *   it, which is what puts this file at 26 of his 28 lines.
  *   `extraction.md` stays his to the line: it is a format contract, not prose,
  *   so neither writing pass touched it.
  */

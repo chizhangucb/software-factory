@@ -6,7 +6,10 @@
  *
  * The section's opening marker lives in `factory-pr.ts`, because a body
  * carrying it is one of the three things that make a PR a factory PR, and
- * the audit's decide job reads that module on bare strip-types.
+ * the audit's decide job reads that module on bare strip-types. The arrow
+ * points that way and not the other because `factory-pr.ts` may import
+ * nothing. Only the opening marker moved: it is the one the definition
+ * matches on, and `SECTION_END` is this module's own business.
  */
 import { VERDICT_SECTION_START } from "./factory-pr.ts";
 

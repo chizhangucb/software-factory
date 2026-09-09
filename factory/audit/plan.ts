@@ -42,7 +42,7 @@ export const planAudit = (input: AuditPlanInput): AuditPlan => {
     return {
       audit: false,
       next: audited,
-      reason: `not a factory PR (branch ${input.headRef}, no factory marker in the body)`,
+      reason: `not a factory PR (branch ${input.headRef}, no factory marker or verdict section in the body)`,
     };
   }
   if (audited >= limit) {

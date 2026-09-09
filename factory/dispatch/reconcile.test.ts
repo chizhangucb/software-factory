@@ -349,7 +349,7 @@ test("an unjudged PR within the verdict deadline, or with a pending or failed ve
 test("the merge rules skip PRs that are not factory PRs or carry an agent label, armed or not", () => {
   const human = pr(11, { verdict: "none", headSince: minutesAgo(45), factory: false });
   const humanUnarmed = pr(12, { verdict: undefined, headSince: minutesAgo(45), factory: false, autoMerge: false });
-  const reviewing = pr(13, { verdict: "none", headSince: minutesAgo(45), labels: ["agent:review"], stateSince: minutesAgo(1) });
+  const reviewing = pr(13, { verdict: undefined, headSince: minutesAgo(45), autoMerge: false, labels: ["agent:review"], stateSince: minutesAgo(1) });
   const ds = reconcile(snapshot({ prs: [human, humanUnarmed, reviewing] }), DEFAULT_DEADLINES);
   assert.deepEqual(repairs(ds), []);
   assert.equal(ds.filter((d) => d.subject.number === 13).length, 1, "only the review-label rule sees #13");

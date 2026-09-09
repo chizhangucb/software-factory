@@ -6,9 +6,30 @@
 #   scripts/onboard.sh owner/repo [own-check ...]
 # Each extra argument is a status check the target's own CI already posts
 # (the job name, e.g. `check`); it is required next to the factory's three.
+# Give none and onboarding still runs, loudly: see warn_no_own_check.
 set -euo pipefail
 repo="${1:?usage: onboard.sh owner/repo [own-check ...]}"
 shift
+
+# ADR 0003 makes the gate three things: the target's own CI, red-green, and test-integrity,
+# with the verdict on top. Onboard with no own check and the ruleset is missing the first of
+# them, and silence about that is how a stranger ends up trusting a gate that never runs
+# their build. It is a warning and not a refusal because a target with no CI at all is real,
+# and refusing it would need a flag to say so, which is a knob nobody asked for.
+# Printed twice, before the ruleset write and after it, so it cannot scroll past.
+warn_no_own_check() {
+  {
+    echo "############################################################"
+    echo "## WARNING: no own check given for $repo."
+    echo "## The factory ruleset gates on the factory's checks alone:"
+    echo "##   factory/verdict, factory/red-green, factory/test-integrity."
+    echo "## The target's own CI is not required, so a PR that breaks the"
+    echo "## target's build still merges."
+    echo "## Fix: re-run naming the checks the target's CI posts, e.g."
+    echo "##   scripts/onboard.sh $repo check"
+    echo "############################################################"
+  } >&2
+}
 label() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
 label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
 label "ready-for-human"   "c2e0c6" "Requires human implementation"
@@ -53,6 +74,7 @@ payload=$(jq -cn --arg branch "$default_branch" --argjson checks "$checks" '{
         required_status_checks: $checks } }
   ]
 }')
+if [ "$#" -eq 0 ]; then warn_no_own_check; fi
 existing=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name == "factory") | .id' | head -n1)
 if [ -n "$existing" ]; then
   gh api --method PUT "repos/$repo/rulesets/$existing" --input - <<<"$payload" >/dev/null
@@ -62,3 +84,4 @@ else
   echo "ruleset factory created (id $id)"
 fi
 echo "required on $default_branch: $(jq -r '[.[].context] | join(", ")' <<<"$checks")"
+if [ "$#" -eq 0 ]; then warn_no_own_check; fi

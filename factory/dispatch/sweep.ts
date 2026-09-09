@@ -20,7 +20,8 @@
  * sweep with one `::error::` line naming the command and the cause,
  * nothing is repaired from a partial snapshot; the one exception is a
  * run's jobs, where a failure only leaves the run's role unknown (it then
- * counts as covering while live).
+ * counts as covering while live) and, on a cancelled run, leaves the cancel
+ * unattributed (it then counts as a miss rather than as slot contention).
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine.
@@ -47,6 +48,7 @@ import {
   roleFromJobs,
   runFromGitHub,
   runsFor,
+  slotCancelFromJobs,
   stateSinceFromTimeline,
   ticketFromGitHub,
 } from "./reconcile.ts";
@@ -176,9 +178,14 @@ const readRuns = (issues: readonly TicketState[], prs: readonly PrState[]): Run[
     for (const run of runsFor(subject, [...runsById.values()])) {
       if (run.role !== undefined) continue;
       try {
-        run.role = roleFromJobs(paginate(`repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`, "jobs", readEnv));
+        const jobs = paginate(`repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`, "jobs", readEnv);
+        run.role = roleFromJobs(jobs);
+        // A cancel is ambiguous from the conclusion alone (a superseded push
+        // reads as CANCELLED too), so the job names say whether the slot
+        // group cancelled it (#17).
+        if (run.conclusion === "cancelled") run.slotCancel = slotCancelFromJobs(jobs);
       } catch (error) {
-        console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live: ${error instanceof Error ? error.message : String(error)}`);
+        console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live, and any cancel on it as a miss: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }

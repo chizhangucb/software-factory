@@ -32,14 +32,15 @@ export const fetchRetryContext = (
       }[];
       labels: { name: string }[];
     };
-    // Association alone, deliberately. The marker is posted with FACTORY_PAT,
-    // so it arrives as the owner and needs no exemption, and `latestRetryContext`
-    // takes the newest body that parses: exempting the bot login would let any
-    // workflow in the target forge a "previous attempt failed" section, which is
-    // the forgery this filter exists to prevent.
+    // The marker is posted with FACTORY_PAT, so it arrives as the owner and
+    // needs no exemption, and `latestRetryContext` takes the newest body that
+    // parses: honouring the bot login here would let any workflow in the target
+    // forge a "previous attempt failed" section. That is the policy's call, and
+    // `retry-marker` is not one of the channels the factory writes.
     bodies = policy
-      .keep(issue.comments, (comment) => ({
+      .keep("retry-marker", issue.comments, (comment) => ({
         association: comment.authorAssociation,
+        login: comment.author?.login,
       }))
       .kept.map((comment) => comment.body);
     labels = issue.labels.map((l) => l.name);

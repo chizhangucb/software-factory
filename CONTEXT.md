@@ -78,6 +78,10 @@ _Avoid_: allowlist, whitelist.
 One target's answer to "whose words does an agent get to read", built once per run from `trusted_author_associations` and passed down as a required argument, so no read path can fall back to a policy of its own.
 _Avoid_: trust list, trusted authors list (say trust policy for the object, trusted author for the person).
 
+**Channel**:
+One place the factory reads words an agent will act on: a PR comment, a review summary, a review thread, a ticket comment, a ticket's author, a parent spec, the retry marker. The trust policy owns the list and judges by it, so which channels carry the factory's own voice is the policy's answer rather than a reader's (#80).
+_Avoid_: source, surface.
+
 **Proof run**:
 The acceptance test for the factory: seven tickets in two chains on a fixture repo, two accounts, one rate limit, zero human actions. Passed in #19; the switch that forced its rate limit is gone (#49), so a re-run needs a real one.
 

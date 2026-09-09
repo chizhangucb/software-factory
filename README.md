@@ -25,7 +25,7 @@ A failing implementer run or check in steps 3 to 5 earns one informed retry, the
    - `FACTORY_PAT`, a fine-grained PAT, so pushes trigger the target's CI. It needs contents, issues, pull requests and workflows write.
    - One `CLAUDE_CODE_OAUTH_TOKEN_<n>` per subscription account, from `claude setup-token`. Adding an account later is adding one more secret. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account in the logs.
 
-   Step 1 lands the caller before this step adds `FACTORY_PAT`, so expect that first push to fire the caller and fail one run on the missing secret. It clears itself once the secret is there.
+   Step 1 lands the caller before this step adds `FACTORY_PAT`, so expect that first push to fire the caller and fail one run. Nothing to fix: it clears itself once the steps below are done.
 
 3. **Run the onboarding script.** `scripts/onboard.sh owner/repo [own-check ...]`, for example `scripts/onboard.sh chizhangucb/factory-fixture check`. It creates the label vocabulary, allows auto-merge on the repo, and puts a `factory` ruleset on the default branch: PR required, squash only, and `factory/verdict`, `factory/red-green`, `factory/test-integrity` plus the own checks you listed, all required on a head up to date with main. Each own check is a job name the target's CI already posts, and naming them matters: with no own check the script warns that the ruleset will gate on the factory's checks alone, so a PR that breaks the target's build can still merge. Re-run the script to update the ruleset.
 

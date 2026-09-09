@@ -29,12 +29,14 @@
  *   `mattpocock-skills:code-review` by name rather than restating them (story 12
  *   of #46). Every paragraph then went through `writing-for-agents` (story 14
  *   of #46), which is where NO PLACEHOLDERS states its rules as targets to hit
- *   rather than as a list of things not to do. Story 14 of #75 then cut what a
- *   mechanism already carries: the gate's and the reviewer's own descriptions,
- *   the job's 60 minute `timeout-minutes`, and the retry marker's own line
- *   about what the branch already holds. His TASK line and his trailing
- *   prohibitions came back with it, with `issue` read as `ticket` because
- *   `CONTEXT.md` binds the factory's own prose.
+ *   rather than as a list of things not to do. Story 14 of #75 then took three
+ *   lines out of the prompt because something else already carries them: the
+ *   gate's and the reviewer's own descriptions in NO PLACEHOLDERS, and the
+ *   retry marker's line about what the branch already holds. His TASK line and
+ *   his trailing prohibitions came back with it, with `issue` read as `ticket`
+ *   because `CONTEXT.md` binds the factory's own prose. TASK still names the
+ *   run's 60 minutes, because a `timeout-minutes` kill reports nothing to the
+ *   agent: move it whenever `agent-implement.yml` moves.
  */
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";

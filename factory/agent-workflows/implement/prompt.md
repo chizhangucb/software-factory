@@ -4,6 +4,8 @@ Implement ticket #{{ISSUE_NUMBER}}: {{ISSUE_TITLE}}
 
 You are on branch `{{BRANCH}}`, already created from `main`.
 
+This run has 60 minutes. Nothing reports that to you, so pace the work yourself.
+
 Invoke the skills this prompt names, and any a named skill sends you to itself.
 
 {{RETRY_SECTION}}
@@ -16,7 +18,7 @@ The same ticket text plus its parent spec, if it has one, is in `{{TICKET_FILE}}
 # CONTEXT
 
 1. `{{TICKET_FILE}}`: the ticket and its parent spec.
-2. The repo's own agent instructions, whichever exist: `CLAUDE.md`, `AGENTS.md`, `CONTEXT.md`, `docs/adr/`, plus any `.claude/` skills or docs they point at. These are binding. They tell you the vocabulary, the conventions, the commands to run, and the decisions already made. Where they contradict this prompt, they win, except on the rules under COMMIT below.
+2. The repo's own agent instructions, whichever exist: `CLAUDE.md`, `AGENTS.md`, `CONTEXT.md`, `docs/adr/`, plus any `.claude/` skills or docs they point at. These are binding. They tell you the vocabulary, the conventions, the commands to run, and the decisions already made. Where they contradict this prompt, they win, except on the `Do not` rules under COMMIT below.
 3. The code and tests near the seams the ticket names. Learn the test style the repo already uses and match it.
 
 Take commands (typecheck, test, lint) from the repo's docs or `package.json` and equivalents, never from memory.

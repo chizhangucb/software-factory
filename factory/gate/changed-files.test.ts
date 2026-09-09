@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   classifyFile,
+  isConfigFile,
   isDocFile,
   isTestFile,
   parseNameStatus,
@@ -48,10 +49,31 @@ test("doc files are markdown, text, license files, and anything under docs/", ()
   }
 });
 
-test("classifyFile picks test, then doc, else source", () => {
+test("config files are workflows, manifests, lockfiles and dotfiles", () => {
+  for (const p of [
+    ".github/workflows/ci.yml",
+    ".github/dependabot.yml",
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "Cargo.toml",
+    "pnpm-lock.yaml",
+    ".gitignore",
+    ".npmrc",
+  ]) {
+    assert.equal(isConfigFile(p), true, p);
+  }
+  // a script is real source, and a source change with no test still fails the gate
+  for (const p of ["src/a.js", "scripts/onboard.sh", "README.md", "src/a.test.js"]) {
+    assert.equal(isConfigFile(p), false, p);
+  }
+});
+
+test("classifyFile picks test, then doc, then config, else source", () => {
   assert.equal(classifyFile("test/a.test.js"), "test");
   assert.equal(classifyFile("test/README.md"), "doc");
-  assert.equal(classifyFile("test/fixtures/x.json"), "source");
+  assert.equal(classifyFile(".github/workflows/gate.yml"), "config");
+  assert.equal(classifyFile("test/fixtures/x.json"), "config");
   assert.equal(classifyFile("src/a.js"), "source");
 });
 

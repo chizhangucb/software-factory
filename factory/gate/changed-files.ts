@@ -4,7 +4,7 @@
  * repo's test runner config.
  */
 
-export type FileKind = "test" | "doc" | "source";
+export type FileKind = "test" | "doc" | "config" | "source";
 export type ChangeStatus = "A" | "M" | "D" | "R" | "C" | "T";
 
 export interface ChangedFile {
@@ -22,6 +22,11 @@ const CODE_EXTENSIONS = new Set([
 ]);
 const DOC_EXTENSIONS = new Set(["md", "mdx", "markdown", "txt", "rst", "adoc"]);
 const DOC_BASENAMES = /^(license|licence|changelog|authors|contributors|notice|copying)(\..*)?$/i;
+/** Config, packaging and CI: data and manifest formats, lockfiles, dotfiles, and anything under `.github/`. */
+const CONFIG_DIRS = new Set([".github"]);
+const CONFIG_EXTENSIONS = new Set([
+  "yml", "yaml", "json", "jsonc", "json5", "toml", "ini", "cfg", "conf", "properties", "lock", "xml", "plist",
+]);
 
 const extensionOf = (p: string): string => {
   const base = p.slice(p.lastIndexOf("/") + 1);
@@ -51,8 +56,22 @@ export const isDocFile = (p: string): boolean => {
   return DOC_EXTENSIONS.has(extensionOf(p));
 };
 
+/**
+ * A file no test can exercise: a workflow, a manifest, a lockfile, a
+ * dotfile. Red-green has nothing to prove about a PR that changes only
+ * these, so calling them a source change was a lie the gate told (#57
+ * proposal 12).
+ */
+export const isConfigFile = (p: string): boolean => {
+  const segments = p.split("/");
+  const base = segments[segments.length - 1];
+  if (segments.slice(0, -1).some((s) => CONFIG_DIRS.has(s))) return true;
+  if (base.startsWith(".")) return true;
+  return CONFIG_EXTENSIONS.has(extensionOf(p));
+};
+
 export const classifyFile = (p: string): FileKind =>
-  isTestFile(p) ? "test" : isDocFile(p) ? "doc" : "source";
+  isTestFile(p) ? "test" : isDocFile(p) ? "doc" : isConfigFile(p) ? "config" : "source";
 
 /** Parses `git diff --name-status -M` output. Renames carry both paths. */
 export const parseNameStatus = (output: string): ChangedFile[] =>

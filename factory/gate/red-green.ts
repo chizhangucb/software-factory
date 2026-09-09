@@ -23,8 +23,9 @@ export interface RedGreenResults {
 
 /**
  * Decides from the diff which tests to run. A removal ticket (Removes
- * section present) and a docs-only diff pass vacuously; a source change
- * with no test change is the placeholder shape the gate exists to catch.
+ * section present), and a diff that changes no source file, pass
+ * vacuously; a source change with no test change is the placeholder
+ * shape the gate exists to catch.
  */
 export const redGreenPlan = (files: readonly ChangedFile[], removes: readonly string[] | null): RedGreenPlan => {
   const testFiles = files
@@ -33,8 +34,12 @@ export const redGreenPlan = (files: readonly ChangedFile[], removes: readonly st
   if (testFiles.length > 0) {
     return { run: true, testFiles, vacuous: false, reason: `${testFiles.length} changed test file(s)` };
   }
-  const touchesSource = files.some((f) => f.kind !== "doc");
-  if (!touchesSource) return { run: false, testFiles: [], vacuous: true, reason: "docs only, nothing to prove" };
+  if (!files.some((f) => f.kind === "source")) {
+    const kinds = new Set(files.map((f) => f.kind));
+    const only = kinds.size === 1 ? [...kinds][0] : undefined;
+    const what = only === "doc" ? "docs only" : only === "config" ? "config only" : "no source change";
+    return { run: false, testFiles: [], vacuous: true, reason: `${what}, nothing to prove` };
+  }
   if (removes !== null) return { run: false, testFiles: [], vacuous: true, reason: "removal ticket, no tests changed" };
   return { run: false, testFiles: [], vacuous: false, reason: "source changed, no test file added or changed" };
 };

@@ -2,7 +2,7 @@ reference/
 node_modules/
 
 # Harness runtime under .claude/. Only settings.json is committed (#75 story 15).
-# The rest is per machine and lived in .git/info/exclude, which no clone gets.
+# The rest is per machine and was hidden only by .git/info/exclude, which no clone gets.
 .claude/settings.local.json
 .claude/worktrees/
 .claude/checkpoints/

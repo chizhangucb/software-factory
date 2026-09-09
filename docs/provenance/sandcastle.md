@@ -33,7 +33,7 @@ The section a stranger needs, because "sandcastle already does this" and "sandca
 
 **Sandcastle's autonomy lives in a local Ralph loop.** His `simple-loop` template is the autonomous product: an agent picks the next unblocked issue, commits directly, closes it, and a human QAs the app afterwards. The dispatcher here is that loop distributed across cloud runners with a judge in the way. His loop is one machine a person watches; this one is many jobs nobody watches, so everything the factory adds is the cost of removing the person.
 
-His Actions pipeline, the part that was copied, is less autonomous still. It runs with no human for exactly three things: the implement run, once `agent:implement` is on an issue, which adds `agent:review` itself; the review agent, whose prompt says "Actively improve the branch when a concrete improvement is warranted" and whose workflow pushes its commits and runs `gh pr ready`; and the update-branch agent, which merges main into the branch and resolves conflicts once labeled.
+His Actions pipeline, the part that was copied, is less autonomous than that loop. It runs with no human for exactly three things: the implement run, once `agent:implement` is on an issue, which adds `agent:review` itself; the review agent, whose prompt says "Actively improve the branch when a concrete improvement is warranted" and whose workflow pushes its commits and runs `gh pr ready`; and the update-branch agent, which merges main into the branch and resolves conflicts once labeled.
 
 A human does everything else, quoted from his workflow files because his README is silent on it:
 
@@ -132,7 +132,7 @@ Some changes landed identically in every workflow, so they are stated once rathe
 
 ### agent-implement.yml
 
-Kept as his: **Refuse existing PR**, **Transition labels**, **Compute branch name**, **Always remove in-progress**.
+Kept as his: **Refuse existing PR**, **Transition labels**, **Compute branch name**.
 
 | His step | Ours | Why, cited |
 |---|---|---|
@@ -148,6 +148,7 @@ Kept as his: **Refuse existing PR**, **Transition labels**, **Compute branch nam
 | Open draft PR | changed | renamed "Open PR" and not a draft: GitHub refuses auto-merge on drafts (`0431d99`, ADR 0003 amendment) |
 | Request automated review | kept in shape | his AGENT_PAT-or-GITHUB_TOKEN fallback restored with FACTORY_PAT in AGENT_PAT's place, plus a warning that a GITHUB_TOKEN label fires no event (#47) |
 | Mark blocked on failure | moved out | his step became the factory's retry-and-escalate path, which #51 moved into the `retry:` job, on `needs: implement` and `always()`: a `timeout-minutes` kill cancels the implement job, so a step gated on `failure()` never runs and a stuck agent stranded its ticket. The blocked comment is still the fallback (`87d0eb0`, story 12) |
+| Always remove in-progress | changed | now "Remove in-progress" and no longer `always()`, as in implement-pr: on a failure the retry job owns the label and drops it one step before it relabels, so a ticket is never left with no `agent:*` label for the minutes that job spends starting, which is the shape the dispatcher's sweep re-dispatches (`b595b36`, #51) |
 
 Added here alone: "Refuse closed issue" (`65abf07`), "Enable auto-merge" (`a17609c`, story 10), "Keep partial work on failure" (`87d0eb0`, story 12).
 
@@ -224,7 +225,7 @@ One row has left this table: the turn cap (`factory/lib/turn-cap.ts`, story 14, 
 
 ## 8. Where rewriting was avoidable, and what has been undone since
 
-**"Fixing" a difference from him that no ticket asked for, anywhere in `factory/` or `.github/workflows/`, starts here.** No story or ADR forced any of these, so each looks like a mistake and some are not. **Kept** means it was examined and left on purpose: leave it, and raise a ticket of its own. **Undone** means it is already gone and the entry is history. Most consequential first.
+**"Fixing" a difference from him that no ticket asked for, anywhere in `factory/` or `.github/workflows/`, starts here.** No story or ADR forced any of these, so each looks like a mistake and some are not. **Kept** means it was examined and left on purpose: leave it, and raise a ticket of its own. **Undone** means it is already gone and the entry is history. Most consequential first, with their state as of 2026-09-08.
 
 - **Conflict resolution reinvented in implement-pr** (`3f21533`, `factory/lib/conflicts.ts`, the prompt's CONFLICT section). His `update-branch.ts` plus `agent-update-branch.yml` do exactly this: merge base, agent resolves, push with lease. #9 said conflicts escalate in v0; #19 reversed that and wrote new code. **Kept as built**: story 5 of #46 says reconciliation does not re-prove working code, and the proof run exercised this path.
 - **Prompt rewrites went wholesale where edits would have done.** **Undone by #47**: his section skeletons are back in all three prompts with our paragraphs inside them, the content having had to change (stories 4, 5, 23) but not the structure. #54 cut further, into calls to Matt's skills by name (story 12 of #46).

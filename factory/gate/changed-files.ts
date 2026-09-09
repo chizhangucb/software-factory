@@ -22,11 +22,12 @@ const CODE_EXTENSIONS = new Set([
 ]);
 const DOC_EXTENSIONS = new Set(["md", "mdx", "markdown", "txt", "rst", "adoc"]);
 const DOC_BASENAMES = /^(license|licence|changelog|authors|contributors|notice|copying)(\..*)?$/i;
-/** Config, packaging and CI: data and manifest formats, lockfiles, dotfiles, and anything under `.github/`. */
-const CONFIG_DIRS = new Set([".github"]);
+/** Config and packaging: data and manifest formats, lockfiles, and dotfiles. */
 const CONFIG_EXTENSIONS = new Set([
   "yml", "yaml", "json", "jsonc", "json5", "toml", "ini", "cfg", "conf", "properties", "lock", "xml", "plist",
 ]);
+/** A data file under one of these is the tests' own material, so it stays a source change. */
+const TEST_TREE_DIRS = new Set(["test", "tests", "__tests__", "spec", "specs"]);
 
 const extensionOf = (p: string): string => {
   const base = p.slice(p.lastIndexOf("/") + 1);
@@ -60,12 +61,13 @@ export const isDocFile = (p: string): boolean => {
  * A file no test can exercise: a workflow, a manifest, a lockfile, a
  * dotfile. Red-green has nothing to prove about a PR that changes only
  * these, so calling them a source change was a lie the gate told (#57
- * proposal 12).
+ * proposal 12). A script or action shipped under `.github/` is still
+ * real source, and so is a fixture under the test tree.
  */
 export const isConfigFile = (p: string): boolean => {
   const segments = p.split("/");
   const base = segments[segments.length - 1];
-  if (segments.slice(0, -1).some((s) => CONFIG_DIRS.has(s))) return true;
+  if (segments.slice(0, -1).some((s) => TEST_TREE_DIRS.has(s))) return false;
   if (base.startsWith(".")) return true;
   return CONFIG_EXTENSIONS.has(extensionOf(p));
 };

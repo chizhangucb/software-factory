@@ -29,6 +29,20 @@ test("a config-only or workflow-only diff passes vacuously", () => {
   assert.deepEqual(redGreenVerdict(plan), { ok: true, reasons: [] });
 });
 
+test("a diff of docs and config together passes vacuously too", () => {
+  const plan = redGreenPlan(parseNameStatus("M\tREADME.md\nM\t.github/workflows/ci.yml\n"), null);
+  assert.deepEqual(plan, { run: false, testFiles: [], vacuous: true, reason: "no source change, nothing to prove" });
+  assert.deepEqual(redGreenVerdict(plan), { ok: true, reasons: [] });
+});
+
+test("config next to a real source change with no test still fails", () => {
+  const plan = redGreenPlan(parseNameStatus("M\t.github/workflows/ci.yml\nM\tpackage.json\nM\tsrc/slugify.js\n"), null);
+  assert.equal(plan.vacuous, false);
+  const verdict = redGreenVerdict(plan);
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reasons[0], /no test file added or changed/);
+});
+
 test("a Removes ticket that changes no tests passes vacuously", () => {
   const plan = redGreenPlan(parseNameStatus("D\tsrc/slugify.js\nD\ttest/slugify.test.js\n"), ["slugify"]);
   assert.deepEqual(plan, { run: false, testFiles: [], vacuous: true, reason: "removal ticket, no tests changed" });

@@ -5,9 +5,9 @@ date: 2026-09-06
 
 # Subscription plans first, any vendor, API keys through the same seam
 
-Decided 2026-09-06 under the title "Subscription OAuth tokens only, no API keys". Generalised 2026-09-08 (#46, story 24); the 2026-09-08 amendment is the operative rule. The text above the amendments is the decision as it was made, apart from the edits the amendments list in full.
+Decided 2026-09-06 under the title "Subscription OAuth tokens only, no API keys". Generalised 2026-09-08 (#46, story 24); the 2026-09-08 amendment is the operative rule. The text above the amendments is the decision as it was made, apart from three edits of 2026-09-08 that that amendment lists in full: one paragraph rewritten as plain fact (#46, story 25) and two Consequences bullets narrowed so they no longer say the ADR forbids what it now allows.
 
-The rule: as long as a subscription plan can do the work, use it, across as many accounts as needed, and avoid API billing. The factory authenticates every agent run with per-account OAuth tokens from `claude setup-token`, one secret per account, rotated by the factory's own rotation module (ADR 0004).
+The rule: as long as a subscription plan can do the work, use it, across as many accounts as needed, and avoid API billing. The factory therefore authenticates every agent run with per-account OAuth tokens from `claude setup-token`, one secret per account, rotated by the factory's own rotation module (ADR 0004).
 
 What the vendor's own documents say about that token, as of 2026-09-06 (sources and links in `docs/research/sandcastle-peers-2026-09.md`, section 5):
 
@@ -22,7 +22,7 @@ That last bullet is the risk this decision runs, stated once and left as the sou
 ## Considered options
 
 - **API billing as the default.** Rejected: subscription billing is what makes the factory's volume affordable. A key is allowed through the same seam from 2026-09-08, but it is not the first choice.
-- **A build on the Agent SDK.** Closed: subscription tokens are refused there outright, and the SDK is the surface the vendor's compliance page points at API keys.
+- **A build on the Agent SDK.** Closed, for the reason the first consequence below gives: the SDK is the surface the vendor's compliance page points at API keys.
 
 ## Consequences
 
@@ -64,10 +64,12 @@ Three edits, all made on 2026-09-08, so that the text above does not contradict 
 
 All four ADRs now carry the same sections in the same order: front matter, title, the decision as made, `Considered options`, `Consequences`, then `Amendments` with one `###` per amendment, dated, oldest first, naming its ticket where the amendment's own text named one. A section inside an amendment is `####`. `Note` is gone as a heading; every appended section is an amendment, because that is what all of them were.
 
+A correction to a single bullet stays inline in that bullet with its own date, and is not promoted to a section: 0003's "Amended 2026-09-07 (#19)" on the conflict bullet and 0004's "Amended for #19" on the forcing bullet both read as corrections to the sentence they sit in, and lifting them out would separate them from it.
+
 Applied to this file:
 
-- The `Amendment, 2026-09-08` heading moved under `Amendments` as `2026-09-08: the rule comes off Claude and off tokens (#46, story 24)`, and `What was edited above, and what it said before` moved from `###` to `####` with it. Its text is unchanged.
+- The `Amendment, 2026-09-08` heading moved under `Amendments` as `2026-09-08: the rule comes off Claude and off tokens (#46, story 24)`, and `What was edited above, and what it said before` moved from `###` to `####` with it. Its text is unchanged apart from one move: its opening sentence read "Two things it forbade are now wanted (#46, story 24)", and that citation is now in the heading instead. The opening paragraph of the ADR still carries it too.
 - `Considered options` is new. Both entries come from alternatives this ADR's own 2026-09-06 text already recorded, the avoidance of API billing in the rule and the closed Agent SDK path in Consequences. Nothing new was weighed and nothing moved out of Consequences.
 - The opening paragraph attributed the rule to the maintainer by name. It now opens "The rule", and the sentence pointing at the operative amendment names it by date rather than as "the amendment at the bottom", since there is more than one.
 
-Nothing was cut from this file.
+Nothing else was cut from this file. Every decision, date, ticket, source bullet and consequence it recorded on 2026-09-08 is still here.

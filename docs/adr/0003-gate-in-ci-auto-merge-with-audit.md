@@ -46,7 +46,7 @@ GitHub also commits as `web-flow` when a person resolves a conflict in the web e
 
 ### 2026-09-09: one section shape across the four ADRs (#75, story 10)
 
-The shape is the one ADR 0001's amendment of the same date describes. Applied to this file:
+Every ADR now reads: front matter, title, the decision as made, `Considered options`, `Consequences`, `Amendments`. One dated `###` per amendment, oldest first; `####` for a section inside one. `Note` is gone as a heading. A correction to a single bullet stays inline with its own date, which is why "Amended 2026-09-07 (#19)" is still inside the conflict bullet rather than a section of its own. Applied to this file:
 
 - The `Amendment, 2026-09-07` and `Note, 2026-09-07` sections moved under `Amendments` as dated `###` headings, in the order they were written, and `Consequences of the amendment` moved to `####`. The note was the second half of the same verdict-carry reasoning, so it is an amendment like the first.
 - The opening paragraph was split in two, the evidence for distrusting an agent's "done" first and the gate that answers it second.

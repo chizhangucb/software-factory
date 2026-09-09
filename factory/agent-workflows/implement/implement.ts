@@ -32,9 +32,9 @@
  *   rather than as a list of things not to do. Story 14 of #75 then took the
  *   gate's and the reviewer's own descriptions out of NO PLACEHOLDERS, because
  *   `factory/red-green` and `factory/test-integrity` are required checks and
- *   the retry marker feeds the failure back. His TASK line and his trailing
- *   prohibitions came back with it, with `issue` read as `ticket` because
- *   `CONTEXT.md` binds the factory's own prose. What only the prompt can carry
+ *   the retry marker feeds the failure back. His four trailing prohibitions
+ *   came back with it, with `issue` read as `ticket` because `CONTEXT.md`
+ *   binds the factory's own prose. What only the prompt can carry
  *   stayed: the run's 60 minutes, because a `timeout-minutes` kill reports
  *   nothing to the agent (move it whenever `agent-implement.yml` moves); the
  *   branch a retry inherits, because `retrySectionForRun` renders nothing when

@@ -29,7 +29,12 @@
  *   `mattpocock-skills:code-review` by name rather than restating them (story 12
  *   of #46). Every paragraph then went through `writing-for-agents` (story 14
  *   of #46), which is where NO PLACEHOLDERS states its rules as targets to hit
- *   rather than as a list of things not to do.
+ *   rather than as a list of things not to do. Story 14 of #75 then cut what a
+ *   mechanism already carries: the gate's and the reviewer's own descriptions,
+ *   the job's 60 minute `timeout-minutes`, and the retry marker's own line
+ *   about what the branch already holds. His TASK line and his trailing
+ *   prohibitions came back with it, with `issue` read as `ticket` because
+ *   `CONTEXT.md` binds the factory's own prose.
  */
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";

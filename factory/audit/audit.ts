@@ -6,7 +6,11 @@
  *
  * `prompt.md` is the factory's, put through `writing-for-agents` (story 14 of
  * #46), and heads its ticket section `# TICKET` because it has no vendored
- * counterpart whose heading to keep. `extraction.md` keeps the shape of the two
+ * counterpart whose heading to keep. Story 14 of #75 audited it with the other
+ * three prompts and cut what a mechanism already carries: the description of
+ * how the read-only check works, which is `assertReadOnly` below, and the
+ * revert-and-wake-a-human line, which the RULES section already states once.
+ * `extraction.md` keeps the shape of the two
  * vendored ones so the three read alike; it is a format contract, not prose.
  */
 import * as fs from "node:fs";

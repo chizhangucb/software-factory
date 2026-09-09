@@ -286,10 +286,10 @@ const checksFailure = async (): Promise<Failure | undefined> => {
     await sleep(POLL_MS);
     state = headChecks(sha);
   }
-  // Nothing failed, so `kind` is only what the pending checks are; the requeue path never reads it.
+  // Nothing failed, so there is no kind to name: `ci` is a placeholder the requeue path never reads.
   const stillPending = stillPendingReason(state, CHECKS_TIMEOUT_MS / 60_000);
   if (stillPending) return { kind: "ci", summary: stillPending, output: "", requeue: stillPending };
-  const failures = state.failures;
+  const { failures } = state;
   if (failures.length === 0) return undefined;
   const parts: string[] = [];
   for (const f of failures) parts.push(await failureOutput(f));

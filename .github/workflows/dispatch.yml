@@ -75,6 +75,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             factory/dispatch
+            factory/lib/factory-pr.ts
             factory/lib/gh.ts
             factory/lib/labels.ts
             factory/lib/trusted-authors.ts

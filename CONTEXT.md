@@ -61,6 +61,10 @@ The agent that judges a PR against its acceptance criteria and emits the verdict
 **Verdict**:
 The reviewer's pass or fail, delivered as a required status check. Merge needs gate green plus verdict pass.
 
+**Factory PR**:
+A PR the factory opened or worked on: a branch under `agent/`, the marker the implement workflow writes in the body, or the reviewer's verdict section in the body. A human can open one and the factory still owns it, so a PR implement-pr worked on counts. One definition, `factory/lib/factory-pr.ts`, read by the audit and the reconciler.
+_Avoid_: agent PR, bot PR.
+
 **Calibration**:
 The opening period when a human merges every PR to learn where the reviewer fails. Ends by decision, not by count.
 

@@ -157,7 +157,7 @@ The workflow enumerates the `CLAUDE_CODE_OAUTH_TOKEN_<n>` secrets, masks every t
 - `scripts/`: `onboard.sh`, and `guards/` for the checks that refuse a tool call in a maintainer's own harness, wired from `.claude/settings.json`.
 - `templates/`: `factory.yml`, the caller a target copies into its `.github/workflows/`. sandcastle's word for it.
 - `.github/dependabot.yml`: opens a PR when a new sandcastle or Claude Code version ships. The pin only moves by hand.
-- `docs/`: `pipeline.md` this page, `adr/` the decisions, `agents/` the rules binding an agent working in this repo, `provenance/sandcastle.md` why the engine is vendored rather than forked plus what was not copied and why and spec #9's stories on sandcastle, `provenance/sandcastle-files.md` every file mapped to its origin, `research/` dated snapshots an ADR cites, never updated.
+- `docs/`: `pipeline.md` this page, `adr/` the decisions, `agents/` the rules binding an agent working in this repo, `provenance/sandcastle.md` why the engine is vendored rather than forked plus what was not copied and why and spec #9's stories on sandcastle, `provenance/sandcastle-files.md` every file mapped to its origin plus the rule that changing a vendored file updates that row's counts, `research/` dated snapshots an ADR cites, never updated.
 
 ## Develop
 

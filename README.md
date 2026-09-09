@@ -39,6 +39,6 @@ Then label a ticket `ready-for-agent` and the pipeline above runs. Labeling `age
 
 - `docs/pipeline.md`: the reference. Every caller input, every pipeline stage, the engine, and the layout of the tree.
 - `CONTEXT.md`: the glossary. `docs/adr/`: the decisions. The spec is issue #9.
-- `docs/provenance/sandcastle.md`: why the engine is vendored rather than forked. `docs/provenance/sandcastle-files.md`: what is sandcastle's and what is ours, file by file.
+- `docs/provenance/sandcastle.md`: the essay, why the engine was vendored rather than forked. `docs/provenance/sandcastle-files.md`: the reference, what is sandcastle's and what is ours file by file, for anyone changing a vendored file or checking a count.
 - `docs/research/`: the dated snapshots the ADRs rest on, never updated.
 - `docs/agents/`: the rules binding an agent working in this repo.

@@ -19,17 +19,19 @@
  * - trusted authors over the PR comments, the review threads, the linked issue
  *   with its comments, and the retry marker: story 27, ADR 0002 amendment.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
- * - `prompt.md` keeps his shape and his four outcomes for a thread, plus: the
- *   CONFLICT and RETRY placeholders and the line that sends the agent at the
- *   conflict first (#19); the no-credentials line (the agent gets no GitHub
- *   token, ADR 0002); his `npm run typecheck` line widened to the repo's own
- *   typecheck and full suite, with what the gate re-checks on a retry push,
- *   since nothing here is specific to one repo (story 23) and the gate is the
- *   factory's, not his (stories 7, 8, 9, #13); and his prose through
- *   `writing-for-agents` (story 14 of #46), which is where the completion
- *   criterion on the thread list and the positive framing of his prohibitions
- *   come from. `extraction.md` stays his to the line: it is a format contract,
- *   not prose, so story 14 leaves it alone.
+ * - `prompt.md` keeps his shape, his four outcomes for a thread and his
+ *   prohibitions, plus: the CONFLICT and RETRY placeholders (#19); the
+ *   no-credentials line (the agent gets no GitHub token, ADR 0002); his
+ *   `npm run typecheck` line widened to the repo's own typecheck and full
+ *   suite, since nothing here is specific to one repo (story 23); and a
+ *   completion criterion on the thread list (story 14 of #46). Story 14 of #75
+ *   then cut what a mechanism already carries: the gate's own description, now
+ *   that `factory/red-green` and `factory/test-integrity` are required checks
+ *   and the retry marker feeds back the failing excerpt, and the sentence that
+ *   sent the agent at the conflict first, which `conflictSection` in
+ *   `factory/lib/conflicts.ts` says only when there is a conflict.
+ *   `extraction.md` stays his to the line: it is a format contract, not prose,
+ *   so neither writing pass touched it.
  */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";

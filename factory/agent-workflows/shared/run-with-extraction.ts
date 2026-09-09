@@ -1,9 +1,9 @@
 /**
  * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/shared/run-with-extraction.ts`.
- * No forced differences (#87). It is his to the line, verified byte for byte
- * against tag `v0.12.0`, commit `e99f832`, on 2026-09-09, so #47's rule that
- * every difference from him is named in the file leaves nothing to name here.
- * `docs/provenance/sandcastle.md` section 6 records the same.
+ * No forced differences (#47, #87): below this header the file is identical to
+ * upstream, so the list #47 keeps true is empty here.
+ * `docs/provenance/sandcastle.md` section 6 carries the row and its counts,
+ * unmoved, since that table's method excludes comments.
  */
 import {
   run,

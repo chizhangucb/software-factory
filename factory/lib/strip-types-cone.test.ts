@@ -38,7 +38,7 @@ const STRIP_TYPES_ENTRYPOINTS = [
  * entrypoint runs against the whole repo. Named rather than skipped: adding a
  * cone to one of these must turn the check on, never drop it silently.
  */
-const NO_CONE = ["agent-implement.yml#implement"];
+const JOBS_WITHOUT_CONE = ["agent-implement.yml#implement"];
 
 /** `import "x"`, on its own with no bindings. */
 const SIDE_EFFECT_IMPORT = /^\s*import\s+["']([^"']+)["']/gm;
@@ -56,6 +56,23 @@ const jobOf = (yaml: string, id: string): string => {
   return end < 0 ? rest : rest.slice(0, end + 1);
 };
 
+/** Top-level job ids: two-space indented keys, from the `jobs:` line on. */
+const jobIdsOf = (yaml: string): string[] =>
+  [...yaml.slice(yaml.indexOf("\njobs:")).matchAll(/^ {2}([a-z][a-z0-9_-]*):$/gm)].map((m) => m[1]!);
+
+/** Every strip-types run in the tree, keyed the way the table above writes one. */
+const stripTypesRuns = (): string[] => {
+  const runs: string[] = [];
+  for (const workflow of fs.readdirSync(workflowsDir).sort()) {
+    const yaml = fs.readFileSync(new URL(workflow, workflowsDir), "utf8");
+    for (const job of jobIdsOf(yaml)) {
+      const matches = jobOf(yaml, job).matchAll(/node --experimental-strip-types factory\/(\S+)/g);
+      for (const match of matches) runs.push(`${workflow}#${job} ${match[1]!}`);
+    }
+  }
+  return runs.sort();
+};
+
 /** A job's steps, split on the `- name:` boundary, so a step's `with:` stays with the step it belongs to. */
 const stepsOf = (job: string): string[] => job.split(/\n(?= {6}- name:)/);
 
@@ -69,7 +86,7 @@ const coneOf = (step: string): string[] | null => {
   const at = lines.findIndex((line) => /^\s*sparse-checkout:/.test(line));
   if (at < 0) return null;
   const [, indent, inline] = lines[at]!.match(/^(\s*)sparse-checkout:\s*(.*)$/)!;
-  if (!/^[|>]/.test(inline!)) return [inline!];
+  if (!inline!.startsWith("|")) return [inline!];
   const block: string[] = [];
   for (const line of lines.slice(at + 1)) {
     if (line.trim() === "") continue;
@@ -137,7 +154,11 @@ test("the jobs with no sparse-checkout are the ones that run against the whole r
   const without = STRIP_TYPES_ENTRYPOINTS.filter(
     ({ workflow, job }) => coneOf(factoryCheckoutOf(workflow, job)) === null,
   ).map(({ workflow, job }) => `${workflow}#${job}`);
-  assert.deepEqual([...new Set(without)], NO_CONE, "a job that gained or lost a cone needs this list changed");
+  assert.deepEqual(
+    [...new Set(without)],
+    JOBS_WITHOUT_CONE,
+    "a job that gained or lost a cone needs this list changed",
+  );
 });
 
 test("every relative import in a reached file names a .ts file that exists", () => {
@@ -170,14 +191,14 @@ test("no file a strip-types entrypoint reaches imports a package", () => {
   }
 });
 
-test("every entrypoint is still run by the job the table names", () => {
-  for (const { workflow, job, entrypoint } of STRIP_TYPES_ENTRYPOINTS) {
-    const yaml = fs.readFileSync(new URL(workflow, workflowsDir), "utf8");
-    assert.ok(
-      jobOf(yaml, job).includes(`node --experimental-strip-types factory/${entrypoint}`),
-      `${workflow} job ${job} runs ${entrypoint}`,
-    );
-  }
+test("the table names every strip-types run in the tree and nothing else", () => {
+  // Both directions: a table entry whose step moved stops matching, and a new
+  // strip-types step nobody added to the table shows up here instead of going
+  // uncovered. Same reason the no-cone list is named rather than skipped.
+  assert.deepEqual(
+    stripTypesRuns(),
+    STRIP_TYPES_ENTRYPOINTS.map(({ workflow, job, entrypoint }) => `${workflow}#${job} ${entrypoint}`).sort(),
+  );
 });
 
 test("a cone is read from either form a workflow writes it in", () => {

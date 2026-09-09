@@ -134,7 +134,7 @@ export type PrState = {
   verdict?: VerdictState;
   /** Commits on main the head lacks; undefined when not read. */
   behindBy?: number;
-  /** The later of the PR's creation and its head commit, or just its creation when auto-merge is off; undefined when not read. */
+  /** The later of the PR's creation and its head commit; undefined when not read. */
   headSince?: string;
   stateSince: string | undefined;
   marks: readonly SweepMark[];
@@ -157,7 +157,7 @@ export type Action =
   | { type: "relabel"; remove: string[]; add: string; miss?: number }
   | { type: "escalate"; remove: string[]; add: typeof ESCALATION_LABEL; ticket?: number }
   | { type: "dispatch"; eventType: typeof UPDATE_BRANCH_EVENT; pr: number }
-  | { type: "auto-merge"; pr: number };
+  | { type: "arm-auto-merge"; pr: number };
 
 export type Decision = {
   subject: Subject;
@@ -339,6 +339,13 @@ const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decisi
   );
 };
 
+/** The age of a head and the log prefix that reports it; `undefined` age means unknown, which is overdue. */
+const sinceHead = (p: PrState, what: string, now: number, deadline: number): { age: number | undefined; head: string } => {
+  const age = p.headSince === undefined ? undefined : minutesSince(now, p.headSince);
+  const since = p.headSince === undefined ? "unknown" : `${p.headSince}, ${age} min ago`;
+  return { age, head: `#${p.number} (pr) ${what} since ${since}, deadline ${deadline} min` };
+};
+
 /** Factory PRs with no agent on them: unarmed, or judged, or stale behind main, or none of those. */
 const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decision | undefined => {
   if (!p.factory || agentLabels(p.labels).length > 0 || PARKED_LABELS.some((l) => p.labels.includes(l))) return undefined;
@@ -350,20 +357,19 @@ const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decisi
   // Enabling auto-merge can fail on the implement run, where the step is non-fatal on
   // purpose (the PR exists and the preflight would refuse a retry, so the review must
   // still run). Nothing else ever retries it: the update-branch plan skips a PR with no
-  // auto-merge, so the PR could never merge. Re-arm it here (#83). Safe at any point in
-  // the PR's life: the required factory/verdict holds the merge until the reviewer passes
-  // it. The deadline keeps the sweep from racing the implement run's own step.
+  // auto-merge with "auto-merge not enabled", so the PR could never merge. Re-arm it here
+  // (#83). Safe at any point in the PR's life: the required factory/verdict holds the
+  // merge until the reviewer passes it. The deadline keeps the sweep from racing the
+  // implement run's own step, which arms it seconds after the PR is opened.
   if (!p.autoMerge) {
-    const age = p.headSince === undefined ? undefined : minutesSince(now, p.headSince);
-    const head = `#${p.number} (pr) factory PR with auto-merge not enabled since ${p.headSince === undefined ? "unknown" : `${p.headSince}, ${age} min ago`}, deadline ${deadlines.stuckMinutes} min`;
+    const { age, head } = sinceHead(p, "factory PR with auto-merge not enabled", now, deadlines.stuckMinutes);
     if (age !== undefined && age < deadlines.stuckMinutes) return none(`${head}: within deadline`);
-    return { subject, action: { type: "auto-merge", pr: p.number }, log: `${head}: re-arm auto-merge` };
+    return { subject, action: { type: "arm-auto-merge", pr: p.number }, log: `${head}: re-arm auto-merge` };
   }
 
   if (p.verdict === undefined) return none(`#${p.number} (pr) auto-merge armed, factory/verdict on ${sha} not read, deadline ${deadlines.verdictMinutes} min: skip`);
   if (p.verdict === "none") {
-    const age = p.headSince === undefined ? undefined : minutesSince(now, p.headSince);
-    const head = `#${p.number} (pr) auto-merge armed, no factory/verdict on ${sha} since ${p.headSince === undefined ? "unknown" : `${p.headSince}, ${age} min ago`}, deadline ${deadlines.verdictMinutes} min`;
+    const { age, head } = sinceHead(p, `auto-merge armed, no factory/verdict on ${sha}`, now, deadlines.verdictMinutes);
     if (age !== undefined && age < deadlines.verdictMinutes) return none(`${head}: within deadline`);
     return { subject, action: { type: "relabel", remove: [], add: "agent:review" }, log: `${head}: add agent:review` };
   }

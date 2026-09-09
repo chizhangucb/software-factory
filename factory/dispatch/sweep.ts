@@ -135,16 +135,19 @@ const verdictOn = (sha: string): VerdictState => {
 
 const later = (a: string, b: string): string => (Date.parse(a) >= Date.parse(b) ? a : b);
 
+/** When the PR's current head appeared: the later of the PR's creation and its head commit. */
+const headSince = (pr: PrState, createdAt: string): string => {
+  const committed = gh(["api", `repos/${repo}/commits/${pr.headSha}`, "--jq", ".commit.committer.date"]).trim();
+  return later(createdAt, committed || createdAt);
+};
+
 const withMergeState = (pr: PrState, createdAt: string): PrState => {
   if (!pr.factory || pr.labels.some((l) => l.startsWith("agent:")) || parked(pr.labels)) return pr;
-  // No auto-merge: the reconciler re-arms it (#83) and needs no verdict to decide, only
-  // how long the PR has been open, so this costs no extra read.
-  if (!pr.autoMerge) return { ...pr, headSince: createdAt };
+  // No auto-merge: the reconciler re-arms it against the same deadline (#83), and no
+  // verdict can change that, so the verdict is not worth a read here.
+  if (!pr.autoMerge) return { ...pr, headSince: headSince(pr, createdAt) };
   const verdict = verdictOn(pr.headSha);
-  if (verdict === "none") {
-    const committed = gh(["api", `repos/${repo}/commits/${pr.headSha}`, "--jq", ".commit.committer.date"]).trim();
-    return { ...pr, verdict, headSince: later(createdAt, committed || createdAt) };
-  }
+  if (verdict === "none") return { ...pr, verdict, headSince: headSince(pr, createdAt) };
   if (verdict !== "success") return { ...pr, verdict };
   const behindBy = Number(gh(["api", `repos/${repo}/compare/${base}...${pr.headSha}`, "--jq", ".behind_by"]).trim());
   return { ...pr, verdict, behindBy };
@@ -260,7 +263,7 @@ const apply = (d: Decision): void => {
     case "dispatch":
       gh(["api", "--method", "POST", `repos/${repo}/dispatches`, "-f", `event_type=${action.eventType}`, "-F", `client_payload[pr]=${action.pr}`, "--silent"]);
       return;
-    case "auto-merge":
+    case "arm-auto-merge":
       // The same call the implement workflow's non-fatal step makes, and idempotent.
       gh(["pr", "merge", String(action.pr), "--repo", repo, "--auto", "--squash"]);
       return;
@@ -277,6 +280,15 @@ for (const d of decisions) {
     console.log(`Applied: ${d.log}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // A refused re-arm is the target's setup, not a broken sweep: GitHub refuses
+    // auto-merge on a repo that allows none and on a main whose ruleset requires
+    // nothing. The implement workflow's own step is non-fatal for that same reason
+    // and has already commented on the PR naming the fix. So warn and carry on: one
+    // unonboarded target must not turn every sweep red forever (#83).
+    if (d.action.type === "arm-auto-merge") {
+      console.log(`::warning::Could not re-arm auto-merge on PR #${d.action.pr}; run scripts/onboard.sh on ${repo}: ${message}`);
+      continue;
+    }
     failed.push({ log: d.log, error: message });
     console.error(`::error::Could not apply "${d.log}": ${message}`);
   }

@@ -2,11 +2,11 @@
 
 Implement ticket #{{ISSUE_NUMBER}}: {{ISSUE_TITLE}}
 
-You are on branch `{{BRANCH}}`, already created from `main`.
+You are on branch `{{BRANCH}}`, already created from `main` (or, on a retry, continued from the previous attempt), in a clean checkout of the target repo.
 
 This run has 60 minutes. Nothing reports that to you, so pace the work yourself.
 
-Invoke the skills this prompt names, and any a named skill sends you to itself.
+Invoke the skills this prompt names, and any a named skill sends you to itself; the rest of the vendored plugin is installed alongside them and describes work this run is not doing.
 
 {{RETRY_SECTION}}
 # ISSUE
@@ -34,7 +34,7 @@ Commit as you go with conventional commit messages. These implementation commits
 
 # NO PLACEHOLDERS
 
-Every function this ticket touches computes its answer for real, and every new test fails without that code:
+Every function this ticket touches computes its answer for real, and every new test fails without that code. In plain words:
 
 - Return a computed answer. A fixed value, a `throw "not implemented"`, or a TODO where the work should be is a stub.
 - Write each test against the behaviour its criterion names, not against the shape of the code you wrote to satisfy it.

@@ -23,9 +23,13 @@
  *   prohibitions, plus: the CONFLICT and RETRY placeholders (#19); the
  *   no-credentials line (the agent gets no GitHub token, ADR 0002); his
  *   `npm run typecheck` line widened to the repo's own typecheck and full
- *   suite, since nothing here is specific to one repo (story 23); and an
- *   exhaustive completion criterion in his PROCESS opener (story 14 of #46),
- *   which still stands. Story 14 of #75 then cut what a mechanism already
+ *   suite, since nothing here is specific to one repo (story 23); the same
+ *   fence to the named skills that the implementer prompt carries, because the
+ *   whole plugin is installed and the rest of it waits on a user that this run
+ *   does not have (story 12 of #46); and an exhaustive completion criterion in
+ *   his PROCESS opener (story 14 of #46), which still stands and is why the
+ *   trailing "Done when every thread carries one of those four outcomes" went.
+ *   Story 14 of #75 then cut what a mechanism already
  *   carries: the gate's own description, now that `factory/red-green` and
  *   `factory/test-integrity` are required checks and the retry marker feeds
  *   back the failing excerpt, and the sentence that sent the agent at the

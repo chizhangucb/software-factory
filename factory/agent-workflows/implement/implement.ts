@@ -29,14 +29,18 @@
  *   `mattpocock-skills:code-review` by name rather than restating them (story 12
  *   of #46). Every paragraph then went through `writing-for-agents` (story 14
  *   of #46), which is where NO PLACEHOLDERS states its rules as targets to hit
- *   rather than as a list of things not to do. Story 14 of #75 then took three
- *   lines out of the prompt because something else already carries them: the
- *   gate's and the reviewer's own descriptions in NO PLACEHOLDERS, and the
- *   retry marker's line about what the branch already holds. His TASK line and
- *   his trailing prohibitions came back with it, with `issue` read as `ticket`
- *   because `CONTEXT.md` binds the factory's own prose. TASK still names the
- *   run's 60 minutes, because a `timeout-minutes` kill reports nothing to the
- *   agent: move it whenever `agent-implement.yml` moves.
+ *   rather than as a list of things not to do. Story 14 of #75 then took the
+ *   gate's and the reviewer's own descriptions out of NO PLACEHOLDERS, because
+ *   `factory/red-green` and `factory/test-integrity` are required checks and
+ *   the retry marker feeds the failure back. His TASK line and his trailing
+ *   prohibitions came back with it, with `issue` read as `ticket` because
+ *   `CONTEXT.md` binds the factory's own prose. What only the prompt can carry
+ *   stayed: the run's 60 minutes, because a `timeout-minutes` kill reports
+ *   nothing to the agent (move it whenever `agent-implement.yml` moves); the
+ *   branch a retry inherits, because `retrySectionForRun` renders nothing when
+ *   the marker cannot be read; and the fence to the named skills, because the
+ *   whole plugin is installed and the rest of it waits on a user that this run
+ *   does not have (story 12 of #46).
  */
 import * as path from "node:path";
 import * as sandcastle from "@ai-hero/sandcastle";

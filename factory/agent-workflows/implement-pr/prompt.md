@@ -7,7 +7,7 @@ Linked issue: #{{ISSUE_NUMBER}} {{ISSUE_TITLE}}
 
 This is not a fresh review. Focus on the PR conversation and unresolved feedback.
 
-Invoke the skills this prompt names, and any a named skill sends you to itself.
+Invoke the skills this prompt names, and any a named skill sends you to itself; the rest of the vendored plugin is installed alongside them and describes work this run is not doing.
 
 {{CONFLICT_SECTION}}{{RETRY_SECTION}}
 # LINKED ISSUE

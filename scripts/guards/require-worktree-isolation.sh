@@ -37,13 +37,14 @@ if [ -z "$prompt" ]; then exit 0; fi
 #
 # An absolute path is any leading slash with at least two segments, so a
 # checkout under /Volumes, /workspace or /opt counts the same as one under a
-# home directory. It starts at a line start or after anything that cannot
+# home directory, and a leading `~` counts too: `~/wt/x` is the same handover
+# written short. It starts at a line start or after anything that cannot
 # continue a path, so prose punctuation counts and `(/Users/someone/wt/x)` is
 # still a handover. The excluded run keeps a fragment inside a longer path or a
 # URL from matching, so `https://example.com/tmp/x` is not read as a path, and
 # the second segment keeps a slash command like `/to-tickets` out.
 printf '%s' "$prompt" | grep -qi 'worktree' || exit 0
-printf '%s' "$prompt" | grep -Eq '(^|[^A-Za-z0-9_/.~-])/[A-Za-z0-9_.~-]+/' || exit 0
+printf '%s' "$prompt" | grep -Eq '(^|[^A-Za-z0-9_/.~-])~?/[A-Za-z0-9_.~-]+/' || exit 0
 
 cat >&2 <<'MSG'
 worktree-guard: this Agent call names a worktree and hands over an absolute

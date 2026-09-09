@@ -13,8 +13,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const guard = new URL("../../scripts/guards/require-worktree-isolation.sh", import.meta.url).pathname;
+const guard = fileURLToPath(new URL("../../scripts/guards/require-worktree-isolation.sh", import.meta.url));
 
 type Outcome = { code: number; stderr: string };
 
@@ -57,8 +58,8 @@ test("a blocked call names the fix: pass isolation worktree, drop the path from 
   assert.match(stderr, /drop the path/i);
 });
 
-test("any absolute path is a handover, not just one under a home or temp directory", () => {
-  for (const dir of ["/Volumes/work/wt/x", "/workspace/wt/x", "/opt/wt/x", "/Users/someone/wt/x"]) {
+test("any absolute path is a handover, `~/` included, not just one under a home or temp directory", () => {
+  for (const dir of ["/Volumes/work/wt/x", "/workspace/wt/x", "/opt/wt/x", "/Users/someone/wt/x", "~/wt/x"]) {
     assert.equal(run({ tool_name: "Agent", tool_input: { prompt: `Work in your worktree at ${dir}` } }).code, 2, dir);
   }
 });
@@ -89,9 +90,14 @@ test("a non-Agent tool is allowed, because building a worktree by hand on the sh
 });
 
 test("a missing jq allows quietly, because the guard prevents an accident and must not stop real work", () => {
-  const { code, stderr } = run(handMadeWorktreeCall, pathWithoutJq());
-  assert.equal(code, 0);
-  assert.equal(stderr, "", "a machine with no jq must not see an error on every Agent call");
+  const dir = pathWithoutJq();
+  try {
+    const { code, stderr } = run(handMadeWorktreeCall, dir);
+    assert.equal(code, 0);
+    assert.equal(stderr, "", "a machine with no jq must not see an error on every Agent call");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("stdin that is not JSON allows quietly, for the same reason a missing jq does", () => {

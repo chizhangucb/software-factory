@@ -36,7 +36,9 @@
  * stranding and stops counting. `tries` is what caps the loop: MAX_MISSES
  * re-dispatches on one stranding is the end of it, so a run cancelled every
  * time escalates instead of being re-dispatched forever. A marker written
- * before `tries` existed reads its `miss` value as the try count.
+ * before `tries` existed reads its `miss` value as the try count, floored at
+ * one: every marker is a re-dispatch, and those wrote `miss=0` for exactly
+ * the cancelled runs the cap is for.
  *
  * Imports use explicit `.ts` so the job can run on bare
  * `node --experimental-strip-types` without installing the engine.
@@ -498,9 +500,11 @@ export const marksFromTimeline = (events: readonly TimelineEvent[]): SweepMark[]
   for (const e of events) {
     if (e.event !== "commented" || !e.created_at) continue;
     const match = (e.body ?? "").match(SWEEP_MARK);
-    // A marker written before `tries` existed only ever counted misses, and
-    // each of those was a re-dispatch, so its miss value is the try count.
-    if (match) marks.push({ miss: Number(match[1]), tries: Number(match[2] ?? match[1]), at: e.created_at });
+    // A marker written before `tries` existed only ever counted misses, so its
+    // miss value is the try count, floored at 1: every marker is a re-dispatch,
+    // and the old code wrote `miss=0` for exactly the cancelled runs the cap is
+    // for, which would otherwise back-fill as no re-dispatch at all.
+    if (match) marks.push({ miss: Number(match[1]), tries: match[2] === undefined ? Math.max(Number(match[1]), 1) : Number(match[2]), at: e.created_at });
   }
   return marks;
 };

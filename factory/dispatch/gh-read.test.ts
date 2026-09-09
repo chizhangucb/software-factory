@@ -13,9 +13,9 @@ const page = (name: string): string => fs.readFileSync(path.join(pagesDir, `${na
 /**
  * What `gh api --jq <program>` prints for a page: the same jq program over
  * the same JSON, compact, one value per line. The projections are jq, so the
- * one honest test runs jq; this is one of the two tests in the repo that spawn
- * a process (the other is `factory/guards/require-worktree-isolation.test.ts`),
- * still no network. The ubuntu runner and macOS ship jq.
+ * one honest test runs jq. This test spawns a real process, as does
+ * `factory/guards/require-worktree-isolation.test.ts`; still no network either
+ * way. The ubuntu runner and macOS ship jq.
  */
 const jq = (program: string, name: string): string => {
   try {

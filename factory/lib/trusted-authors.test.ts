@@ -28,8 +28,8 @@ const FACTORY_WRITTEN: readonly Channel[] = ["review-summary", "review-thread"];
 test("the default trusts the repo owner and nobody else", () => {
   const policy = trustPolicy(undefined);
   assert.deepEqual([...policy.associations], [...DEFAULT_TRUSTED_AUTHORS]);
-  assert.equal(policy.trusts("ticket-comment", { association: "OWNER", login: "chi" }), true);
-  assert.equal(policy.trusts("ticket-comment", { association: "COLLABORATOR", login: "mate" }), false);
+  assert.equal(policy.trusts("ticket-comment", { association: "OWNER", login: "a-maintainer" }), true);
+  assert.equal(policy.trusts("ticket-comment", { association: "COLLABORATOR", login: "a-teammate" }), false);
   assert.equal(policy.trusts("ticket-comment", outsider), false);
 });
 
@@ -49,7 +49,7 @@ test("a value GitHub never sends reads as NONE, so a strange payload is an outsi
 test("a wider list lets in everyone who could already push", () => {
   const policy = trustPolicy("OWNER, member ,collaborator");
   assert.deepEqual([...policy.associations], ["OWNER", "MEMBER", "COLLABORATOR"]);
-  assert.equal(policy.trusts("ticket-author", { association: "MEMBER", login: "mate" }), true);
+  assert.equal(policy.trusts("ticket-author", { association: "MEMBER", login: "a-teammate" }), true);
   assert.equal(policy.trusts("ticket-author", { association: "CONTRIBUTOR", login: "drive-by" }), false);
 });
 
@@ -60,7 +60,7 @@ test("an empty or missing input falls back to the owner alone", () => {
 
 test("a value GitHub never sends matches nothing, so a typo parks work", () => {
   const typo = trustPolicy("OWNR");
-  assert.equal(typo.trusts("ticket-author", { association: "OWNER", login: "chi" }), false);
+  assert.equal(typo.trusts("ticket-author", { association: "OWNER", login: "a-maintainer" }), false);
   assert.equal(typo.trusts("ticket-author", outsider), false);
 });
 
@@ -147,10 +147,10 @@ test("every channel the factory reads is on the list, and the list is closed", (
 
 test("keep returns what a trusted author wrote and counts what it dropped", () => {
   const comments = [
-    { association: "OWNER", login: "chi", body: "keep" },
+    { association: "OWNER", login: "a-maintainer", body: "keep" },
     { association: "NONE", login: "stranger", body: "drop" },
     { association: null, login: null, body: "drop too" },
-    { association: "COLLABORATOR", login: "mate", body: "maybe" },
+    { association: "COLLABORATOR", login: "a-teammate", body: "maybe" },
   ];
   const author = (c: (typeof comments)[number]) => ({ association: c.association, login: c.login });
 

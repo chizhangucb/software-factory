@@ -92,7 +92,7 @@ export type Channel = (typeof CHANNELS)[number];
  * gh's JSON and on GraphQL), so it is normalised before the comparison.
  * Comments posted with FACTORY_PAT come from the owner and need no exemption.
  */
-export const FACTORY_LOGINS: readonly string[] = ["github-actions"];
+const FACTORY_LOGINS: readonly string[] = ["github-actions"];
 
 /**
  * The only channels the factory itself writes, and so the only ones where the

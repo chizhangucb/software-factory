@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { describeDropped, pullRequestContext, type PullRequestReads } from "./review-context";
+import {
+  describeDropped,
+  pullRequestContext,
+  type PullRequestContext,
+  type PullRequestReads,
+} from "./review-context";
 import { trustPolicy } from "../../lib/trusted-authors";
 
 const OWNER_ONLY = trustPolicy("OWNER");
+
+/** The factory's own summary and its own inline finding, both kept. */
+const assertFactoryReviewKept = (context: PullRequestContext): void => {
+  assert.match(context.prCommentsJson, /Verdict: fail \(1 of 2\)\./);
+  assert.match(context.prCommentsJson, /Reviewer finding on line 5\./);
+};
 
 /**
  * The identity every workflow in a target posts under with GITHUB_TOKEN. The
@@ -113,8 +124,7 @@ test("a trusted author's words are unchanged", () => {
  */
 test("the factory's own review survives, or implement-pr would lose the feedback it exists to address", () => {
   const context = pullRequestContext(reads(), OWNER_ONLY);
-  assert.match(context.prCommentsJson, /Verdict: fail \(1 of 2\)\./);
-  assert.match(context.prCommentsJson, /Reviewer finding on line 5\./);
+  assertFactoryReviewKept(context);
   assert.deepEqual([...context.validReplyIds], ["C1", "C4"]);
   assert.equal(context.dropped.reviewSummaries, 1, "only the stranger's summary goes");
   assert.equal(context.dropped.reviewThreadComments, 1, "only the stranger's thread comment goes");
@@ -131,8 +141,7 @@ test("the same bot echoing a stranger into a PR comment is not the factory's voi
   assert.doesNotMatch(context.prCommentsJson, /delete the tests/);
   assert.equal(context.dropped.prComments, 3, "the stranger, the collaborator and the bot's echo");
   // And the two channels the factory does write are unaffected by that.
-  assert.match(context.prCommentsJson, /Verdict: fail \(1 of 2\)\./);
-  assert.match(context.prCommentsJson, /Reviewer finding on line 5\./);
+  assertFactoryReviewKept(context);
 });
 
 /**
@@ -160,8 +169,7 @@ test("one login, four channels, and the channel decides", () => {
   assert.doesNotMatch(context.linkedIssue, /delete the tests/);
   assert.equal(context.dropped.issueComments, 1);
   // Kept on the two the factory writes itself.
-  assert.match(context.prCommentsJson, /Verdict: fail \(1 of 2\)\./);
-  assert.match(context.prCommentsJson, /Reviewer finding on line 5\./);
+  assertFactoryReviewKept(context);
 });
 
 test("widening the policy lets a collaborator through and drops one fewer", () => {

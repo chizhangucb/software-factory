@@ -47,8 +47,6 @@ export type DispatchIssue = {
   hasOpenPr: boolean;
   /** GitHub's `author_association` for whoever opened the issue. */
   authorAssociation: AuthorAssociation;
-  /** Their login, reported like every other read. The ticket-author channel judges on the association. */
-  authorLogin?: string;
 };
 
 /** The reason an issue is not dispatched, or undefined when it is. */
@@ -65,10 +63,13 @@ export const whySkipped = (
   if (state) return `already in the factory: ${state}`;
   // After the label checks: a skipped ticket gets no comment, so its one log
   // line should name the state a human can act on, not the author.
+  // The issue listing carries no login the policy would use, and the
+  // ticket-author channel is not one the factory writes, so there is none to
+  // report here.
   if (
     !policy.trusts("ticket-author", {
       association: issue.authorAssociation,
-      login: issue.authorLogin,
+      login: undefined,
     })
   ) {
     return `untrusted author: ${issue.authorAssociation}`;
@@ -128,7 +129,6 @@ export const fromGitHub = (
       hasOpenPr: closedByOpenPr.has(Number(r.number)),
       // Absent, or a value GitHub does not send, reads as an outsider.
       authorAssociation: authorAssociation(r.author_association),
-      ...(typeof r.user?.login === "string" ? { authorLogin: r.user.login } : {}),
     });
   }
   return issues;

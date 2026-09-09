@@ -4,7 +4,7 @@ The reference behind README: every caller input, every stage of the pipeline in 
 
 ## Onboarding details
 
-The reasoning behind README's five onboarding steps, plus the caveats a target onboarded before #61 needs. None of it changes the steps.
+The reasoning behind README's six onboarding steps, plus the caveats a target onboarded before #61 needs. None of it changes the steps.
 
 - **`factory_ref` and the ref in `uses:` move together.** GitHub gives a cross-repo reusable workflow an empty `job_workflow_sha`, so the scripts are checked out at `factory_ref` while the workflow file comes from `uses:`. Change one without the other and they drift.
 - **Onboarded before #61? Re-copy the caller.** One still naming `implement.yml`, `review.yml`, `implement-pr.yml` or `audit.yml` fails at startup and kills the whole caller run, because every workflow that runs a model took the `agent-` prefix, sandcastle's convention.
@@ -36,7 +36,11 @@ Every input has a default, so the template works as copied. Set them in the call
 
 ## Dispatcher
 
-Runs on `issues: closed` and `issues: labeled` (ready-for-agent), on `workflow_dispatch`, on the `repository_dispatch` event `factory-sweep`, and every 10 minutes as the fallback for missed events. GitHub's cron is unreliable on some accounts, so a cron on any machine can drive the sweep: `gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep`, with a PAT that has contents write on the target.
+Runs on `issues: closed` and `issues: labeled` (ready-for-agent), on `workflow_dispatch`, on the `repository_dispatch` event `factory-sweep`, and on the caller's `schedule` every 10 minutes.
+
+**The `schedule` is a fallback, not the heartbeat.** Measured on `chizhangucb/factory-fixture` over 21 hours from 2026-09-08T21:07Z: the `schedule` fired 6 times against about 126 expected at six an hour, while an external cron sending `factory-sweep` fired every time. So an external heartbeat is required, not belt and braces: `gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep`, on an interval, with a token that has contents write on the target and nothing else. Without it the dispatcher and the reconciler below run only as often as GitHub's cron happens to fire.
+
+Two caveats on that number. It is one measurement, and it is from a private repo; the caller's `schedule` runs in the target, so the rate on a public target is not yet known. Where the heartbeat should run, and how it reports its own failures, is #111.
 
 - It dispatches an open, `ready-for-agent` ticket from a trusted author with no open blockers (GitHub native issue dependencies, `issue_dependencies_summary.blocked_by`), no assignee, no sub-issues, no `agent:*` or `needs-human` label and no open PR already closing it. `ready-for-human` and `needs-triage` are refused. A ticket is a sub-issue of its spec and is picked up as one; an issue with sub-issues of its own is refused as a spec.
 - The issues listing is eventually consistent, so before each label the dispatcher re-reads that issue (state, labels, blockers, open PRs) and skips it with `closed since the snapshot` or the usual reason when anything changed; the summary line counts them. `agent-implement.yml` is the backstop, refusing a closed issue (label removed, comment) before it touches a branch. Both exist because #19 labeled and implemented two closed tickets, and merged one.

@@ -1,2 +1,17 @@
 reference/
 node_modules/
+
+# Harness runtime under the tracked .claude/ directory. Only .claude/settings.json
+# is committed (spec #75 story 15); everything the harness writes at run time is
+# local. These were in .git/info/exclude, which does not travel with a clone, so a
+# stranger who cloned the repo and ran an agent saw them as untracked.
+.claude/worktrees/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/routines/.state/
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
+.claude/agent-registry.json
+.claude/agent-memory-local
+.claude/assistant-daemon-state.json
+.claude/first-run

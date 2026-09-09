@@ -50,7 +50,9 @@ const sandbox = (existingRulesetId?: string) => {
       ...process.env,
       PATH: `${dir}:${process.env.PATH}`,
       GH_PAYLOAD: payloadFile,
-      ...(existingRulesetId === undefined ? {} : { GH_EXISTING_ID: existingRulesetId }),
+      // Pinned rather than omitted: an ambient GH_EXISTING_ID would otherwise put the
+      // create-path tests silently on the update path.
+      GH_EXISTING_ID: existingRulesetId ?? "",
     },
   };
 };
@@ -123,6 +125,7 @@ test("the warning goes to stderr, so a maintainer who pipes stdout into a log st
   const box = sandbox();
   try {
     const result = spawnSync(onboard, [target], { encoding: "utf8", env: box.env });
+    assert.equal(result.status, 0, `onboard.sh failed: ${result.stderr}`);
     assert.match(result.stderr, /WARNING: no own check/);
     assert.doesNotMatch(result.stdout, /WARNING/);
   } finally {
@@ -134,6 +137,14 @@ test("a factory check handed back as an own check is still the factory's, so it 
   const run = onboardWith(["factory/verdict"]);
   assert.equal(run.code, 0);
   assert.match(run.output, /WARNING/, "the ruleset gates on the factory's checks alone, however the arguments read");
+  assert.deepEqual(run.requiredChecks, factoryChecks, "a repeat is one check, not a duplicate context for GitHub");
+});
+
+test("an empty argument names no check, and never reaches the ruleset as an empty context", () => {
+  const run = onboardWith(["", "check", "check"]);
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "check"]);
+  assert.doesNotMatch(run.output, /WARNING/, "`check` is an own check, whatever else was passed alongside it");
 });
 
 test("re-running to update an existing ruleset warns the same way", () => {

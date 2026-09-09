@@ -62,6 +62,7 @@ import {
   isImplementerFailure,
   MAX_RETRIES,
   missingFailureReason,
+  RATE_LIMITED_REASON,
   renderEscalationComment,
   renderRequeueComment,
   renderRetryComment,
@@ -154,10 +155,8 @@ interface Failure {
   readonly kind: FailureKind;
   readonly summary: string;
   readonly output: string;
-  /** Every account was rate limited: requeue, do not count the attempt. */
-  readonly rateLimited?: boolean;
-  /** The head is not judged yet: requeue, do not count the attempt. */
-  readonly stillPending?: string;
+  /** Why this is not the ticket's failure: requeue, do not count the attempt. */
+  readonly requeue?: string;
   /** Why a retry cannot fix it; escalate at once. */
   readonly unretryable?: string;
 }
@@ -168,7 +167,7 @@ const implementFailure = (outcome: string): Failure => {
     kind: "implement",
     summary: `implement: ${reason.split("\n")[0]}`,
     output: [`Reason: ${reason}`, boundOutput(runLogTail(), LOG_LIMITS)].filter(Boolean).join("\n\n"),
-    rateLimited: fs.existsSync(path.join(outputDir(), RATE_LIMITED_FILE)),
+    requeue: fs.existsSync(path.join(outputDir(), RATE_LIMITED_FILE)) ? RATE_LIMITED_REASON : undefined,
   };
 };
 
@@ -287,8 +286,9 @@ const checksFailure = async (): Promise<Failure | undefined> => {
     await sleep(POLL_MS);
     state = headChecks(sha);
   }
+  // Nothing failed, so `kind` is only what the pending checks are; the requeue path never reads it.
   const stillPending = stillPendingReason(state, CHECKS_TIMEOUT_MS / 60_000);
-  if (stillPending) return { kind: "ci", summary: stillPending, output: "", stillPending };
+  if (stillPending) return { kind: "ci", summary: stillPending, output: "", requeue: stillPending };
   const failures = state.failures;
   if (failures.length === 0) return undefined;
   const parts: string[] = [];
@@ -412,11 +412,10 @@ const main = async (): Promise<void> => {
     retriesUsed: used,
     kind: failure.kind,
     escalated: labels.includes(ESCALATION_LABEL),
-    rateLimited: failure.rateLimited,
-    stillPending: failure.stillPending,
+    requeue: failure.requeue,
     unretryable: failure.unretryable,
   });
-  console.log(`Failure: ${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);
+  console.log(`${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);
 
   if (decision.action === "retry") retry(target, decision.retry, failure);
   else if (decision.action === "escalate") escalate(target, decision.reason, failure);

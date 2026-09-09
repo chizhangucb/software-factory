@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   decide,
   isImplementerFailure,
+  RATE_LIMITED_REASON,
   missingFailureReason,
   latestRetryContext,
   parseRetryComment,
@@ -46,22 +47,22 @@ test("decide does nothing on a ticket that is already escalated", () => {
 });
 
 test("decide requeues a run rate limited on every account without spending the retry", () => {
-  const decision = decide({ retriesUsed: 0, kind: "implement", rateLimited: true });
-  assert.equal(decision.action, "requeue");
+  const decision = decide({ retriesUsed: 0, kind: "implement", requeue: RATE_LIMITED_REASON });
+  assert.deepEqual(decision, { action: "requeue", reason: RATE_LIMITED_REASON });
   // The retry already used stays used, and the rate limit still does not count as the second failure.
-  assert.equal(decide({ retriesUsed: 1, kind: "implement", rateLimited: true }).action, "requeue");
-  assert.equal(decide({ retriesUsed: 0, kind: "implement", rateLimited: true, escalated: true }).action, "none");
+  assert.equal(decide({ retriesUsed: 1, kind: "implement", requeue: RATE_LIMITED_REASON }).action, "requeue");
+  assert.equal(
+    decide({ retriesUsed: 0, kind: "implement", requeue: RATE_LIMITED_REASON, escalated: true }).action,
+    "none",
+  );
 });
 
 test("decide requeues a head still pending at the deadline without spending the retry", () => {
-  const stillPending = "check still pending after 15 minutes; not the ticket's failure";
-  assert.deepEqual(decide({ retriesUsed: 0, kind: "ci", stillPending }), {
-    action: "requeue",
-    reason: stillPending,
-  });
+  const requeue = "check still pending after 15 minutes; not the ticket's failure";
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "ci", requeue }), { action: "requeue", reason: requeue });
   // The retry already used stays used: a slow CI is never the second failure that escalates.
-  assert.equal(decide({ retriesUsed: 1, kind: "ci", stillPending }).action, "requeue");
-  assert.equal(decide({ retriesUsed: 0, kind: "ci", stillPending, escalated: true }).action, "none");
+  assert.equal(decide({ retriesUsed: 1, kind: "ci", requeue }).action, "requeue");
+  assert.equal(decide({ retriesUsed: 0, kind: "ci", requeue, escalated: true }).action, "none");
   // Nothing pending: a real failure still spends the retry.
   assert.deepEqual(decide({ retriesUsed: 0, kind: "ci" }), { action: "retry", retry: 1 });
 });
@@ -79,7 +80,9 @@ test("the requeue comment says what moves the ticket or PR next", () => {
   assert.match(onTicket, /dispatcher/);
   const onPr = renderRequeueComment({ reason: "r", runUrl: "u", onPr: true });
   assert.match(onPr, /agent:blocked/);
-  assert.match(onPr, /Re-add `agent:implement`/);
+  // Both re-labels, since a requeue is not always the implementer's to pick up again.
+  assert.match(onPr, /`agent:review`/);
+  assert.match(onPr, /`agent:implement`/);
 });
 
 test("the requeue comment names the cause in its reason, never a rate limit it did not hit", () => {

@@ -46,7 +46,7 @@ Section 9 has the rest story by story. In short: no dependency ordering, no esca
 
 ## 3. The file map: every file to its origin
 
-One rule, then the exhaustive lists so nobody has to trust it.
+One rule, and then the lists that make it checkable file by file, so nobody has to trust the rule on its own.
 
 > Under `factory/`, the folder `agent-workflows/` is sandcastle's and everything else is this repo's. Under `.github/workflows/`, the three named below are his and the rest are this repo's.
 
@@ -58,7 +58,7 @@ Sixteen files, each with a row further down: three workflows, `.github/workflows
 
 Every line differing from his carries a comment naming the ticket or ADR that forced it (#47). A vendored `.md` carries none, because a comment in a prompt is context the model reads; the sibling script's header accounts for the prompt too.
 
-Three files in that subtree are ours, because he ships no tests: `factory/agent-workflows/shared/diff-lines.test.ts`, `factory/agent-workflows/shared/review-output.test.ts` and `factory/agent-workflows/shared/review-context.test.ts`, the last added by #52 to prove the trust filtering over fixtures with no network. The first two say so in their opening comment; `review-context.test.ts` does not, so this is the only record that it is ours.
+Three files in that subtree are ours, because he ships no tests: `factory/agent-workflows/shared/diff-lines.test.ts`, `factory/agent-workflows/shared/review-output.test.ts` and `factory/agent-workflows/shared/review-context.test.ts`, the last added by #52 to prove the trust filtering over fixtures with no network. The first two say so in their opening comment; `review-context.test.ts` does not, so this paragraph is the only record that it is ours.
 
 ### Written here, no sandcastle counterpart
 
@@ -75,10 +75,14 @@ Three files in that subtree are ours, because he ships no tests: `factory/agent-
 | `factory/gate/` | `gate.ts`, `changed-files.ts`, `red-green.ts`, `removes.ts`, `test-integrity.ts`, their four `.test.ts` |
 | `factory/retry/` | `retry.ts`, `context.ts`, `checks.ts`, `decide.ts`, `escalation.ts`, `checks.test.ts`, `decide.test.ts`, `escalation.test.ts` |
 | `factory/update-branch/` | `update-branch.ts`, `plan.ts`, `plan.test.ts` |
+| `factory/onboard/` | `onboard.test.ts`, which runs `scripts/onboard.sh` against a stub `gh` (story 7 of #75). The script it tests lives under `scripts/`, but `npm test` globs `factory/**/*.test.ts`, so the test lives here |
+| `factory/guards/` | `require-worktree-isolation.test.ts`, the hook contract for `scripts/guards/require-worktree-isolation.sh` (story 15 of #75), here for the same globbing reason |
 | `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `factory-pr.ts`, `gh.ts`, `harness.ts`, `labels.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, a `.test.ts` sibling for each of those except `errors.ts`, `labels.ts` and `read-only.ts`, plus `strip-types-cone.test.ts` (which reads workflow files, so it has no source sibling), `upsert-comment.sh` and `fixtures/` |
 | `factory/plugins/` | `README.md`, plus `mattpocock-skills/` vendored whole at 1.2.3 (`LICENSE`, `.claude-plugin/plugin.json`, and all 25 skills under `skills/engineering/` and `skills/productivity/`). A different upstream, not sandcastle. A one-skill subset until #54 took the whole plugin (story 11 of #46), so which of Matt's skills the factory carries is visible rather than cherry-picked |
 | `templates/factory.yml` | the caller a target copies. The file is ours; `templates/` is sandcastle's word for the folder |
 | `scripts/onboard.sh` | labels, auto-merge, and the `factory` ruleset on a target |
+| `scripts/guards/require-worktree-isolation.sh` | the `PreToolUse` hook that refuses a subagent call handing over a worktree path (story 15 of #75) |
+| `.claude/settings.json` | wires that hook in through `$CLAUDE_PROJECT_DIR`, so it survives the repo going public with no local path in it |
 | `AGENTS.md`, `CONTEXT.md`, `README.md`, `docs/**` | all this repo's, including this file |
 | `package.json`, `package-lock.json`, `tsconfig.json`, `.gitignore` | this repo's |
 
@@ -96,7 +100,7 @@ Three files in that subtree are ours, because he ships no tests: `factory/agent-
 
 ### What was not copied, and why
 
-- **`agent-update-branch.yml` and `.sandcastle/agent-workflows/update-branch/`** (`update-branch.ts`, `prompt.md`, `extraction.md`). #9's Out of Scope said "the update-branch agent for true conflicts... conflicts escalate in v0", and #21 agreed. #19 then reversed that and built conflict resolution into implement-pr rather than copying his: the largest avoidable rewrite in the vendoring, kept as built by section 8's first entry.
+- **`agent-update-branch.yml` and `.sandcastle/agent-workflows/update-branch/`** (`update-branch.ts`, `prompt.md`, `extraction.md`). #9's Out of Scope said "the update-branch agent for true conflicts... conflicts escalate in v0", and #21 agreed. #19 then reversed that and built conflict resolution into implement-pr rather than copying his: the largest avoidable rewrite in the vendoring, kept as built because story 5 of #46 says reconciliation does not re-prove working code and the proof run exercised the path. Section 8's "Conflict resolution reinvented in implement-pr" carries it.
 - **`agent-explore.yml` and `.sandcastle/agent-workflows/explore/`**. #21 called it "safe to ignore" and #9 excludes "any planner that invents work".
 - **`release.yml`**. Changesets publish to npm; this repo publishes nothing.
 - **His `ci.yml`**. `npm ci`, build and test for his own library.
@@ -128,11 +132,12 @@ Some changes landed identically in every workflow, so they are stated once rathe
 
 ### agent-implement.yml
 
-Kept as his: **Refuse PRD-shaped issue** (wording only), **Refuse existing PR**, **Transition labels**, **Compute branch name**, **Always remove in-progress**.
+Kept as his: **Refuse existing PR**, **Transition labels**, **Compute branch name**, **Always remove in-progress**.
 
 | His step | Ours | Why, cited |
 |---|---|---|
 | Detect issue shape | changed | sub-issue half dropped (`594fc6a`, story 22, ADR 0002 "sub-issue refusal is removed"); closed-issue check added (`65abf07`, #19) |
+| Refuse PRD-shaped issue | kept | wording only. `CONTEXT.md` cites this row: his step name stays, because the glossary binds the factory's own prose, not a vendored step name (story 13 of #75) |
 | Refuse sub-issue | removed | same |
 | Preflight existing PR | changed | moved into `factory/lib/preflight.ts`, so the closing-keyword regex is shared with the gate, the reviewer and the retry handler (`c722a10`) |
 | Checkout main | changed | `path: target`, FACTORY_PAT, `persist-credentials: false` (`8f0c3f1`, `20e5f95`, "no PAT in the agent's reach") |
@@ -184,7 +189,7 @@ Added here alone: "Request review" after a push (`87d0eb0`, "every push is judge
 | `shared/run-with-extraction.ts` | 41 of 41 (100%) | 41 | nothing. Identical to his below the provenance header #87 added, which moves no count because this method excludes comments. |
 | `shared/review-output.ts` | 117 of 117 (100%) | 146 | `verdict` and one `criteria` entry per acceptance criterion in the review schema (story 5, ADR 0003). His implement-PR schema is untouched. |
 | `shared/review-context.ts` | 110 of 159 (69%) | 258 | `issueBody` for criteria parsing (story 5); the closing-keyword regex moved to `lib/linked-issue.ts` (#13, #16); the linked issue read through `--json` and rendered by `lib/ticket-context.ts`, since the text view carries no `author_association` and gh 2.95 prints only comments under `--comments`; the body read throws rather than falling back to `""`, so an API error cannot read as "no criteria"; an optional `diff` for the audit (story 18); #52's required `TrustPolicy` and the assembly split out of the fetch as the pure `pullRequestContext`, dropping everything a stranger can write before the reviewer, implement-pr or the audit reads it (story 27, ADR 0002's trust amendment); #80's channel on each of its three reads, so this file no longer decides where the factory-login exemption applies. None of his lines moved under #52 or #80. |
-| `shared/diff-lines.ts` | 28 of 30 (93%) | 35 | `+++ /dev/null` and `--- ` headers handled explicitly, no phantom trailing line. No story forced it; section 8 has why it stays. |
+| `shared/diff-lines.ts` | 28 of 30 (93%) | 35 | `+++ /dev/null` and `--- ` headers handled explicitly, no phantom trailing line. No story forced it; kept because the gate maps findings onto changed lines, so reverting would change behaviour. Section 8's "`diff-lines.ts` edge cases" carries it. |
 | `shared/common.ts` | 88 of 96 (92%) | 111 | `claudeAgent()` takes the model and the account instead of hardcoding `claude-opus-4-8` and one token (stories 17, 20, ADR 0004); a config dir per account, session dir pointed there so extraction can resume; API-key and GitHub-token vars blanked (ADR 0001); `gh` re-exports `lib/gh.ts` and its 64 MB buffer (#19). |
 | `implement/implement.ts` | 24 of 33 (73%) | 74 | account rotation; model input plus `model:` label; the ticket document with parent spec (stories 22, 23); trusted-author filtering (ADR 0002 amendment); the retry section (stories 12, 13); the plugin install (story 4); commits counted on `refs/heads/$BRANCH`. His `run()` call and his zero-commit check are the core and are his. |
 | `review/review.ts` | 54 of 78 (69%) | 154 | read-only plus `assertReadOnly` (story 5, ADR 0003); the verdict, the criteria parse, the PR body section and the status files (stories 5, 6); the target's test output in the prompt; rotation and the model input. His REST review payload, his inline-comment filtering and his reply filtering are intact. |

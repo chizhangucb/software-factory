@@ -4,11 +4,14 @@ Autonomous pipeline that turns well-scoped tickets into merged code with as litt
 
 This file is the glossary: the words the specs, prompts, and docs all use for the same things. Name a concept here and every document names it the same way. Definitions only; how a thing is built lives in `README.md` and `docs/adr/`.
 
+It binds the factory's own prose, not vendored text: where a name is sandcastle's and the behaviour under it is his, his name stays and the term's `_Except_` line says so.
+
 ## Language
 
 **Spec**:
 A grilled, human-approved description of a feature. Produced by a grilling session then /to-spec. The parent issue of its tickets.
 _Avoid_: PRD (Matt's word, same thing), plan.
+_Except_ as a vendored step name: the `Refuse PRD-shaped issue` step in `.github/workflows/agent-implement.yml` stays sandcastle's. `docs/provenance/sandcastle.md` records that row as kept, wording only, and a kept step is still his.
 
 **Ticket**:
 One vertical slice of a spec, sized to one fresh context window, carrying acceptance criteria. Produced by /to-tickets. The unit the factory picks up.

@@ -63,7 +63,7 @@ test("the reconciler reads a slot cancel out of the jobs the account-slot group 
   // rename either job and this fails instead of every cancel quietly re-reading
   // as a lost event.
   const held: string[] = [];
-  for (const file of fs.readdirSync(workflowsDir)) {
+  for (const file of fs.readdirSync(workflowsDir).sort()) {
     const yaml = fs.readFileSync(new URL(file, workflowsDir), "utf8");
     for (const job of jobsOf(yaml)) {
       const group = job.body.match(/group: account-slot-\$\{\{ needs\.([a-z][a-z0-9_-]*)\.outputs\.index \}\}/);

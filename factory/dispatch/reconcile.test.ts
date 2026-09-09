@@ -252,6 +252,11 @@ test("a marker written before tries existed reads its miss value as the try coun
   assert.deepEqual(marksFromTimeline([{ event: "commented", body: "<!-- factory:sweep miss=1 -->\nReconciler: ...", created_at: NOW }]), [
     { miss: 1, tries: 1, at: NOW },
   ]);
+  // The old code wrote miss=0 for a cancelled run, which is the loop the cap is
+  // for; that marker is still one re-dispatch, so it back-fills as one, not none.
+  assert.deepEqual(marksFromTimeline([{ event: "commented", body: "<!-- factory:sweep miss=0 -->\nReconciler: ...", created_at: NOW }]), [
+    { miss: 0, tries: 1, at: NOW },
+  ]);
 });
 
 test("a completed run that left the label behind counts as a miss", () => {

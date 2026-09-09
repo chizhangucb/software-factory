@@ -26,6 +26,10 @@ _Avoid_: iteration (Ralph's word for a loop pass), session.
 The mechanical checks a PR must pass before it can merge. Lives in CI as required status checks, never only in an agent prompt.
 _Avoid_: verification, validation, definition of done (say gate plus acceptance criteria).
 
+**Guard**:
+A check that refuses one action before it happens, in the harness rather than in CI. Lives under `scripts/guards/` and is wired from `.claude/settings.json`. Distinct from a gate: a gate blocks a merge after the work, a guard blocks a tool call before it. An accident net, never a security boundary.
+_Avoid_: gate (the merge word), hook (the harness's word for how a guard is wired).
+
 **Placeholder**:
 Code that satisfies the gate without doing the work: a stub, a hardcoded return, a test that asserts the stub, a skipped or deleted test.
 _Avoid_: cheating, slop.

@@ -22,23 +22,28 @@ input=$(cat)
 # block work, and must not put an error on every Agent call either.
 command -v jq >/dev/null 2>&1 || exit 0
 
-field() { printf '%s' "$input" | jq -r "$1 // empty"; }
+# Stdin that is not JSON is not this guard's business either: jq's parse error
+# is swallowed and the empty read allows.
+field() { printf '%s' "$input" | jq -r "$1 // empty" 2>/dev/null; }
 
-[ "$(field '.tool_name')" = "Agent" ] || exit 0
-[ "$(field '.tool_input.isolation')" = "worktree" ] && exit 0
+if [ "$(field '.tool_name')" != "Agent" ]; then exit 0; fi
+if [ "$(field '.tool_input.isolation')" = "worktree" ]; then exit 0; fi
 
 prompt=$(field '.tool_input.prompt')
-[ -z "$prompt" ] && exit 0
+if [ -z "$prompt" ]; then exit 0; fi
 
 # The hand-made shape: names a worktree AND hands over an absolute path. Either
 # alone is legitimate; together they mean the caller built it and is pointing.
 #
-# A path starts at a line start or after anything that cannot continue a path,
-# so prose punctuation counts: `(/Users/someone/wt/x)` is still a handover. The
-# excluded run keeps a path fragment inside a longer path or a URL from
-# matching, so `https://example.com/tmp/x` is not read as a path.
+# An absolute path is any leading slash with at least two segments, so a
+# checkout under /Volumes, /workspace or /opt counts the same as one under a
+# home directory. It starts at a line start or after anything that cannot
+# continue a path, so prose punctuation counts and `(/Users/someone/wt/x)` is
+# still a handover. The excluded run keeps a fragment inside a longer path or a
+# URL from matching, so `https://example.com/tmp/x` is not read as a path, and
+# the second segment keeps a slash command like `/to-tickets` out.
 printf '%s' "$prompt" | grep -qi 'worktree' || exit 0
-printf '%s' "$prompt" | grep -Eq '(^|[^A-Za-z0-9_/.~-])(/Users/|/home/|/private/tmp/|/tmp/|/var/folders/)' || exit 0
+printf '%s' "$prompt" | grep -Eq '(^|[^A-Za-z0-9_/.~-])/[A-Za-z0-9_.~-]+/' || exit 0
 
 cat >&2 <<'MSG'
 worktree-guard: this Agent call names a worktree and hands over an absolute

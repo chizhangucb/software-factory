@@ -5,8 +5,8 @@ This repo is not a fork of [mattpocock/sandcastle](https://github.com/mattpocock
 - **Verified against the tree of 2026-09-09.** Every "Ours now" count, every repo path and every tree enumerated below was re-derived from the tree that day rather than carried forward, covering the boundary move (#47), the workflow rename (#61), the tarball move (#48), the writing-for-agents pass over the prompts (#56) and the prompt audit (story 14 of #75). The surviving-line figures come from the 2026-09-08 comparison against his clone, except the three prompt rows, which the prompt audit re-counted against him. A change under `factory/agent-workflows/` or `.github/workflows/agent-*.yml` updates this file, and sections 5 and 6 say which counts it moves.
 - **Reference for the comparison**: a clone of sandcastle at tag `v0.12.0`, commit `e99f832`, plus `npm pack @ai-hero/sandcastle@0.12.0`. Repo HEAD and the tag are the same commit; `git log v0.12.0..HEAD` is empty.
 - **Other sources**: this repo's `git log --follow`, ADRs 0001 to 0004, spec #9, spec #46, and the two dated research snapshots in `docs/research/`.
-- **Line counting method, used everywhere below**: non-blank, non-comment lines, whitespace normalised; one of his lines survives if the same normalised line appears anywhere in our version of that file. Coarse, reproducible, and it undercounts a line reindented into a different shape.
-- Matt's YouTube demonstration of the pipeline could not be fetched (only the page footer came back), so every claim about his intent comes from his README, his workflow files or his code.
+- **Line counting method, used everywhere below**: non-blank, non-comment lines, whitespace normalised; one of his lines survives if the same normalised line appears anywhere in our version of that file. Coarse: it undercounts a line reindented into a different shape.
+- Matt's YouTube demonstration of the pipeline could not be fetched, so every claim about his intent comes from his README, his workflow files or his code.
 
 ## 1. What sandcastle is
 
@@ -75,7 +75,7 @@ Three files in that subtree are ours, because he ships no tests: `factory/agent-
 | `factory/gate/` | `gate.ts`, `changed-files.ts`, `red-green.ts`, `removes.ts`, `test-integrity.ts`, their four `.test.ts` |
 | `factory/retry/` | `retry.ts`, `context.ts`, `checks.ts`, `decide.ts`, `escalation.ts`, `checks.test.ts`, `decide.test.ts`, `escalation.test.ts` |
 | `factory/update-branch/` | `update-branch.ts`, `plan.ts`, `plan.test.ts` |
-| `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `factory-pr.ts`, `gh.ts`, `harness.ts`, `labels.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, a `.test.ts` sibling for each of those except `errors.ts`, `labels.ts` and `read-only.ts`, plus `upsert-comment.sh` and `fixtures/` |
+| `factory/lib/` | `accounts.ts`, `conflicts.ts`, `errors.ts`, `factory-pr.ts`, `gh.ts`, `harness.ts`, `labels.ts`, `linked-issue.ts`, `model.ts`, `plugins.ts`, `preflight.ts`, `read-only.ts`, `rotation.ts`, `run-log.ts`, `ticket-context.ts`, `trusted-authors.ts`, `usage.ts`, `usage-record.ts`, `verdict.ts`, a `.test.ts` sibling for each of those except `errors.ts`, `labels.ts` and `read-only.ts`, plus `strip-types-cone.test.ts` (which reads workflow files, so it has no source sibling), `upsert-comment.sh` and `fixtures/` |
 | `factory/plugins/` | `README.md`, plus `mattpocock-skills/` vendored whole at 1.2.3 (`LICENSE`, `.claude-plugin/plugin.json`, and all 25 skills under `skills/engineering/` and `skills/productivity/`). A different upstream, not sandcastle. A one-skill subset until #54 vendored the whole plugin under story 11 of #46, so which of Matt's skills the factory carries is visible rather than cherry-picked |
 | `templates/factory.yml` | the caller a target copies. The file is ours; `templates/` is sandcastle's word for the folder |
 | `scripts/onboard.sh` | labels, auto-merge, and the `factory` ruleset on a target |
@@ -107,7 +107,7 @@ Three files in that subtree are ours, because he ships no tests: `factory/agent-
 
 ## 5. The three copied workflows, step by step
 
-**Changing a step in one of his three workflows starts here.** Find the step in its table, its kept list, or the shared list below. A step of his is vendored text, so section 3 says what changing it obliges. A step in an "Added" list has no counterpart of his and is free to change.
+**Changing a step in one of his three workflows starts here.** Find it in that workflow's table, its kept list, or the shared list below. A step of his is vendored text, so section 3 says what changing it obliges; a step in an "Added" list is ours and free to change.
 
 Line survival, by the method at the top:
 
@@ -117,7 +117,7 @@ Line survival, by the method at the top:
 | agent-review.yml | 81 of 112 (72%) | 287 | 28% |
 | agent-implement-pr.yml | 123 of 155 (79%) | 356 | 35% |
 
-The "10 to 20 percent of sandcastle is left" impression comes from growth, not deletion. Seven to eight tenths of his pipeline lines are still there, and the files are two to two and a half times longer because of the added steps, so his share of the text keeps falling while the count of his surviving lines barely moves.
+The "10 to 20 percent of sandcastle is left" impression comes from growth, not deletion. Seven to eight tenths of his pipeline lines are still there, and the files are two to two and a half times longer because of the added steps, so his share of the text falls while the count of his surviving lines barely moves.
 
 Some changes landed identically in every workflow, so they are stated once rather than in all three tables:
 
@@ -181,7 +181,7 @@ Added here alone: "Request review" after a push (`87d0eb0`, "every push is judge
 
 | File | His lines surviving | Ours now | What was forced |
 |---|---|---|---|
-| `shared/run-with-extraction.ts` | 41 of 41 (100%) | 41 | nothing. Untouched. |
+| `shared/run-with-extraction.ts` | 41 of 41 (100%) | 41 | nothing. Identical to his below the provenance header #87 added, which moves no count because this method excludes comments. |
 | `shared/review-output.ts` | 117 of 117 (100%) | 146 | `verdict` and one `criteria` entry per acceptance criterion in the review schema (story 5, ADR 0003). His implement-PR schema is untouched. |
 | `shared/review-context.ts` | 110 of 159 (69%) | 258 | `issueBody` for criteria parsing (story 5); the closing-keyword regex moved to `lib/linked-issue.ts` (#13, #16); the linked issue read through `--json` and rendered by `lib/ticket-context.ts`, since the text view carries no `author_association` and gh 2.95 prints only comments under `--comments`; the body read throws rather than falling back to `""`, so an API error cannot read as "no criteria"; an optional `diff` for the audit (story 18); #52's required `TrustPolicy` and the assembly split out of the fetch as the pure `pullRequestContext`, dropping everything a stranger can write before the reviewer, implement-pr or the audit reads it (story 27, ADR 0002's trust amendment); #80's channel on each of its three reads, so this file no longer decides where the factory-login exemption applies. None of his lines moved under #52 or #80. |
 | `shared/diff-lines.ts` | 28 of 30 (93%) | 35 | `+++ /dev/null` and `--- ` headers handled explicitly, no phantom trailing line. No story forced it; section 8 has why it stays. |
@@ -219,15 +219,15 @@ One row has left this table since it was written: the turn cap (`factory/lib/tur
 
 ## 8. Where rewriting was avoidable, and what has been undone since
 
-**"Fixing" a difference from him that no ticket asked for, anywhere in `factory/` or `.github/workflows/`, starts here.** Every entry is a difference no story or ADR forced, so each looks like a mistake and some are not. **Kept** means it was examined and left on purpose, with the reason given: leave it, and raise a ticket of its own rather than reverting it inside a ticket about something else. **Undone** means it is already gone and the entry is history. Most consequential first, with their state as of 2026-09-08.
+**"Fixing" a difference from him that no ticket asked for, anywhere in `factory/` or `.github/workflows/`, starts here.** Every entry is a difference no story or ADR forced, so each looks like a mistake and some are not. **Kept** means it was examined and left on purpose: leave it, and raise a ticket of its own rather than reverting it inside a ticket about something else. **Undone** means it is already gone and the entry is history. Most consequential first, as of the verification date at the top.
 
-- **Conflict resolution reinvented in implement-pr** (`3f21533`, `factory/lib/conflicts.ts`, the prompt's CONFLICT section). His `update-branch.ts` plus `agent-update-branch.yml` do exactly this: merge base, agent resolves, push with lease. Left out because #9 said conflicts escalate in v0, then #19 reversed that and wrote new code rather than copying his. **Kept as built**, by decision: story 5 of #46 says reconciliation does not re-prove working code, and the proof run exercised this path.
-- **Prompt rewrites went wholesale where edits would have done.** **Undone by #47**: his section skeletons are back in all three prompts with our paragraphs inside them, the content having had to change (stories 4, 5, 23) but not the structure. #54 cut further, turning the paragraphs that restated Matt's TDD and review skills into calls to those skills by name (story 12 of #46), so the prompts carry less of our writing than at any point since the vendoring.
+- **Conflict resolution reinvented in implement-pr** (`3f21533`, `factory/lib/conflicts.ts`, the prompt's CONFLICT section). His `update-branch.ts` plus `agent-update-branch.yml` do exactly this: merge base, agent resolves, push with lease. #9 said conflicts escalate in v0; #19 reversed that and wrote new code rather than copying his. **Kept as built**: story 5 of #46 says reconciliation does not re-prove working code, and the proof run exercised this path.
+- **Prompt rewrites went wholesale where edits would have done.** **Undone by #47**: his section skeletons are back in all three prompts with our paragraphs inside them, since the content had to change (stories 4, 5, 23) but the structure did not. #54 cut further, turning the paragraphs that restated Matt's TDD and review skills into calls to those skills by name (story 12 of #46).
 - **Cosmetic renames that break line-for-line comparison**, all from `8f0c3f1`: `sandcastle-agent[bot]` to `factory-agent[bot]`, "Run implementation agent" to "Run implementer", "Checkout main" to "Checkout target repo", "Open draft PR" to "Open PR", the workflow names. **Undone by #61 and #47**: the workflows carry his `agent-` names again, the bot identity is his again, and the step names are his where the step is his.
 - **The `PR_OPEN` env refactor in implement-pr.yml** (`8f0c3f1`), replacing his per-step `github.event.pull_request.state == 'open'` conditions with one env var. Same behaviour, different text. **Undone by #47.**
 - **`refuse-fork` jobs on review and implement-pr** (`20e5f95`). Sound under `pull_request_target`, which runs with secrets on a fork's head, but no story or ADR asked for them. **Kept, with a comment**: removing them would remove a real control.
-- **`diff-lines.ts` edge cases** (`20e5f95`). Real bugs (a deleted file's hunk attributed to the previous file, a phantom trailing line on every file), but not a story, and they diverge a shared file from upstream. **Kept, with a comment**, because the gate maps findings onto changed lines and reverting would change behaviour. Covered by `diff-lines.test.ts`, which has no upstream counterpart.
-- **`errorMessage` and `GH_MAX_BUFFER` added to `common.ts`** (`b0b79ed`, `c1addc1`). The buffer fixed a real ENOBUFS in the dispatcher but belonged in the gh wrapper alone. **Undone by #47**: `errorMessage` lives in `factory/lib/errors.ts` with its factory-authored callers, and the buffer in `factory/lib/gh.ts`, the one gh wrapper, which `common.ts` re-exports.
+- **`diff-lines.ts` edge cases** (`20e5f95`). Real bugs (a deleted file's hunk attributed to the previous file, a phantom trailing line on every file), but not a story, and they diverge a shared file from upstream. **Kept, with a comment**: the gate maps findings onto changed lines, so reverting would change behaviour. Covered by `diff-lines.test.ts`, which has no upstream counterpart.
+- **`errorMessage` and `GH_MAX_BUFFER` added to `common.ts`** (`b0b79ed`, `c1addc1`). The buffer fixed a real ENOBUFS in the dispatcher but belonged in the gh wrapper alone. **Undone by #47**: `errorMessage` lives in `factory/lib/errors.ts` with its callers, and the buffer in `factory/lib/gh.ts`, which `common.ts` re-exports.
 - **Dropping his `AGENT_PAT || GITHUB_TOKEN` fallback** in "Request automated review" (`8f0c3f1`). Keeping his shape cost nothing. **Undone by #47**: the fallback is back, with `FACTORY_PAT` in `AGENT_PAT`'s place.
 
 ## 9. Spec #9's stories on sandcastle

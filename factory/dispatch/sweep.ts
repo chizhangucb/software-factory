@@ -272,6 +272,8 @@ const apply = (d: Decision): void => {
 
 const applied: string[] = [];
 const failed: { log: string; error: string }[] = [];
+/** Re-arms GitHub refused: warned, not failed, but recorded so a standing refusal is visible. */
+const refused: { log: string; error: string }[] = [];
 for (const d of decisions) {
   if (d.action.type === "none" || dryRun) continue;
   try {
@@ -286,7 +288,12 @@ for (const d of decisions) {
     // and has already commented on the PR naming the fix. So warn and carry on: one
     // unonboarded target must not turn every sweep red forever (#83).
     if (d.action.type === "arm-auto-merge") {
-      console.log(`::warning::Could not re-arm auto-merge on PR #${d.action.pr}; run scripts/onboard.sh on ${repo}: ${message}`);
+      // The cause is in the message, not assumed: a target that allows no auto-merge and a
+      // PR already mergeable ("clean status") both refuse here, and so does a PAT that lost
+      // pull_requests write. Naming onboard.sh as the fix for all three would misread the
+      // last one, so the message says what GitHub said and offers onboard.sh as the usual fix.
+      refused.push({ log: d.log, error: message });
+      console.log(`::warning::Could not re-arm auto-merge on PR #${d.action.pr} of ${repo}: ${message}. If the target refuses auto-merge, run scripts/onboard.sh there.`);
       continue;
     }
     failed.push({ log: d.log, error: message });
@@ -299,10 +306,10 @@ if (outputDir) {
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(
     path.join(outputDir, "sweep.json"),
-    JSON.stringify({ repo, dryRun, deadlines, snapshot, decisions, applied, failed }, null, 2),
+    JSON.stringify({ repo, dryRun, deadlines, snapshot, decisions, applied, refused, failed }, null, 2),
   );
 }
 
 const repairs = decisions.filter((d) => d.action.type !== "none").length;
-console.log(`${decisions.length} decision(s), ${repairs} repair(s), ${applied.length} applied, ${failed.length} failed${dryRun ? " (dry run)" : ""}.`);
+console.log(`${decisions.length} decision(s), ${repairs} repair(s), ${applied.length} applied, ${refused.length} refused, ${failed.length} failed${dryRun ? " (dry run)" : ""}.`);
 if (failed.length > 0) process.exit(1);

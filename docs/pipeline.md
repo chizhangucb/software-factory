@@ -12,7 +12,6 @@ The reasoning behind README's five onboarding steps, plus the caveats a target o
 - **One `FACTORY_PAT` covers every target in v0** (#20). Per-target tokens buy nothing while the same machine and the same workflows hold them all; split when a target is owned by someone else.
 - **The label vocabulary `scripts/onboard.sh` creates**: `ready-for-agent`, `ready-for-human`, `needs-triage`, `agent:*`, `needs-human`, `factory:retry-1`.
 - **A called workflow cannot exceed its caller's permissions**, so a target onboarded before `statuses: write`, `checks: read` and `actions: read` were in `templates/factory.yml` needs them added by hand.
-- **The caller lands before the secret.** Step 1 pushes `.github/workflows/factory.yml` and step 2 adds `FACTORY_PAT`, so that first push fires the caller with a required secret missing and one run fails. It is self-correcting: the next event runs clean once the secret is there.
 
 ## Caller inputs
 

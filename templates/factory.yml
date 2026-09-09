@@ -113,7 +113,7 @@ jobs:
       # Optional: whose words the audit reads, on the PR and on the linked ticket.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
       # per_account_slots: 8
-      # Optional: the strongest model the subscription serves (see docs/pipeline.md, Audit).
+      # Optional: the strongest model the subscription serves (see docs/pipeline.md#audit).
       # audit_model: claude-fable-5-1
   update-branch:
     if: >-

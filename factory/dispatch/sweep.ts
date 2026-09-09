@@ -3,8 +3,9 @@
  * with `reconcile.ts`, apply the repairs, log one line per decision.
  *
  * Runs after the dispatcher on the schedule, on workflow_dispatch, and on
- * the `factory-sweep` repository_dispatch (the external trigger for when
- * GitHub's cron does not fire). Reads that a fine-grained PAT cannot make
+ * the `factory-sweep` repository_dispatch (the heartbeat, sent from outside
+ * GitHub every 10 minutes; the schedule is the fallback, since it does not
+ * reliably fire). Reads that a fine-grained PAT cannot make
  * (Actions runs and jobs, commit statuses) use READ_TOKEN; every write uses
  * GH_TOKEN so the labels fire their events.
  *

@@ -172,16 +172,15 @@ test("a head still pending when the wait runs out is not the ticket's failure", 
   assert.match(reason ?? "", /not the ticket's failure/);
 });
 
-test("a genuinely failing check outranks a pending one: the retry is spent, with its log", () => {
-  const failure = {
-    name: "check",
-    kind: "ci" as const,
-    description: "failure",
-    url: "https://github.com/o/r/actions/runs/77/job/9",
-  };
-  const state = { pending: ["slow-ci"], failures: [failure] };
+test("a check that failed outranks a pending one, so the failing path still runs with its log", () => {
+  const state = evaluateChecks({
+    statuses: [status("factory/red-green", "success"), status("factory/test-integrity", "success")],
+    checkRuns: [checkRun("check", "completed", "failure", "check", "77"), checkRun("slow-ci", "in_progress", null, "ci")],
+    own,
+  });
+  assert.deepEqual(state.pending, ["slow-ci"]);
   assert.equal(stillPendingReason(state, 15), undefined);
-  // The failure keeps the url the log excerpt is pulled from.
+  // The url the failure output pulls its log excerpt from survives.
   assert.equal(state.failures[0]?.url, "https://github.com/o/r/actions/runs/77/job/9");
   assert.equal(stillPendingReason({ pending: [], failures: [] }, 15), undefined);
 });

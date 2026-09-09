@@ -60,6 +60,9 @@ export const missingFailureReason = (outcome: string): string =>
     ? "the run was killed before it could report a reason; a job timeout looks like this"
     : "(no reason file written; see the workflow log)";
 
+/** Why a run that could not reach an account is not the ticket's failure. */
+export const RATE_LIMITED_REASON = "rate limited on every account; not the ticket's failure";
+
 export type Decision =
   | { readonly action: "retry"; readonly retry: number }
   | { readonly action: "escalate"; readonly reason: string }
@@ -83,20 +86,16 @@ export const decide = (input: {
   readonly retriesUsed: number;
   readonly kind: FailureKind;
   readonly escalated?: boolean;
-  readonly rateLimited?: boolean;
-  /** Why the head is not judged yet, so no retry can be informed; undefined when it is judged. */
-  readonly stillPending?: string;
+  /** Why this attempt is not the ticket's failure, so it is handed back; undefined when it is. */
+  readonly requeue?: string;
   /** Why another implementer run cannot fix this failure; undefined when it might. */
   readonly unretryable?: string;
 }): Decision => {
   if (input.escalated) {
     return { action: "none", reason: `already escalated: ${ESCALATION_LABEL} is on the ticket` };
   }
-  if (input.rateLimited) {
-    return { action: "requeue", reason: "rate limited on every account; not the ticket's failure" };
-  }
-  if (input.stillPending) {
-    return { action: "requeue", reason: input.stillPending };
+  if (input.requeue) {
+    return { action: "requeue", reason: input.requeue };
   }
   if (input.unretryable) {
     return { action: "escalate", reason: input.unretryable };
@@ -218,7 +217,7 @@ export const retryPromptSection = (context: RetryContext | undefined): string =>
 export const renderRequeueComment = (input: {
   readonly reason: string;
   readonly runUrl: string;
-  /** The PR path has no dispatcher: a human re-adds the label once the cause is gone. */
+  /** The PR path has no dispatcher: a human re-labels it once the cause is gone. */
   readonly onPr: boolean;
 }): string =>
   [
@@ -227,7 +226,7 @@ export const renderRequeueComment = (input: {
     `${input.reason}. No retry was spent. Run: ${input.runUrl}`,
     "",
     input.onPr
-      ? "Labeled `agent:blocked`. Re-add `agent:implement` once the cause is gone; the retry count is unchanged."
+      ? "Labeled `agent:blocked`. Once the cause is gone, re-add `agent:review` to judge this head again, or `agent:implement` to run the implementer; the retry count is unchanged."
       : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the schedule) once `agent:in-progress` is gone.",
   ].join("\n");
 

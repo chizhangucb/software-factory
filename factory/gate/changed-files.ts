@@ -26,8 +26,6 @@ const DOC_BASENAMES = /^(license|licence|changelog|authors|contributors|notice|c
 const CONFIG_EXTENSIONS = new Set([
   "yml", "yaml", "json", "jsonc", "json5", "toml", "ini", "cfg", "conf", "properties", "lock", "xml", "plist",
 ]);
-/** A data file under one of these is the tests' own material, so it stays a source change. */
-const TEST_TREE_DIRS = new Set(["test", "tests", "__tests__", "spec", "specs"]);
 
 const extensionOf = (p: string): string => {
   const base = p.slice(p.lastIndexOf("/") + 1);
@@ -61,14 +59,19 @@ export const isDocFile = (p: string): boolean => {
  * A file no test can exercise: a workflow, a manifest, a lockfile, a
  * dotfile. Red-green has nothing to prove about a PR that changes only
  * these, so calling them a source change was a lie the gate told (#57
- * proposal 12). A script or action shipped under `.github/` is still
- * real source, and so is a fixture under the test tree.
+ * proposal 12). Where it sits is half the rule: a dotfile counts
+ * anywhere, a data or manifest extension only at the repo root or under
+ * a dot directory. Nested deeper it is data the code reads and it stays
+ * source, so a locale bundle, a pricing table or a fixture the tests own
+ * still needs a test. A script or action under `.github/` is source too,
+ * since no config extension matches it.
  */
 export const isConfigFile = (p: string): boolean => {
   const segments = p.split("/");
   const base = segments[segments.length - 1];
-  if (segments.slice(0, -1).some((s) => TEST_TREE_DIRS.has(s))) return false;
   if (base.startsWith(".")) return true;
+  const dirs = segments.slice(0, -1);
+  if (dirs.length > 0 && !dirs.some((s) => s.startsWith("."))) return false;
   return CONFIG_EXTENSIONS.has(extensionOf(p));
 };
 

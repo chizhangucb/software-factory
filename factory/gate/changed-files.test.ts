@@ -64,12 +64,14 @@ test("config files are workflows, manifests, lockfiles and dotfiles", () => {
     assert.equal(isConfigFile(p), true, p);
   }
   // real source stays source, so a change to it with no test still fails the gate:
-  // a script, an action shipped under .github/, and a fixture the tests own
+  // a script, an action shipped under .github/, data the code reads, a fixture the tests own
   for (const p of [
     "src/a.js",
     "scripts/onboard.sh",
     ".github/actions/setup/index.js",
     ".github/scripts/release.sh",
+    "src/locales/en.json",
+    "src/rules/pricing.json",
     "test/fixtures/x.json",
     "src/__tests__/fixtures/y.yml",
   ]) {

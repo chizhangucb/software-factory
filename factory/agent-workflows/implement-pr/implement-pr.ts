@@ -23,13 +23,14 @@
  *   prohibitions, plus: the CONFLICT and RETRY placeholders (#19); the
  *   no-credentials line (the agent gets no GitHub token, ADR 0002); his
  *   `npm run typecheck` line widened to the repo's own typecheck and full
- *   suite, since nothing here is specific to one repo (story 23); and a
- *   completion criterion on the thread list (story 14 of #46). Story 14 of #75
- *   then cut what a mechanism already carries: the gate's own description, now
- *   that `factory/red-green` and `factory/test-integrity` are required checks
- *   and the retry marker feeds back the failing excerpt, and the sentence that
- *   sent the agent at the conflict first, which `conflictSection` in
- *   `factory/lib/conflicts.ts` says only when there is a conflict.
+ *   suite, since nothing here is specific to one repo (story 23); and an
+ *   exhaustive completion criterion in his PROCESS opener (story 14 of #46),
+ *   which still stands. Story 14 of #75 then cut what a mechanism already
+ *   carries: the gate's own description, now that `factory/red-green` and
+ *   `factory/test-integrity` are required checks and the retry marker feeds
+ *   back the failing excerpt, and the sentence that sent the agent at the
+ *   conflict first, which `conflictSection` in `factory/lib/conflicts.ts` says
+ *   only when there is a conflict.
  *   `extraction.md` stays his to the line: it is a format contract, not prose,
  *   so neither writing pass touched it.
  */

@@ -2,10 +2,11 @@
 
 Every file mapped to its origin, his three copied workflows stepped through step by step, the vendored scripts and prompts row by row with their line counts, and the rewrites that were avoidable. Reference, read a row at a time.
 
-**The essay half is `docs/provenance/sandcastle.md`**: what sandcastle is, how autonomous his pipeline really is, what was not copied and why, what the factory added with no counterpart of his, spec #9's stories mapped onto him, and the answer to "why not just fork it". ADR 0002 (`docs/adr/0002-vendored-sandcastle-engine.md`) cites both.
+**The essay half is `docs/provenance/sandcastle.md`**: what sandcastle is, how autonomous his pipeline really is, his five agent workflows and what happened to each including what was not copied and why, what the factory added with no counterpart of his, spec #9's stories mapped onto him, and the answer to "why not just fork it". ADR 0002 (`docs/adr/0002-vendored-sandcastle-engine.md`) cites both.
 
-- **Verified against the tree of 2026-09-09.** Every "Ours now" count, every repo path and every tree enumerated below was re-derived from the tree that day rather than carried forward, covering the boundary move (#47), the workflow rename (#61), the tarball move (#48), the writing-for-agents pass over the prompts (#56) and the prompt audit (story 14 of #75). The surviving-line figures come from the 2026-09-08 comparison against his clone, except the three prompt rows, which the prompt audit re-counted against him. A change under `factory/agent-workflows/` or `.github/workflows/agent-*.yml` updates this file, `docs/provenance/sandcastle-files.md`, and sections 2 and 3 say which counts it moves.
+- **Verified against the tree of 2026-09-09.** Every "Ours now" count, every repo path and every tree enumerated below was re-derived from the tree that day rather than carried forward, covering the boundary move (#47), the workflow rename (#61), the tarball move (#48), the writing-for-agents pass over the prompts (#56) and the prompt audit (story 14 of #75). The surviving-line figures come from the 2026-09-08 comparison against his clone, except the three prompt rows, which the prompt audit re-counted against him. A change under `factory/agent-workflows/` or `.github/workflows/agent-*.yml` updates this file, `docs/provenance/sandcastle-files.md`; sections 2 and 3 say which counts it moves.
 - **Reference for the comparison**: a clone of sandcastle at tag `v0.12.0`, commit `e99f832`, plus `npm pack @ai-hero/sandcastle@0.12.0`. Repo HEAD and the tag are the same commit; `git log v0.12.0..HEAD` is empty.
+- **Other sources**: this repo's `git log --follow`, ADRs 0001 to 0004, spec #9, spec #46, and the two dated research snapshots in `docs/research/`. Matt's YouTube demonstration of the pipeline could not be fetched, so every claim about his intent comes from his README, his workflow files or his code.
 - **Line counting method, used everywhere below**: non-blank, non-comment lines, whitespace normalised; one of his lines survives if the same normalised line appears anywhere in our version of that file. Coarse: it undercounts a line reindented into a different shape.
 
 ## 1. The file map: every file to its origin
@@ -126,7 +127,7 @@ Added here alone: "Request review" after a push (`87d0eb0`, "every push is judge
 
 ## 3. The vendored scripts and prompts
 
-**Changing a script or prompt under `factory/agent-workflows/` starts here.** Find its row. The last column is the standing list of reasons a difference from him is allowed to exist. The change is done when that row in this file, `docs/provenance/sandcastle-files.md`, carries the new reason and both of its counts, recounted by the method at the top, in the same PR as the change.
+**Changing a script or prompt under `factory/agent-workflows/` starts here.** Find its row. The last column is the standing list of reasons a difference from him is allowed to exist. The change is done when that row carries the new reason and both of its counts, recounted by the method at the top, in the same PR as the change. The row is in this file, `docs/provenance/sandcastle-files.md`, and nowhere else.
 
 | File | His lines surviving | Ours now | What was forced |
 |---|---|---|---|

@@ -1,4 +1,4 @@
-import type { ChangedFile } from "./changed-files";
+import type { ChangedFile, FileKind } from "./changed-files";
 import type { Verdict } from "./test-integrity";
 
 export interface RedGreenPlan {
@@ -21,6 +21,9 @@ export interface RedGreenResults {
   readonly head: TestResult;
 }
 
+/** What a vacuous pass says it saw, when the whole diff is one kind. */
+const ONLY_KIND: Partial<Record<FileKind, string>> = { doc: "docs only", config: "config only" };
+
 /**
  * Decides from the diff which tests to run. A removal ticket (Removes
  * section present), and a diff that changes no source file, pass
@@ -36,9 +39,8 @@ export const redGreenPlan = (files: readonly ChangedFile[], removes: readonly st
   }
   if (!files.some((f) => f.kind === "source")) {
     const kinds = new Set(files.map((f) => f.kind));
-    const only = kinds.size === 1 ? [...kinds][0] : undefined;
-    const what = only === "doc" ? "docs only" : only === "config" ? "config only" : "no source change";
-    return { run: false, testFiles: [], vacuous: true, reason: `${what}, nothing to prove` };
+    const only = kinds.size === 1 ? ONLY_KIND[[...kinds][0]] : undefined;
+    return { run: false, testFiles: [], vacuous: true, reason: `${only ?? "no source change"}, nothing to prove` };
   }
   if (removes !== null) return { run: false, testFiles: [], vacuous: true, reason: "removal ticket, no tests changed" };
   return { run: false, testFiles: [], vacuous: false, reason: "source changed, no test file added or changed" };

@@ -53,6 +53,19 @@ test("decide requeues a run rate limited on every account without spending the r
   assert.equal(decide({ retriesUsed: 0, kind: "implement", rateLimited: true, escalated: true }).action, "none");
 });
 
+test("decide requeues a head still pending at the deadline without spending the retry", () => {
+  const stillPending = "check still pending after 15 minutes; not the ticket's failure";
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "ci", stillPending }), {
+    action: "requeue",
+    reason: stillPending,
+  });
+  // The retry already used stays used: a slow CI is never the second failure that escalates.
+  assert.equal(decide({ retriesUsed: 1, kind: "ci", stillPending }).action, "requeue");
+  assert.equal(decide({ retriesUsed: 0, kind: "ci", stillPending, escalated: true }).action, "none");
+  // Nothing pending: a real failure still spends the retry.
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "ci" }), { action: "retry", retry: 1 });
+});
+
 test("decide escalates at once on a failure a retry cannot fix", () => {
   assert.deepEqual(
     decide({ retriesUsed: 0, kind: "verdict", unretryable: "the ticket has no acceptance criteria" }),
@@ -67,6 +80,17 @@ test("the requeue comment says what moves the ticket or PR next", () => {
   const onPr = renderRequeueComment({ reason: "r", runUrl: "u", onPr: true });
   assert.match(onPr, /agent:blocked/);
   assert.match(onPr, /Re-add `agent:implement`/);
+});
+
+test("the requeue comment names the cause in its reason, never a rate limit it did not hit", () => {
+  const body = renderRequeueComment({
+    reason: "check still pending after 15 minutes; not the ticket's failure",
+    runUrl: "u",
+    onPr: true,
+  });
+  assert.match(body, /still pending after 15 minutes/);
+  assert.doesNotMatch(body, /[Rr]ate limited/);
+  assert.doesNotMatch(body, /quota/);
 });
 
 const runUrl = "https://github.com/o/r/actions/runs/1";

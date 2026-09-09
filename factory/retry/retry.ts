@@ -8,9 +8,10 @@
  * - escalate: agent:* and ready-for-agent off the ticket, needs-human on,
  *   the PR closed with its agent:* labels off, the branch kept, a comment on
  *   the ticket linking the run and its log.
- * - requeue (rate limited on every account, #17): no retry spent. A ticket
- *   gets a comment and is left for the dispatcher; a PR gets the comment
- *   and `agent:blocked`, since nothing re-dispatches a PR.
+ * - requeue (rate limited on every account (#17), or a check still pending
+ *   when the wait runs out): no retry spent. A ticket gets a comment and is
+ *   left for the dispatcher; a PR gets the comment and `agent:blocked`,
+ *   since nothing re-dispatches a PR.
  *
  * Two tokens: reads (statuses, check runs, run logs and artifacts, labels)
  * use GH_TOKEN, the job's GITHUB_TOKEN, which needs checks: read and
@@ -28,8 +29,8 @@
  * - `checks`: a verdict was just posted on HEAD_SHA; wait for the head's
  *   other checks to settle (CHECKS_TIMEOUT_MINUTES, default 15), then fail
  *   on any failing status or check run. A check still pending at the
- *   deadline is a failure too, so a PR never sits unjudged. No failure
- *   means nothing to do.
+ *   deadline with nothing failed is requeued rather than failed: it has no
+ *   log, so a retry on it is uninformed. No failure means nothing to do.
  * Optional: ARTIFACT_NAME for the log link, GITHUB_RUN_ID and
  * GITHUB_WORKFLOW (set by the runner) to ignore the factory's own check runs.
  */
@@ -49,6 +50,7 @@ import {
   type GateArtifact,
   renderGateOutput,
   runIdFromUrl,
+  stillPendingReason,
   summariseFailures,
   unretryableReason,
 } from "./checks";
@@ -154,6 +156,8 @@ interface Failure {
   readonly output: string;
   /** Every account was rate limited: requeue, do not count the attempt. */
   readonly rateLimited?: boolean;
+  /** The head is not judged yet: requeue, do not count the attempt. */
+  readonly stillPending?: string;
   /** Why a retry cannot fix it; escalate at once. */
   readonly unretryable?: string;
 }
@@ -283,15 +287,9 @@ const checksFailure = async (): Promise<Failure | undefined> => {
     await sleep(POLL_MS);
     state = headChecks(sha);
   }
-  const failures: CheckFailure[] = [
-    ...state.failures,
-    ...state.pending.map((name) => ({
-      name,
-      kind: "ci" as const,
-      description: `not finished after ${CHECKS_TIMEOUT_MS / 60_000} minutes`,
-      url: null,
-    })),
-  ];
+  const stillPending = stillPendingReason(state, CHECKS_TIMEOUT_MS / 60_000);
+  if (stillPending) return { kind: "ci", summary: stillPending, output: "", stillPending };
+  const failures = state.failures;
   if (failures.length === 0) return undefined;
   const parts: string[] = [];
   for (const f of failures) parts.push(await failureOutput(f));
@@ -415,6 +413,7 @@ const main = async (): Promise<void> => {
     kind: failure.kind,
     escalated: labels.includes(ESCALATION_LABEL),
     rateLimited: failure.rateLimited,
+    stillPending: failure.stillPending,
     unretryable: failure.unretryable,
   });
   console.log(`Failure: ${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);

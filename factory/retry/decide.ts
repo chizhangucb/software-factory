@@ -73,6 +73,9 @@ export type Decision =
  * ticket is left alone so two failure handlers cannot escalate it twice. A
  * run rate limited on every account is requeued, not retried: the quota is
  * the problem, rotation (#17) is the answer, and the attempt does not count.
+ * A head still pending when the wait for its checks runs out is requeued for
+ * the same reason: nothing has failed yet, so there is no output to inform a
+ * retry, and spending one on a slow target CI leaves only escalation.
  * A failure a retry cannot fix (the ticket has no acceptance criteria)
  * escalates at once.
  */
@@ -81,6 +84,8 @@ export const decide = (input: {
   readonly kind: FailureKind;
   readonly escalated?: boolean;
   readonly rateLimited?: boolean;
+  /** Why the head is not judged yet, so no retry can be informed; undefined when it is judged. */
+  readonly stillPending?: string;
   /** Why another implementer run cannot fix this failure; undefined when it might. */
   readonly unretryable?: string;
 }): Decision => {
@@ -89,6 +94,9 @@ export const decide = (input: {
   }
   if (input.rateLimited) {
     return { action: "requeue", reason: "rate limited on every account; not the ticket's failure" };
+  }
+  if (input.stillPending) {
+    return { action: "requeue", reason: input.stillPending };
   }
   if (input.unretryable) {
     return { action: "escalate", reason: input.unretryable };
@@ -202,20 +210,24 @@ export const retryPromptSection = (context: RetryContext | undefined): string =>
   ].join("\n");
 };
 
-/** The comment on a requeued ticket or PR: what happened and what moves it next. */
+/**
+ * The comment on a requeued ticket or PR: what happened and what moves it
+ * next. The reason names the cause, so the heading stays true of every one
+ * of them.
+ */
 export const renderRequeueComment = (input: {
   readonly reason: string;
   readonly runUrl: string;
-  /** The PR path has no dispatcher: a human re-adds the label once quota is back. */
+  /** The PR path has no dispatcher: a human re-adds the label once the cause is gone. */
   readonly onPr: boolean;
 }): string =>
   [
-    "### Rate limited on every account",
+    "### Requeued without spending a retry",
     "",
     `${input.reason}. No retry was spent. Run: ${input.runUrl}`,
     "",
     input.onPr
-      ? "Labeled `agent:blocked`. Re-add `agent:implement` once the accounts have quota again; the retry count is unchanged."
+      ? "Labeled `agent:blocked`. Re-add `agent:implement` once the cause is gone; the retry count is unchanged."
       : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the schedule) once `agent:in-progress` is gone.",
   ].join("\n");
 

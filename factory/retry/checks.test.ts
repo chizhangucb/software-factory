@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { evaluateChecks, renderGateOutput, runIdFromUrl, summariseFailures, unretryableReason } from "./checks";
+import {
+  evaluateChecks,
+  renderGateOutput,
+  runIdFromUrl,
+  stillPendingReason,
+  summariseFailures,
+  unretryableReason,
+} from "./checks";
 
 const own = { workflowName: "factory", runId: "500" };
 
@@ -156,4 +163,25 @@ test("a verdict that failed for want of acceptance criteria is not worth a retry
   assert.match(unretryableReason([gate, noCriteria]) ?? "", /no acceptance criteria/);
   assert.equal(unretryableReason([gate, unmet]), undefined);
   assert.equal(unretryableReason([]), undefined);
+});
+
+test("a head still pending when the wait runs out is not the ticket's failure", () => {
+  const reason = stillPendingReason({ pending: ["check", "factory/red-green"], failures: [] }, 15);
+  assert.match(reason ?? "", /check, factory\/red-green/);
+  assert.match(reason ?? "", /15 minutes/);
+  assert.match(reason ?? "", /not the ticket's failure/);
+});
+
+test("a genuinely failing check outranks a pending one: the retry is spent, with its log", () => {
+  const failure = {
+    name: "check",
+    kind: "ci" as const,
+    description: "failure",
+    url: "https://github.com/o/r/actions/runs/77/job/9",
+  };
+  const state = { pending: ["slow-ci"], failures: [failure] };
+  assert.equal(stillPendingReason(state, 15), undefined);
+  // The failure keeps the url the log excerpt is pulled from.
+  assert.equal(state.failures[0]?.url, "https://github.com/o/r/actions/runs/77/job/9");
+  assert.equal(stillPendingReason({ pending: [], failures: [] }, 15), undefined);
 });

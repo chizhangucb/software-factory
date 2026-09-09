@@ -136,7 +136,10 @@ const verdictOn = (sha: string): VerdictState => {
 const later = (a: string, b: string): string => (Date.parse(a) >= Date.parse(b) ? a : b);
 
 const withMergeState = (pr: PrState, createdAt: string): PrState => {
-  if (!pr.autoMerge || !pr.factory || pr.labels.some((l) => l.startsWith("agent:")) || parked(pr.labels)) return pr;
+  if (!pr.factory || pr.labels.some((l) => l.startsWith("agent:")) || parked(pr.labels)) return pr;
+  // No auto-merge: the reconciler re-arms it (#83) and needs no verdict to decide, only
+  // how long the PR has been open, so this costs no extra read.
+  if (!pr.autoMerge) return { ...pr, headSince: createdAt };
   const verdict = verdictOn(pr.headSha);
   if (verdict === "none") {
     const committed = gh(["api", `repos/${repo}/commits/${pr.headSha}`, "--jq", ".commit.committer.date"]).trim();
@@ -256,6 +259,10 @@ const apply = (d: Decision): void => {
       return;
     case "dispatch":
       gh(["api", "--method", "POST", `repos/${repo}/dispatches`, "-f", `event_type=${action.eventType}`, "-F", `client_payload[pr]=${action.pr}`, "--silent"]);
+      return;
+    case "auto-merge":
+      // The same call the implement workflow's non-fatal step makes, and idempotent.
+      gh(["pr", "merge", String(action.pr), "--repo", repo, "--auto", "--squash"]);
       return;
   }
 };

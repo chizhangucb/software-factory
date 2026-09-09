@@ -14,13 +14,15 @@ on:
     branches: [main] # update-branch: bring stale auto-merge PRs up to date when main moves
   repository_dispatch:
     # factory-update-branch: sent by the review workflow on a passing verdict.
-    # factory-sweep: the dispatcher's sweep, from outside GitHub when its cron does not fire:
+    # factory-sweep: the dispatcher's sweep. Required, not optional. Send it on an interval from
+    # outside GitHub, with a token that has contents write on the target and nothing else:
     #   gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep
     types: [factory-update-branch, factory-sweep]
   schedule:
-    # Dispatcher and reconciler sweep, the fallback for missed events. Each run bills a minute on
-    # a private repo. Off the :00 slots; GitHub delays crons on busy minutes, and on some accounts
-    # skips them for hours: a cron on any machine can send the factory-sweep dispatch above.
+    # Fallback for missed events, not the heartbeat: measured on one private repo over 21 hours
+    # this fired 6 times against about 126 expected, so run the factory-sweep dispatch above and
+    # treat this as belt and braces. Each run bills a minute on a private repo. Off the :00 slots,
+    # since GitHub delays crons on busy minutes.
     - cron: "4,14,24,34,44,54 * * * *"
   workflow_dispatch:
 

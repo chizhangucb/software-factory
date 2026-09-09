@@ -3,7 +3,12 @@
  * fail. Pure functions over the ticket body and the reviewer's structured
  * output; the workflow turns the result into a PR body section and a
  * `factory/verdict` commit status.
+ *
+ * The section's opening marker lives in `factory-pr.ts`, because a body
+ * carrying it is one of the three things that make a PR a factory PR, and
+ * the audit's decide job reads that module on bare strip-types.
  */
+import { VERDICT_SECTION_START } from "./factory-pr.ts";
 
 /** One reviewer judgement as it comes out of the structured output block. */
 export interface CriterionJudgement {
@@ -118,7 +123,7 @@ export const verdictDescription = (verdict: Verdict): string => {
   return `${met}/${total} acceptance criteria met`;
 };
 
-export const SECTION_START = "<!-- factory:verdict -->";
+export const SECTION_START = VERDICT_SECTION_START;
 export const SECTION_END = "<!-- /factory:verdict -->";
 
 const oneLine = (text: string): string => text.replace(/\s*\n\s*/g, " ").trim();

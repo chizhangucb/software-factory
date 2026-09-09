@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { AUDIT_LIMIT, isFactoryPr, planAudit } from "./plan.ts";
+import { AUDIT_LIMIT, planAudit } from "./plan.ts";
 
-test("a factory PR is one on an agent/issue-* branch or one carrying the factory marker", () => {
-  assert.equal(isFactoryPr({ headRef: "agent/issue-12-add-slugify", body: "" }), true);
-  assert.equal(
-    isFactoryPr({ headRef: "fix/typo", body: "Closes #3\n\nImplemented by the software factory. Run: x" }),
-    true,
-  );
-  assert.equal(isFactoryPr({ headRef: "fix/typo", body: "Closes #3" }), false);
-  assert.equal(isFactoryPr({ headRef: "agent/issues", body: "" }), false);
+test("a human PR the factory worked on is audited and counted", () => {
+  const body = "Fixes the flaky login test.\n\n<!-- factory:verdict -->\n## Verdict: pass\n<!-- /factory:verdict -->";
+  assert.deepEqual(planAudit({ audited: 4, merged: true, headRef: "chi/flaky-login", body }), {
+    audit: true,
+    next: 5,
+    reason: "merged factory PR 5 of the first 20",
+  });
 });
 
 test("the first 20 merged factory PRs are audited, the counter advancing each time", () => {

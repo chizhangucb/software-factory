@@ -2,19 +2,18 @@
  * Whether a closed PR gets the first-20 audit (#18, ADR 0003). Pure: the
  * workflow reads the counter from the target's factory state (state.sh:
  * .factory/state.json on the factory-state branch), asks this, and writes
- * `next` back. No
- * imports, so the decision step runs on `node --experimental-strip-types`
- * with no install, like the dispatcher.
+ * `next` back.
+ *
+ * What counts as a factory PR is `factory/lib/factory-pr.ts`, the one
+ * definition the reconciler reads too (#57 proposal 5). That module imports
+ * nothing and this one imports only it, with an explicit `.ts` specifier, so
+ * the decision step still runs on `node --experimental-strip-types` with no
+ * install, like the dispatcher. The audit workflow's sparse-checkout cone
+ * lists it.
  */
+import { isFactoryPr } from "../lib/factory-pr.ts";
 
 export const AUDIT_LIMIT = 20;
-
-/** Branch prefix agent-implement.yml uses, and the body line it writes. Either marks a factory PR. */
-export const FACTORY_BRANCH_PREFIX = "agent/issue-";
-export const FACTORY_BODY_MARKER = "Implemented by the software factory";
-
-export const isFactoryPr = (pr: { readonly headRef: string; readonly body: string }): boolean =>
-  pr.headRef.startsWith(FACTORY_BRANCH_PREFIX) || pr.body.includes(FACTORY_BODY_MARKER);
 
 export interface AuditPlanInput {
   /** Merged factory PRs audited so far, from factory state. */

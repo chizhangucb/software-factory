@@ -31,6 +31,7 @@
  * Imports use explicit `.ts` so the job can run on bare
  * `node --experimental-strip-types` without installing the engine.
  */
+import { isFactoryPr } from "../lib/factory-pr.ts";
 import { agentLabels, ESCALATION_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { escalationLabels } from "../retry/escalation.ts";
 import { issuesClosedByPrs } from "./select.ts";
@@ -92,7 +93,7 @@ export type PrState = {
   headSha: string;
   labels: readonly string[];
   autoMerge: boolean;
-  /** Opened by the factory: an agent/ branch or the implementer's PR body. */
+  /** Opened by the factory, or worked on by it: `factory/lib/factory-pr.ts`. */
   factory: boolean;
   /** The ticket the body closes, when it names one. */
   closes: number | undefined;
@@ -380,8 +381,6 @@ export const ticketFromGitHub = (raw: Record<string, any>): TicketState => ({
   marks: [],
 });
 
-const FACTORY_BODY = /Implemented by the software factory/;
-
 /** From `gh pr list --json number,title,headRefName,headRefOid,labels,autoMergeRequest,body`. */
 export const prFromGitHub = (raw: Record<string, any>): PrState => {
   const headRef = String(raw.headRefName ?? "");
@@ -393,7 +392,7 @@ export const prFromGitHub = (raw: Record<string, any>): PrState => {
     headSha: String(raw.headRefOid ?? ""),
     labels: (raw.labels ?? []).map((l: { name: string }) => l.name),
     autoMerge: raw.autoMergeRequest !== null && raw.autoMergeRequest !== undefined,
-    factory: headRef.startsWith("agent/") || FACTORY_BODY.test(body),
+    factory: isFactoryPr({ headRef, body }),
     closes: [...issuesClosedByPrs([{ number: Number(raw.number), body }])][0],
     stateSince: undefined,
     marks: [],

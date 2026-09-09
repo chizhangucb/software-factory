@@ -51,7 +51,12 @@ echo "repo: auto-merge allowed, branches deleted on merge"
 # force pushes. Repository admins bypass, so a human can still push the caller workflow;
 # auto-merge never bypasses, it waits for the checks. Create once, update on later runs.
 default_branch=$(gh api "repos/$repo" --jq .default_branch)
-checks=$(jq -cn '[$ARGS.positional[] | {context: .}]' --args factory/verdict factory/red-green factory/test-integrity "$@")
+# Empty arguments name no check, and a name handed back twice is still one check; both would
+# otherwise reach GitHub as a bogus context in the ruleset, so drop them here. First mention
+# wins, which keeps the factory's three at the front.
+checks=$(jq -cn '[$ARGS.positional[] | select(. != "")]
+  | reduce .[] as $c ([]; if index($c) then . else . + [$c] end)
+  | map({context: .})' --args factory/verdict factory/red-green factory/test-integrity "$@")
 # Counted off the ruleset rather than off the argument list, because the thing worth warning
 # about is a ruleset with nothing in it but the factory's checks. A `factory/` name handed
 # back as an own check is one of ours, and an empty argument names no check at all.

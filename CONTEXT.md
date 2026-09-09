@@ -77,6 +77,10 @@ The daily Telegram message listing merges, escalations, and audit findings. The 
 **Dispatcher**:
 The step that moves a ticket into the factory once its blockers close. Bridges the human intent label to the factory's state labels.
 
+**Heartbeat**:
+The `factory-sweep` dispatch sent to a target on an interval from outside GitHub, because the caller's own `schedule` does not reliably fire. It is what actually drives the dispatcher's sweep and the reconciler, so it is required and the `schedule` is the fallback, not the other way round. One sender covers any number of targets.
+_Avoid_: cron (GitHub's word for the `schedule` trigger), the sweep (what the heartbeat triggers, not the heartbeat itself).
+
 **Trusted author**:
 Whoever the factory will take instructions from, by GitHub's `author_association`. A ticket body is what the implementer executes, and a PR comment is what the reviewer and implement-pr read, so on a public target the dispatcher runs only tickets written by a trusted author, and every agent reads only trusted authors' comments, review threads and linked-ticket comments, with a count in place of what was dropped. Default: the repo owner alone.
 _Avoid_: allowlist, whitelist.

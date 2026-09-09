@@ -3,18 +3,20 @@ import { test } from "node:test";
 
 import {
   DEFAULT_DEADLINES,
+  type CancelCause,
   type Decision,
   type PrState,
   type Run,
   type Snapshot,
+  type SweepMark,
   type TicketState,
+  cancelCauseFromJobs,
   marksFromTimeline,
   prFromGitHub,
   reconcile,
   roleFromJobs,
   runFromGitHub,
   runsFor,
-  slotCancelFromJobs,
   stateSinceFromTimeline,
   ticketFromGitHub,
 } from "./reconcile.ts";
@@ -95,8 +97,8 @@ test("a ticket in agent:in-progress with no run past the deadline is re-dispatch
   assert.deepEqual(d.action.type === "relabel" && d.action.remove, ["agent:in-progress"]);
   assert.equal(d.action.type === "relabel" && d.action.add, "agent:implement");
   assert.equal(d.action.type === "relabel" && d.action.miss, 1);
-  assert.match(d.log, /#1 \(issue\) agent:in-progress since .*20 min ago, deadline 15 min, no implement run: re-add agent:implement \(miss 1\)/);
-  assert.match(d.comment ?? "", /^<!-- factory:sweep miss=1 -->/);
+  assert.match(d.log, /#1 \(issue\) agent:in-progress since .*20 min ago, deadline 15 min, no implement run: re-add agent:implement \(miss 1, re-dispatch 1 of 2\)/);
+  assert.match(d.comment ?? "", /^<!-- factory:sweep miss=1 tries=1 -->/);
 });
 
 test("a ticket in agent:implement with no run past the deadline gets the label removed and added again so the event fires", () => {
@@ -105,7 +107,7 @@ test("a ticket in agent:implement with no run past the deadline gets the label r
 });
 
 test("the second miss on the same stranding escalates to needs-human with a comment, and the ticket is left carrying it alone", () => {
-  const stranded = ticket(1, { stateSince: minutesAgo(20), marks: [{ miss: 1, at: minutesAgo(19) }] });
+  const stranded = ticket(1, { stateSince: minutesAgo(20), marks: [{ miss: 1, tries: 1, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ issues: [stranded] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type, "escalate");
   assert.equal(d.action.type === "escalate" && d.action.add, "needs-human");
@@ -117,7 +119,7 @@ test("the second miss on the same stranding escalates to needs-human with a comm
 });
 
 test("a mark from an older stranding does not count: the label was re-applied after it", () => {
-  const stranded = ticket(1, { stateSince: minutesAgo(20), marks: [{ miss: 1, at: minutesAgo(200) }] });
+  const stranded = ticket(1, { stateSince: minutesAgo(20), marks: [{ miss: 1, tries: 1, at: minutesAgo(200) }] });
   const d = only(reconcile(snapshot({ issues: [stranded] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type, "relabel");
   assert.equal(d.action.type === "relabel" && d.action.miss, 1);
@@ -164,39 +166,72 @@ test("a run whose jobs could not be read is treated as covering while live", () 
 });
 
 test("a ticket whose only run was cancelled by slot contention is re-dispatched without spending a miss", () => {
-  const cancelled = run(100, { conclusion: "cancelled", slotCancel: true, createdAt: minutesAgo(19) });
-  const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks: [{ miss: 1, at: minutesAgo(19) }] });
+  const cancelled = run(100, { conclusion: "cancelled", cancelledBy: "slot", createdAt: minutesAgo(19) });
+  const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks: [{ miss: 1, tries: 1, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ issues: [stranded], runs: [cancelled] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type, "relabel");
   assert.equal(d.action.type === "relabel" && d.action.miss, 1);
   assert.match(d.log, /run 100 cancelled by slot contention/);
 });
 
-test("a ticket cancelled by slot contention over and over stops re-dispatching and escalates: the re-dispatch loop is capped at the same two attempts a miss gets", () => {
-  const cancelled = run(100, { conclusion: "cancelled", slotCancel: true, createdAt: minutesAgo(19) });
-  const marked = (marks: { miss: number; at: string }[]) =>
-    only(reconcile(snapshot({ issues: [ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks })], runs: [cancelled] }), DEFAULT_DEADLINES));
+/**
+ * One stranding swept until the reconciler stops re-dispatching. Each sweep
+ * feeds back what the last one left on the subject: the relabel re-applies
+ * the state label, so `stateSince` moves to the sweep that wrote it, and the
+ * mark comes back through `marksFromTimeline` exactly as `sweep.ts` reads it.
+ * The relabel moving `stateSince` is why the counts have to be carried in the
+ * marker's value; counting markers instead only ever finds the last one.
+ */
+const sweepUntilItStops = (cancelledBy: CancelCause | undefined, limit = 6): Decision[] => {
+  const decisions: Decision[] = [];
+  let since = Date.parse(NOW);
+  let marks: readonly SweepMark[] = [];
+  for (let i = 0; i < limit; i++) {
+    const now = since + 20 * 60_000;
+    const cancelled = run(100 + i, {
+      conclusion: "cancelled",
+      cancelledBy,
+      createdAt: new Date(since + 60_000).toISOString(),
+      updatedAt: new Date(since + 60_000).toISOString(),
+    });
+    const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"], stateSince: new Date(since).toISOString(), marks });
+    const d = only(reconcile({ now: new Date(now).toISOString(), base: "main", issues: [stranded], prs: [], runs: [cancelled] }, DEFAULT_DEADLINES));
+    decisions.push(d);
+    if (d.action.type !== "relabel") break;
+    since = now;
+    marks = marksFromTimeline([{ event: "commented", body: d.comment ?? "", created_at: new Date(now).toISOString() }]);
+  }
+  return decisions;
+};
 
-  const second = marked([{ miss: 0, at: minutesAgo(18) }]);
-  assert.equal(second.action.type, "relabel");
-  assert.equal(second.action.type === "relabel" && second.action.miss, 0);
-  assert.match(second.comment ?? "", /Re-dispatch 2 of 2/);
+test("a ticket cancelled by slot contention every sweep stops re-dispatching and escalates: the loop is capped at the same two attempts a miss gets", () => {
+  const ds = sweepUntilItStops("slot");
+  assert.deepEqual(ds.map((d) => d.action.type), ["relabel", "relabel", "escalate"]);
+  // Not one of the two re-dispatches was counted as a miss.
+  assert.deepEqual(ds.slice(0, 2).map((d) => (d.action.type === "relabel" ? d.action.miss : -1)), [0, 0]);
+  assert.match(ds[0]!.comment ?? "", /^<!-- factory:sweep miss=0 tries=1 -->/);
+  assert.match(ds[0]!.comment ?? "", /Re-dispatch 1 of 2 on this stranding/);
+  assert.match(ds[1]!.comment ?? "", /^<!-- factory:sweep miss=0 tries=2 -->/);
+  assert.match(ds[2]!.log, /run 102 cancelled by slot contention, 2 re-dispatches: escalate to needs-human/);
+  assert.match(ds[2]!.comment ?? "", /The same after 2 re-dispatches/);
+});
 
-  const third = marked([{ miss: 0, at: minutesAgo(18) }, { miss: 0, at: minutesAgo(17) }]);
-  assert.equal(third.action.type, "escalate");
-  assert.match(third.log, /run 100 cancelled by slot contention, re-dispatched 2 times: escalate to needs-human/);
-  assert.match(third.comment ?? "", /The same after 2 re-dispatches/);
+test("a lost event still escalates on the second miss, one sweep before the re-dispatch cap", () => {
+  const ds = sweepUntilItStops("other");
+  assert.deepEqual(ds.map((d) => d.action.type), ["relabel", "escalate"]);
+  assert.match(ds[0]!.comment ?? "", /^<!-- factory:sweep miss=1 tries=1 -->/);
+  assert.match(ds[1]!.log, /second miss: escalate to needs-human/);
 });
 
 test("re-dispatches from an older stranding do not use up the cap", () => {
-  const cancelled = run(100, { conclusion: "cancelled", slotCancel: true, createdAt: minutesAgo(19) });
-  const old = ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks: [{ miss: 0, at: minutesAgo(200) }, { miss: 0, at: minutesAgo(199) }] });
+  const cancelled = run(100, { conclusion: "cancelled", cancelledBy: "slot", createdAt: minutesAgo(19) });
+  const old = ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks: [{ miss: 0, tries: 2, at: minutesAgo(200) }] });
   const d = only(reconcile(snapshot({ issues: [old], runs: [cancelled] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type, "relabel");
 });
 
 test("a run cancelled for any other reason counts as a miss: a cancel is not slot contention by its conclusion alone", () => {
-  const cancelled = run(100, { conclusion: "cancelled", slotCancel: false, createdAt: minutesAgo(19) });
+  const cancelled = run(100, { conclusion: "cancelled", cancelledBy: "other", createdAt: minutesAgo(19) });
   const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"] });
   const d = only(reconcile(snapshot({ issues: [stranded], runs: [cancelled] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type, "relabel");
@@ -206,11 +241,17 @@ test("a run cancelled for any other reason counts as a miss: a cancel is not slo
 });
 
 test("a cancelled run whose jobs could not be read counts as a miss: unknown is not assumed to be contention", () => {
-  const cancelled = run(100, { conclusion: "cancelled", slotCancel: undefined, createdAt: minutesAgo(19) });
+  const cancelled = run(100, { conclusion: "cancelled", cancelledBy: undefined, createdAt: minutesAgo(19) });
   const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"] });
   const d = only(reconcile(snapshot({ issues: [stranded], runs: [cancelled] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type === "relabel" && d.action.miss, 1);
   assert.match(d.log, /run 100 cancelled, jobs not read/);
+});
+
+test("a marker written before tries existed reads its miss value as the try count", () => {
+  assert.deepEqual(marksFromTimeline([{ event: "commented", body: "<!-- factory:sweep miss=1 -->\nReconciler: ...", created_at: NOW }]), [
+    { miss: 1, tries: 1, at: NOW },
+  ]);
 });
 
 test("a completed run that left the label behind counts as a miss", () => {
@@ -248,7 +289,7 @@ test("a PR carrying agent:review with no review run past the deadline gets the l
   const d = only(reconcile(snapshot({ prs: [stuck] }), DEFAULT_DEADLINES));
   assert.deepEqual(d.subject, { kind: "pr", number: 11 });
   assert.deepEqual(d.action, { type: "relabel", remove: ["agent:review"], add: "agent:review", miss: 1 });
-  assert.match(d.log, /#11 \(pr\) agent:review since .*no review run: re-add agent:review \(miss 1\)/);
+  assert.match(d.log, /#11 \(pr\) agent:review since .*no review run: re-add agent:review \(miss 1, re-dispatch 1 of 2\)/);
 });
 
 test("a live review run on the PR's head branch covers it; one on another branch does not", () => {
@@ -260,7 +301,7 @@ test("a live review run on the PR's head branch covers it; one on another branch
 });
 
 test("a PR's second miss escalates the PR and names the ticket to park with it", () => {
-  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(20), marks: [{ miss: 1, at: minutesAgo(19) }] });
+  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(20), marks: [{ miss: 1, tries: 1, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ prs: [stuck] }), DEFAULT_DEADLINES));
   assert.equal(d.action.type, "escalate");
   // The PR carries no ready-for-agent of its own, so only its agent:* labels go.
@@ -361,17 +402,19 @@ test("roleFromJobs reads the called job's name and ignores skipped caller jobs",
   assert.equal(roleFromJobs([{ name: "update-branch / update", conclusion: "success" }]), "update-branch");
 });
 
-test("slotCancelFromJobs names the slot cancel by job name: the slot job finished and the job the group holds is the cancelled one", () => {
-  assert.equal(slotCancelFromJobs([{ name: "implement / slot", conclusion: "success" }, { name: "implement / implement", conclusion: "cancelled" }]), true);
-  assert.equal(slotCancelFromJobs([{ name: "review / refuse-fork", conclusion: "success" }, { name: "review / slot", conclusion: "success" }, { name: "review / review", conclusion: "cancelled" }]), true);
-  // Cancelled before the group was ever entered: a maintainer's cancel or a superseded push, not contention.
-  assert.equal(slotCancelFromJobs([{ name: "implement / slot", conclusion: "cancelled" }, { name: "implement / implement", conclusion: "cancelled" }]), false);
+test("cancelCauseFromJobs names the slot cancel by job name: the picker job finished and the job the group holds is the cancelled one", () => {
+  assert.equal(cancelCauseFromJobs([{ name: "implement / slot", conclusion: "success" }, { name: "implement / implement", conclusion: "cancelled" }]), "slot");
+  assert.equal(cancelCauseFromJobs([{ name: "review / refuse-fork", conclusion: "success" }, { name: "review / slot", conclusion: "success" }, { name: "review / review", conclusion: "cancelled" }]), "slot");
+  // The audit's picker is named decide, not slot.
+  assert.equal(cancelCauseFromJobs([{ name: "audit / decide", conclusion: "success" }, { name: "audit / audit", conclusion: "cancelled" }]), "slot");
+  // Cancelled before the group was ever entered: a superseded push or a cancel from outside, not contention.
+  assert.equal(cancelCauseFromJobs([{ name: "implement / slot", conclusion: "cancelled" }, { name: "implement / implement", conclusion: "cancelled" }]), "other");
   // The cancelled job is not one the slot group holds.
-  assert.equal(slotCancelFromJobs([{ name: "update-branch / update", conclusion: "cancelled" }]), false);
-  assert.equal(slotCancelFromJobs([{ name: "implement / slot", conclusion: "success" }, { name: "implement / implement", conclusion: "failure" }]), false);
+  assert.equal(cancelCauseFromJobs([{ name: "update-branch / update", conclusion: "cancelled" }]), "other");
+  assert.equal(cancelCauseFromJobs([{ name: "implement / slot", conclusion: "success" }, { name: "implement / implement", conclusion: "failure" }]), "other");
   // A caller job with no called part is the caller's own skipped job, never the held one.
-  assert.equal(slotCancelFromJobs([{ name: "implement", conclusion: "cancelled" }]), false);
-  assert.equal(slotCancelFromJobs([]), false);
+  assert.equal(cancelCauseFromJobs([{ name: "implement", conclusion: "cancelled" }]), "other");
+  assert.equal(cancelCauseFromJobs([]), "other");
 });
 
 test("runFromGitHub maps the REST run shape", () => {
@@ -408,5 +451,5 @@ test("stateSinceFromTimeline finds the latest labeled event; marksFromTimeline r
   ];
   assert.equal(stateSinceFromTimeline(timeline, "agent:implement"), "2026-09-07T11:00:00Z");
   assert.equal(stateSinceFromTimeline(timeline, "agent:review"), undefined);
-  assert.deepEqual(marksFromTimeline(timeline), [{ miss: 1, at: "2026-09-07T10:02:00Z" }]);
+  assert.deepEqual(marksFromTimeline(timeline), [{ miss: 1, tries: 1, at: "2026-09-07T10:02:00Z" }]);
 });

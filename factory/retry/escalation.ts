@@ -4,8 +4,9 @@
  *
  * Two paths escalate. The retry handler does it when the retry fails too,
  * and the reconciler (#35) does it when the event that starts a run is lost
- * twice. A human reading a parked ticket cannot tell which one did it, so
- * both ask here and a parked ticket looks the same either way.
+ * twice, or when re-dispatching has hit its cap without the run ever
+ * getting started. A human reading a parked ticket cannot tell which one did
+ * it, so both ask here and a parked ticket looks the same either way.
  *
  * Imports use explicit `.ts` so the dispatch job can run this on bare `node
  * --experimental-strip-types` without installing the engine.

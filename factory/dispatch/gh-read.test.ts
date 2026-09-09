@@ -45,7 +45,7 @@ test("issues projection keeps number, title, labels, and whether the issue is a 
 test("timeline projection keeps label events and the sweep mark at the head of a comment", () => {
   const events = project("timeline", "timeline");
   assert.equal(stateSinceFromTimeline(events, "agent:implement"), "2026-09-07T19:20:00Z");
-  assert.deepEqual(marksFromTimeline(events), [{ miss: 1, at: "2026-09-07T19:10:00Z" }]);
+  assert.deepEqual(marksFromTimeline(events), [{ miss: 1, tries: 1, at: "2026-09-07T19:10:00Z" }]);
   for (const e of events) assert.ok((e.body ?? "").length <= 64, "comment bodies are cut to the mark's width");
 });
 

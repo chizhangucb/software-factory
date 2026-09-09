@@ -19,7 +19,7 @@
 export const PROJECTIONS = {
   runs: ".workflow_runs[] | {id, event, display_title, head_branch, status, conclusion, created_at, updated_at}",
   issues: ".[] | {number, title, pull_request: (.pull_request != null), labels: [.labels[] | {name}]}",
-  /** The sweep mark sits at the head of a comment; 64 chars cover `<!-- factory:sweep miss=n -->`. */
+  /** The sweep mark sits at the head of a comment; 64 chars cover `<!-- factory:sweep miss=n tries=m -->`. */
   timeline: ".[] | {event, created_at, label: (if .label == null then null else {name: .label.name} end), body: ((.body // \"\") | .[0:64])}",
   jobs: ".jobs[] | {name, conclusion}",
 } as const;

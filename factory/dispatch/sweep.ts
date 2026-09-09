@@ -42,13 +42,13 @@ import {
   type TicketState,
   type VerdictState,
   PARKED_LABELS,
+  cancelCauseFromJobs,
   marksFromTimeline,
   prFromGitHub,
   reconcile,
   roleFromJobs,
   runFromGitHub,
   runsFor,
-  slotCancelFromJobs,
   stateSinceFromTimeline,
   ticketFromGitHub,
 } from "./reconcile.ts";
@@ -183,7 +183,7 @@ const readRuns = (issues: readonly TicketState[], prs: readonly PrState[]): Run[
         // A cancel is ambiguous from the conclusion alone (a superseded push
         // reads as CANCELLED too), so the job names say whether the slot
         // group cancelled it (#17).
-        if (run.conclusion === "cancelled") run.slotCancel = slotCancelFromJobs(jobs);
+        if (run.conclusion === "cancelled") run.cancelledBy = cancelCauseFromJobs(jobs);
       } catch (error) {
         console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live, and any cancel on it as a miss: ${error instanceof Error ? error.message : String(error)}`);
       }

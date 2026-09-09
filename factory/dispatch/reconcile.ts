@@ -12,8 +12,9 @@
  * Stuck states and repairs:
  * - ticket in agent:implement or agent:in-progress with no live implement
  *   run: re-add agent:implement (remove then add, so the event fires);
- *   second miss on the same stranding escalates to needs-human. Escalation
- *   here leaves the same labels as the retry handler's (#50,
+ *   second miss on the same stranding, or MAX_MISSES re-dispatches on it
+ *   whatever the cause, escalates to needs-human. Escalation here leaves the
+ *   same labels as the retry handler's (#50,
  *   `factory/retry/escalation.ts`): needs-human alone.
  * - PR in agent:review (or agent:implement, agent:in-progress) with no live
  *   review (implement-pr) run: same, with agent:review.
@@ -27,12 +28,15 @@
  * reads as `CANCELLED` too, and treating every cancel as contention is what
  * re-dispatched such a ticket forever.
  *
- * Miss count lives in a marker comment on the subject, `<!-- factory:sweep
- * miss=<n> -->`, read back from the timeline; a marker older than the
- * current state label belongs to an earlier stranding and does not count.
- * One marker is one re-dispatch, so the markers cap the loop as well as
- * count the misses: MAX_MISSES re-dispatches on one stranding is the end of
- * it, whether or not they were counted as misses.
+ * Both counts live in a marker comment on the subject, `<!-- factory:sweep
+ * miss=<n> tries=<m> -->`, read back from the timeline: misses, and
+ * re-dispatches whatever their cause. Each count is carried in the marker's
+ * value rather than by counting markers, because a re-dispatch re-applies
+ * the state label and every earlier marker then belongs to an earlier
+ * stranding and stops counting. `tries` is what caps the loop: MAX_MISSES
+ * re-dispatches on one stranding is the end of it, so a run cancelled every
+ * time escalates instead of being re-dispatched forever. A marker written
+ * before `tries` existed reads its `miss` value as the try count.
  *
  * Imports use explicit `.ts` so the job can run on bare
  * `node --experimental-strip-types` without installing the engine.
@@ -56,13 +60,17 @@ export const DEFAULT_DEADLINES: Deadlines = { stuckMinutes: 15, verdictMinutes: 
 export { ESCALATION_LABEL };
 export const PARKED_LABELS = ["agent:blocked", ESCALATION_LABEL] as const;
 export const UPDATE_BRANCH_EVENT = "factory-update-branch";
-export const SWEEP_MARK = /^<!-- factory:sweep miss=(\d+) -->/;
+export const SWEEP_MARK = /^<!-- factory:sweep miss=(\d+)(?: tries=(\d+))? -->/;
 
 /** Label timestamps and run timestamps are written by different actors; this much skew is noise. */
 const SLACK_MS = 2 * 60_000;
+/** Misses before escalating, and the cap on re-dispatches of any cause on one stranding. */
 const MAX_MISSES = 2;
 
 export type RunRole = "implement" | "review" | "implement-pr" | "dispatch" | "update-branch" | "gate" | "audit" | "none";
+
+/** What cancelled a run: the per-account slot group (#17), or anything else. */
+export type CancelCause = "slot" | "other";
 
 export type Run = {
   id: number;
@@ -78,15 +86,21 @@ export type Run = {
   /** From the run's job names; undefined when the jobs were not read (treated as covering while live). */
   role?: RunRole;
   /**
-   * For a cancelled run: whether the cancel came from the slot group (#17),
-   * read from the job names. Undefined when the jobs were not read, which
-   * counts as a miss rather than as contention: a cancel that keeps being
-   * mistaken for contention is the loop this field exists to end.
+   * For a cancelled run: what cancelled it, read from the job names.
+   * Undefined when the jobs were not read, which counts as a miss rather
+   * than as contention: a cancel that keeps being mistaken for contention is
+   * the loop this field exists to end.
    */
-  slotCancel?: boolean;
+  cancelledBy?: CancelCause;
 };
 
-export type SweepMark = { miss: number; at: string };
+export type SweepMark = {
+  /** Lost events on this stranding so far. */
+  miss: number;
+  /** Re-dispatches on this stranding so far, whatever their cause. */
+  tries: number;
+  at: string;
+};
 
 export type TicketState = {
   number: number;
@@ -179,12 +193,19 @@ type StuckInput = {
   ticket?: number;
 };
 
-const markComment = (input: StuckInput, cause: string, miss: number, counted: boolean, attempts: number, deadline: number, url?: string): string => {
+/** How each cancel cause reads in a decision's log line; `unread` is a cancel whose jobs the sweep could not read. */
+const CANCEL_CAUSES: Record<CancelCause | "unread", string> = {
+  slot: " by slot contention",
+  other: ", not by slot contention",
+  unread: ", jobs not read",
+};
+
+const markComment = (input: StuckInput, cause: string, miss: number, counted: boolean, tries: number, deadline: number, url?: string): string => {
   const count = counted
     ? `Miss ${miss} of ${MAX_MISSES}: a second miss escalates to \`${ESCALATION_LABEL}\`.`
-    : `Not counted as a miss (slot contention, not a lost event); the count stays at ${miss}. Re-dispatch ${attempts} of ${MAX_MISSES}: the next one escalates to \`${ESCALATION_LABEL}\` instead.`;
+    : `Not counted as a miss (slot contention, not a lost event); the count stays at ${miss}. Re-dispatch ${tries} of ${MAX_MISSES} on this stranding; after ${MAX_MISSES} the reconciler escalates to \`${ESCALATION_LABEL}\` instead of re-dispatching again.`;
   return [
-    `<!-- factory:sweep miss=${miss} -->`,
+    `<!-- factory:sweep miss=${miss} tries=${tries} -->`,
     `Reconciler: \`${input.state}\` since ${input.since ?? "an unknown time"}, ${cause} after the ${deadline} min deadline. Re-added \`${input.add}\`. ${count}`,
     url ? `\nSweep: ${url}` : "",
   ].join("\n");
@@ -230,10 +251,8 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
   } else if (latest.conclusion === "cancelled") {
     // A cancel is ambiguous from the conclusion alone: a superseded push reads
     // as CANCELLED too. Only the slot group's shape makes it contention (#17).
-    counted = latest.slotCancel !== true;
-    cause = latest.slotCancel === true
-      ? `run ${latest.id} cancelled by slot contention`
-      : `run ${latest.id} cancelled, ${latest.slotCancel === undefined ? "jobs not read" : "not by slot contention"}`;
+    counted = latest.cancelledBy !== "slot";
+    cause = `run ${latest.id} cancelled${CANCEL_CAUSES[latest.cancelledBy ?? "unread"]}`;
   } else {
     const endedAgo = minutesSince(now, latest.updatedAt);
     if (endedAgo < deadline) return none(`run ${latest.id} ended ${latest.conclusion} ${endedAgo} min ago, settling`);
@@ -242,18 +261,18 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
   }
 
   const onThisStranding = input.marks.filter((m) => sinceMs === undefined || Date.parse(m.at) >= sinceMs - SLACK_MS);
-  const previous = onThisStranding.reduce((max, m) => Math.max(max, m.miss), 0);
-  // Every mark is one re-dispatch, so the marks already cap the loop: an
-  // uncounted cause never raises the miss count, and without this it would
-  // re-dispatch a slot-contended ticket forever. The cap is MAX_MISSES, the
-  // same budget a lost event gets; nothing new is configured.
-  const attempts = onThisStranding.length;
-  if (counted ? previous >= MAX_MISSES - 1 : attempts >= MAX_MISSES) {
+  const previousMisses = onThisStranding.reduce((max, m) => Math.max(max, m.miss), 0);
+  const previousTries = onThisStranding.reduce((max, m) => Math.max(max, m.tries), 0);
+  // Two ways to give up, one budget. A second lost event is the old one. The
+  // other is the cap: MAX_MISSES re-dispatches on one stranding, whatever
+  // their cause, so a run cancelled every time cannot loop forever.
+  const lostTwice = counted && previousMisses >= MAX_MISSES - 1;
+  if (lostTwice || previousTries >= MAX_MISSES) {
     const escalation = escalationLabels(input.labels);
-    const why = counted ? "second miss" : `re-dispatched ${attempts} times`;
-    const gaveUp = counted
+    const why = lostTwice ? "second miss" : `${previousTries} re-dispatches`;
+    const gaveUp = lostTwice
       ? "The same after it was re-dispatched once. The event that starts the run was lost twice."
-      : `The same after ${attempts} re-dispatches, so re-dispatching is not getting it started.`;
+      : `The same after ${previousTries} re-dispatches, so re-dispatching is not getting it started.`;
     return {
       subject: input.subject,
       action: { type: "escalate", remove: escalation.remove, add: escalation.add, ticket: input.ticket },
@@ -261,12 +280,13 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
       comment: escalationComment(input, escalation.remove, cause, gaveUp, deadline, snap.sweepUrl),
     };
   }
-  const miss = counted ? previous + 1 : previous;
+  const miss = counted ? previousMisses + 1 : previousMisses;
+  const tries = previousTries + 1;
   return {
     subject: input.subject,
     action: { type: "relabel", remove: agentLabels(input.labels), add: input.add, miss },
-    log: `${head}, ${cause}: re-add ${input.add} (miss ${miss})`,
-    comment: markComment(input, cause, miss, counted, attempts + 1, deadline, snap.sweepUrl),
+    log: `${head}, ${cause}: re-add ${input.add} (miss ${miss}, re-dispatch ${tries} of ${MAX_MISSES})`,
+    comment: markComment(input, cause, miss, counted, tries, deadline, snap.sweepUrl),
   };
 };
 
@@ -392,34 +412,37 @@ export const roleFromJobs = (jobs: readonly { name: string; conclusion: string |
   return "none";
 };
 
-/** The job that picks the slot index, ahead of the group (#17). */
-const SLOT_JOB = "slot";
-/** The jobs the `account-slot-<n>` group holds, by their name in the called workflow (#17). */
-const SLOT_HELD_JOBS: readonly string[] = ["implement", "review", "implement-pr"];
+/** The jobs that pick a slot index, ahead of the group: `slot` everywhere, `decide` in the audit (#17). */
+export const SLOT_PICKER_JOBS = ["slot", "decide"] as const;
+/** The roles whose job the `account-slot-<n>` group holds; the job's name is the role's (#17). */
+export const SLOT_HELD_ROLES: readonly RunRole[] = ["implement", "review", "implement-pr", "audit"];
 
 /**
- * Whether a cancelled run was cancelled by slot contention (#17), from its
- * job names: the slot job finished, and the job the `account-slot-<n>` group
- * holds is the one that was cancelled. That is the shape of a third run
- * arriving for a full slot, which cancels the older pending one.
+ * What cancelled a run, from its job names: the slot group (#17) when the
+ * picker job finished and the job the `account-slot-<n>` group holds is the
+ * one that was cancelled. That is the shape of a third run arriving for a
+ * full slot, which cancels the older pending one.
  *
- * A cancel anywhere else is not contention: a superseded push, or a cancel
- * before the group was entered, leaves the slot job unfinished or a
- * different job cancelled. Every one of them reads as `CANCELLED` on the
- * run, which is why the conclusion alone cannot tell them apart. A cancel of
- * a run already inside the group looks the same as contention from the job
- * names; the re-dispatch cap in `decideStuck` is what stops that one looping.
+ * A cancel anywhere else is `other`: a superseded push, or a cancel before
+ * the group was entered, leaves the picker unfinished or a different job
+ * cancelled. Every one of them reads as `CANCELLED` on the run, which is why
+ * the conclusion alone cannot tell them apart. A cancel of a run already
+ * inside the group does read as `slot`; the re-dispatch cap in `decideStuck`
+ * is what stops that one looping.
+ *
+ * `workflow-names.test.ts` reads the workflows and holds the two lists above
+ * to what the files actually declare, so a renamed job cannot drift them.
  */
-export const slotCancelFromJobs = (jobs: readonly { name: string; conclusion: string | null }[]): boolean => {
-  let entered = false;
+export const cancelCauseFromJobs = (jobs: readonly { name: string; conclusion: string | null }[]): CancelCause => {
+  let picked = false;
   let held = false;
   for (const job of jobs) {
     const called = calledJob(job.name);
     if (called === undefined) continue;
-    if (called === SLOT_JOB && job.conclusion === "success") entered = true;
-    if (SLOT_HELD_JOBS.includes(called) && job.conclusion === "cancelled") held = true;
+    if (SLOT_PICKER_JOBS.some((j) => j === called) && job.conclusion === "success") picked = true;
+    if (SLOT_HELD_ROLES.some((role) => role === JOB_ROLES[called]) && job.conclusion === "cancelled") held = true;
   }
-  return entered && held;
+  return picked && held ? "slot" : "other";
 };
 
 export const runFromGitHub = (raw: Record<string, any>): Run => ({
@@ -475,7 +498,9 @@ export const marksFromTimeline = (events: readonly TimelineEvent[]): SweepMark[]
   for (const e of events) {
     if (e.event !== "commented" || !e.created_at) continue;
     const match = (e.body ?? "").match(SWEEP_MARK);
-    if (match) marks.push({ miss: Number(match[1]), at: e.created_at });
+    // A marker written before `tries` existed only ever counted misses, and
+    // each of those was a re-dispatch, so its miss value is the try count.
+    if (match) marks.push({ miss: Number(match[1]), tries: Number(match[2] ?? match[1]), at: e.created_at });
   }
   return marks;
 };

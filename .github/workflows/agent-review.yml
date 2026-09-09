@@ -21,7 +21,7 @@ on:
         type: number
         default: 5
       checks_timeout_minutes:
-        description: How long the retry handler waits after the verdict for the head's gate and CI to settle; a check still pending then counts as failed.
+        description: How long the retry handler waits after the verdict for the head's gate and CI to settle; a check still pending then is requeued, not failed.
         type: number
         default: 15
       trusted_author_associations:

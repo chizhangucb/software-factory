@@ -114,6 +114,20 @@ export const unretryableReason = (failures: readonly CheckFailure[]): string | u
     ? `the ticket has no acceptance criteria (${NO_CRITERIA_DESCRIPTION}), so no implementer run can pass the verdict; add an "Acceptance criteria" checklist to the ticket`
     : undefined;
 
+/**
+ * Why a head is not the ticket's failure when the wait for its checks runs
+ * out, or undefined when it is. A check still running has no log to inform a
+ * retry: counted as a failure it spends the one informed retry on nothing
+ * and the next failure escalates, so a slow target CI alone strands the
+ * ticket. Requeued instead, with the retry count untouched. A check that
+ * genuinely failed outranks a pending one: it has a log, so the retry is
+ * informed and worth spending.
+ */
+export const stillPendingReason = (state: CheckState, timeoutMinutes: number): string | undefined =>
+  state.failures.length === 0 && state.pending.length > 0
+    ? `${state.pending.join(", ")} still pending after ${timeoutMinutes} minutes; not the ticket's failure`
+    : undefined;
+
 export const summariseFailures = (failures: readonly CheckFailure[]): string =>
   failures
     .map((f) => `${f.kind} ${f.name}${f.description ? ` (${f.description})` : ""}`)

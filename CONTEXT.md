@@ -2,7 +2,7 @@
 
 Autonomous pipeline that turns well-scoped tickets into merged code with as little human time as possible.
 
-This file is the glossary: the words the specs, prompts, and docs all use for the same things. Name a concept here and every document names it the same way. Definitions only; how a thing is built lives in `README.md` and `docs/adr/`.
+This file is the glossary: the words the specs, prompts, and docs all use for the same things. Name a concept here and every document names it the same way. Definitions only; how a thing is built lives in `docs/pipeline.md` and `docs/adr/`.
 
 It binds the factory's own prose, not vendored text: where a name is sandcastle's and the behaviour under it is his, his name stays and the term's `_Except_` line says so.
 

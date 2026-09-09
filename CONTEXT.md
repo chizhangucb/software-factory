@@ -41,6 +41,10 @@ A repo the factory is allowed to work on. First one is chronicle.
 The one workflow file a target repo carries, at its own `.github/workflows/factory.yml`. It calls the factory's reusable workflows and holds that target's inputs. Copied from `templates/factory.yml`.
 _Avoid_: client, consumer, the target's workflow.
 
+**Maintainer**:
+The human who owns a target repo and the factory working on it. Sets the trust policy, answers what the factory escalates, and decides what merges during calibration. The actor every spec's user stories are written for, so a spec stays readable when somebody else holds the role.
+_Avoid_: owner (GitHub's word for the account holder), user, a personal name.
+
 **Implementer**:
 The agent that runs one ticket and produces the PR. Never approves anything.
 

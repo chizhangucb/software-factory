@@ -136,24 +136,24 @@ export const formatUsageComment = (
     return lines.join("\n");
   }
   lines.push(
-    "| run | model | account | wall | calls | turns | input | cache write | cache read | output | list cost |",
-    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| run | model | wall | calls | turns | input | cache write | cache read | output | list cost |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
   );
   for (const r of rows) {
     const name = r.failure ? `${r.name} (attempt ${r.attempt}, failed)` : `${r.name} (attempt ${r.attempt})`;
     lines.push(
-      `| ${name} | ${r.model} | ${r.account} | ${formatDuration(r.wallMs)} | ${r.calls} | ${r.turns} | ${int(r.usage.inputTokens)} | ${int(r.usage.cacheCreationInputTokens)} | ${int(r.usage.cacheReadInputTokens)} | ${int(r.usage.outputTokens)} | ${usd(r.costUsd)} |`,
+      `| ${name} | ${r.model} | ${formatDuration(r.wallMs)} | ${r.calls} | ${r.turns} | ${int(r.usage.inputTokens)} | ${int(r.usage.cacheCreationInputTokens)} | ${int(r.usage.cacheReadInputTokens)} | ${int(r.usage.outputTokens)} | ${usd(r.costUsd)} |`,
     );
   }
   const total = totalUsage(rows);
   if (rows.length > 1) {
     lines.push(
-      `| total | | | ${formatDuration(total.wallMs)} | ${total.calls} | ${total.turns} | ${int(total.usage.inputTokens)} | ${int(total.usage.cacheCreationInputTokens)} | ${int(total.usage.cacheReadInputTokens)} | ${int(total.usage.outputTokens)} | ${usd(total.costUsd)} |`,
+      `| total | | ${formatDuration(total.wallMs)} | ${total.calls} | ${total.turns} | ${int(total.usage.inputTokens)} | ${int(total.usage.cacheCreationInputTokens)} | ${int(total.usage.cacheReadInputTokens)} | ${int(total.usage.outputTokens)} | ${usd(total.costUsd)} |`,
     );
   }
   const failures = rows.filter((r) => r.failure);
   for (const r of failures) {
-    lines.push("", `Attempt ${r.attempt} on ${r.account}: ${r.failure}`);
+    lines.push("", `Attempt ${r.attempt}: ${r.failure}`);
   }
   lines.push(
     "",

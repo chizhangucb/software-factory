@@ -31,8 +31,9 @@ test("records accumulate in usage.json and the role's comment is re-rendered aft
   const comment = fs.readFileSync(path.join(dir, usageCommentFile("reviewer")), "utf8");
   assert.equal(comment.split("\n")[0], "<!-- factory:usage:reviewer -->");
   assert.match(comment, /review-3 \(attempt 1, failed\)/);
-  assert.match(comment, /review-3 \(attempt 2\) \| claude-opus-5 \| beta/);
+  assert.match(comment, /review-3 \(attempt 2\) \| claude-opus-5 \| 1s/);
   assert.match(comment, /\| total \|/);
+  assert.doesNotMatch(comment, /\bbeta\b/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

@@ -23,7 +23,7 @@ A failing implementer run or check in steps 3 to 5 earns one informed retry, the
 
 2. **Add the secrets.**
    - `FACTORY_PAT`, a fine-grained PAT, so pushes trigger the target's CI. It needs contents, issues, pull requests and workflows write.
-   - One `CLAUDE_CODE_OAUTH_TOKEN_<n>` per subscription account, from `claude setup-token`. Adding an account later is adding one more secret. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account in the logs.
+   - One `CLAUDE_CODE_OAUTH_TOKEN_<n>` per subscription account, from `claude setup-token`. Adding an account later is adding one more secret. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account in the job log only, never in the usage comment posted to the target's PR.
 
    Step 1 lands the caller before this step adds `FACTORY_PAT`, so expect that first push to fire the caller and fail one run. Nothing to fix: it clears itself once the steps below are done.
 

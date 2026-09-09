@@ -13,10 +13,12 @@ export interface ParentIssue {
   readonly body: string;
   /** GitHub's `authorAssociation` for whoever wrote the spec. Absent reads as an outsider. */
   readonly authorAssociation: AuthorAssociation;
+  /** Their login, reported like every other read. The parent-spec channel judges on the association. */
+  readonly authorLogin: string | undefined;
 }
 
 const PARENT_QUERY =
-  "query($owner: String!, $repo: String!, $num: Int!) { repository(owner: $owner, name: $repo) { issue(number: $num) { parent { number title body authorAssociation } } } }";
+  "query($owner: String!, $repo: String!, $num: Int!) { repository(owner: $owner, name: $repo) { issue(number: $num) { parent { number title body authorAssociation author { login } } } } }";
 
 /** The parent issue in a GraphQL response for PARENT_QUERY, if any. */
 export const parentIssueFromGraphql = (json: string): ParentIssue | undefined => {
@@ -30,11 +32,15 @@ export const parentIssueFromGraphql = (json: string): ParentIssue | undefined =>
     parsed as { data?: { repository?: { issue?: { parent?: unknown } } } }
   )?.data?.repository?.issue?.parent;
   if (typeof parent !== "object" || parent === null) return undefined;
-  const { number, title, body, authorAssociation: association } = parent as Record<
-    string,
-    unknown
-  >;
+  const {
+    number,
+    title,
+    body,
+    authorAssociation: association,
+    author,
+  } = parent as Record<string, unknown>;
   if (typeof number !== "number" || typeof title !== "string") return undefined;
+  const login = (author as { login?: unknown } | null | undefined)?.login;
   return {
     number,
     title,
@@ -42,6 +48,7 @@ export const parentIssueFromGraphql = (json: string): ParentIssue | undefined =>
     authorAssociation: authorAssociation(
       typeof association === "string" ? association : undefined,
     ),
+    authorLogin: typeof login === "string" ? login : undefined,
   };
 };
 
@@ -104,10 +111,9 @@ export interface RenderedIssue {
 
 export const renderIssue = (issue: IssueView, policy: TrustPolicy): RenderedIssue => {
   const parts = [`Issue #${issue.number}: ${issue.title}`, (issue.body ?? "").trim()];
-  // Association alone: a ticket comment is a channel anyone can reach, and the
-  // factory's own comments here are usage reports the agent does not need.
-  const { kept, dropped } = policy.keep(issue.comments ?? [], (comment) => ({
+  const { kept, dropped } = policy.keep("ticket-comment", issue.comments ?? [], (comment) => ({
     association: comment.authorAssociation,
+    login: comment.author?.login,
   }));
   if (kept.length > 0) {
     parts.push("## Comments");
@@ -152,7 +158,10 @@ export const ticketDocument = (input: {
   const { parent, policy } = input;
   const parentSection = !parent
     ? "# Parent spec\n\nThis ticket has no parent spec. The ticket above is the whole brief.\n"
-    : policy.trusts({ association: parent.authorAssociation })
+    : policy.trusts("parent-spec", {
+          association: parent.authorAssociation,
+          login: parent.authorLogin,
+        })
       ? `# Parent spec #${parent.number}: ${parent.title}\n\n${parent.body.trim()}\n`
       : `# Parent spec #${parent.number}\n\nNot included, title as well as body: it was written by an untrusted author (${parent.authorAssociation}), and the factory acts only on ${policy.associations.join(", ")}. Work from the ticket above.\n`;
   return `# Ticket #${input.number}\n\n${input.issueContext.trim()}\n\n${parentSection}`;

@@ -165,30 +165,31 @@ export const pullRequestContext = (
     ? renderIssue(reads.issue, policy)
     : { text: "(no linked issue found)", droppedComments: 0 };
 
-  // No `factoryLogin` here: a top-level PR comment is a channel any workflow in
-  // the target writes, and a bot that echoes a fork PR's text would arrive
-  // trusted. The factory's own review output is the two channels below.
-  const prComments = policy.keep(reads.pr.comments, (comment) => ({
+  // Each read names its channel and reports what it has. Whether the factory's
+  // own login counts for anything here is the policy's answer, not this file's
+  // (#80): both of #52's shipped bugs were this file getting it wrong.
+  const prComments = policy.keep("pr-comment", reads.pr.comments, (comment) => ({
     association: comment.authorAssociation,
+    login: comment.author?.login,
   }));
   const reviewSummaries = policy.keep(
+    "review-summary",
     reads.reviews.filter((review) => review.body && review.body.trim().length > 0),
-    // The factory's own reviewer posts its summary here, with GITHUB_TOKEN.
     (review) => ({
       association: review.author_association,
-      factoryLogin: review.user?.login,
+      login: review.user?.login,
     }),
   );
   const threadComments = policy.keep(
+    "review-thread",
     reads.threads
       .filter((thread) => !thread.isResolved)
       .flatMap((thread) =>
         thread.comments.nodes.map((comment) => ({ thread, comment })),
       ),
-    // And its inline findings here, so implement-pr can act on them and reply.
     ({ comment }) => ({
       association: comment.authorAssociation,
-      factoryLogin: comment.author?.login,
+      login: comment.author?.login,
     }),
   );
 

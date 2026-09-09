@@ -4,24 +4,39 @@ import { test } from "node:test";
 
 import {
   authorAssociation,
+  CHANNELS,
+  type Channel,
   DEFAULT_TRUSTED_AUTHORS,
   TRUSTED_AUTHORS_VAR,
   trustPolicy,
   trustPolicyFromEnv,
 } from "./trusted-authors";
 
+/** A stranger with no association at all, on whatever channel a test names. */
+const outsider = { association: "NONE", login: "stranger" };
+
+/**
+ * The identity every workflow in the target posts under with GITHUB_TOKEN: the
+ * factory's own reviewer, and equally the target's coverage reporter. GitHub
+ * reports `author_association: NONE` for it on every repo.
+ */
+const actionsBot = { association: "NONE", login: "github-actions[bot]" };
+
+/** The two channels the factory itself writes, and so the only exempt ones. */
+const FACTORY_WRITTEN: readonly Channel[] = ["review-summary", "review-thread"];
+
 test("the default trusts the repo owner and nobody else", () => {
   const policy = trustPolicy(undefined);
   assert.deepEqual([...policy.associations], [...DEFAULT_TRUSTED_AUTHORS]);
-  assert.equal(policy.trusts({ association: "OWNER" }), true);
-  assert.equal(policy.trusts({ association: "COLLABORATOR" }), false);
-  assert.equal(policy.trusts({ association: "NONE" }), false);
+  assert.equal(policy.trusts("ticket-comment", { association: "OWNER", login: "chi" }), true);
+  assert.equal(policy.trusts("ticket-comment", { association: "COLLABORATOR", login: "mate" }), false);
+  assert.equal(policy.trusts("ticket-comment", outsider), false);
 });
 
 test("an absent association reads as an outsider", () => {
   const policy = trustPolicy(undefined);
-  assert.equal(policy.trusts({ association: undefined }), false);
-  assert.equal(policy.trusts({ association: null }), false);
+  assert.equal(policy.trusts("pr-comment", { association: undefined, login: undefined }), false);
+  assert.equal(policy.trusts("pr-comment", { association: null, login: null }), false);
 });
 
 test("a value GitHub never sends reads as NONE, so a strange payload is an outsider", () => {
@@ -34,8 +49,8 @@ test("a value GitHub never sends reads as NONE, so a strange payload is an outsi
 test("a wider list lets in everyone who could already push", () => {
   const policy = trustPolicy("OWNER, member ,collaborator");
   assert.deepEqual([...policy.associations], ["OWNER", "MEMBER", "COLLABORATOR"]);
-  assert.equal(policy.trusts({ association: "MEMBER" }), true);
-  assert.equal(policy.trusts({ association: "CONTRIBUTOR" }), false);
+  assert.equal(policy.trusts("ticket-author", { association: "MEMBER", login: "mate" }), true);
+  assert.equal(policy.trusts("ticket-author", { association: "CONTRIBUTOR", login: "drive-by" }), false);
 });
 
 test("an empty or missing input falls back to the owner alone", () => {
@@ -45,8 +60,8 @@ test("an empty or missing input falls back to the owner alone", () => {
 
 test("a value GitHub never sends matches nothing, so a typo parks work", () => {
   const typo = trustPolicy("OWNR");
-  assert.equal(typo.trusts({ association: "OWNER" }), false);
-  assert.equal(typo.trusts({ association: "NONE" }), false);
+  assert.equal(typo.trusts("ticket-author", { association: "OWNER", login: "chi" }), false);
+  assert.equal(typo.trusts("ticket-author", outsider), false);
 });
 
 test("the environment carries the caller's input to the run scripts", () => {
@@ -57,37 +72,105 @@ test("the environment carries the caller's input to the run scripts", () => {
   assert.deepEqual([...trustPolicyFromEnv({}).associations], ["OWNER"]);
 });
 
-test("the factory's own login is never a stranger, whichever way the API spells it", () => {
-  // GITHUB_TOKEN comments come back as author_association NONE on every repo.
+/**
+ * #52's first shipped bug. The reviewer posts its summary and its inline
+ * findings with GITHUB_TOKEN, so they arrive as `github-actions` with
+ * association NONE. Judged on the association alone they were all dropped,
+ * which left implement-pr, whose whole job is to address them, with a count in
+ * place of the findings and no thread it was allowed to reply to.
+ */
+test("the factory's own review survives on the channels it writes, whichever way the API spells the login", () => {
   const policy = trustPolicy("OWNER");
-  assert.equal(policy.trusts({ association: "NONE", factoryLogin: "github-actions[bot]" }), true);
-  assert.equal(policy.trusts({ association: "NONE", factoryLogin: "github-actions" }), true);
-  assert.equal(policy.trusts({ association: "NONE", factoryLogin: "github-actions-impostor" }), false);
-  assert.equal(policy.trusts({ association: "NONE", factoryLogin: "stranger" }), false);
+  for (const channel of FACTORY_WRITTEN) {
+    assert.equal(policy.trusts(channel, actionsBot), true, `${channel} keeps the factory's own voice`);
+    assert.equal(
+      policy.trusts(channel, { association: "NONE", login: "github-actions" }),
+      true,
+      `${channel} accepts gh's spelling as well as REST's`,
+    );
+    assert.equal(
+      policy.trusts(channel, { association: "NONE", login: "github-actions-impostor" }),
+      false,
+      `${channel} does not accept a lookalike login`,
+    );
+    assert.equal(policy.trusts(channel, outsider), false, `${channel} still drops a stranger`);
+  }
 });
 
-test("the same bot on a channel the factory does not write is a stranger", () => {
-  // github-actions is what every workflow in the target posts under. Only the
-  // channels the factory itself writes pass factoryLogin, so the same comment
-  // read off a channel a stranger can reach stays untrusted.
+/**
+ * #52's second shipped bug. `github-actions` is the login EVERY workflow in the
+ * target posts under, not just agent-review, and a coverage reporter or
+ * size-diff bot routinely quotes a fork PR's branch name, commit message or
+ * failing test output. Honouring the login off the factory's own channels
+ * laundered a stranger's words straight through this control.
+ */
+test("the same bot on a channel the factory does not write is judged on its association alone", () => {
   const policy = trustPolicy("OWNER");
-  assert.equal(policy.trusts({ association: "NONE" }), false);
+  const elsewhere = CHANNELS.filter((channel) => !FACTORY_WRITTEN.includes(channel));
+  assert.ok(elsewhere.length > 0, "there are channels the factory does not write");
+  for (const channel of elsewhere) {
+    assert.equal(policy.trusts(channel, actionsBot), false, `${channel} judges the bot on its association`);
+    assert.equal(
+      policy.trusts(channel, { association: "OWNER", login: "github-actions[bot]" }),
+      true,
+      `${channel} still reads the association, whatever the login says`,
+    );
+  }
+});
+
+/**
+ * The point of the channel argument: which channels carry the factory's own
+ * voice is the policy's answer, not a call site's. A call site names a channel
+ * and gets the policy's judgement; it has no way to ask for a different one.
+ */
+test("the exemption belongs to the two channels the factory writes and to no others", () => {
+  const policy = trustPolicy("OWNER");
+  const exempt = CHANNELS.filter((channel) => policy.trusts(channel, actionsBot));
+  assert.deepEqual([...exempt], [...FACTORY_WRITTEN]);
+});
+
+test("every channel the factory reads is on the list, and the list is closed", () => {
+  assert.deepEqual(
+    [...CHANNELS],
+    [
+      "pr-comment",
+      "review-summary",
+      "review-thread",
+      "ticket-comment",
+      "ticket-author",
+      "parent-spec",
+      "retry-marker",
+    ],
+  );
+  assert.equal(new Set(CHANNELS).size, CHANNELS.length, "no channel is named twice");
 });
 
 test("keep returns what a trusted author wrote and counts what it dropped", () => {
   const comments = [
-    { association: "OWNER", body: "keep" },
-    { association: "NONE", body: "drop" },
-    { association: null, body: "drop too" },
-    { association: "COLLABORATOR", body: "maybe" },
+    { association: "OWNER", login: "chi", body: "keep" },
+    { association: "NONE", login: "stranger", body: "drop" },
+    { association: null, login: null, body: "drop too" },
+    { association: "COLLABORATOR", login: "mate", body: "maybe" },
   ];
-  const owner = trustPolicy("OWNER").keep(comments, (c) => ({ association: c.association }));
+  const author = (c: (typeof comments)[number]) => ({ association: c.association, login: c.login });
+
+  const owner = trustPolicy("OWNER").keep("pr-comment", comments, author);
   assert.deepEqual(owner.kept.map((c) => c.body), ["keep"]);
   assert.equal(owner.dropped, 3);
 
-  const wider = trustPolicy("OWNER,COLLABORATOR").keep(comments, (c) => ({ association: c.association }));
+  const wider = trustPolicy("OWNER,COLLABORATOR").keep("pr-comment", comments, author);
   assert.deepEqual(wider.kept.map((c) => c.body), ["keep", "maybe"]);
   assert.equal(wider.dropped, 2);
+});
+
+test("keep judges the same items differently on a channel the factory writes", () => {
+  // Same list, same accessor, one word apart: the channel decides, so a caller
+  // cannot hand the exemption to a list by describing its authors differently.
+  const items = [{ association: "NONE", login: "github-actions[bot]", body: "the factory's own" }];
+  const author = (c: (typeof items)[number]) => ({ association: c.association, login: c.login });
+  const policy = trustPolicy("OWNER");
+  assert.equal(policy.keep("review-thread", items, author).kept.length, 1);
+  assert.equal(policy.keep("pr-comment", items, author).kept.length, 0);
 });
 
 test("droppedNote names the count and the policy, and is empty when nothing was dropped", () => {

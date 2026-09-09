@@ -54,6 +54,35 @@ export const DEFAULT_TRUSTED_AUTHORS = ["OWNER"] as const;
 export const TRUSTED_AUTHORS_VAR = "TRUSTED_AUTHOR_ASSOCIATIONS";
 
 /**
+ * Every place the factory reads words an agent will act on. The list is closed
+ * and it lives here, because which channels carry the factory's own voice is a
+ * policy question, not a call site's (#80).
+ *
+ * A call site names a channel. It cannot describe one, so it has no way to say
+ * "and exempt the factory login here", which is the sentence both of #52's
+ * shipped bugs were written in.
+ */
+export const CHANNELS = [
+  /** A top-level comment on a PR. Anyone can write one, and so can any bot. */
+  "pr-comment",
+  /** A submitted review's body. `agent-review.yml` posts its verdict here. */
+  "review-summary",
+  /** An inline review-thread comment. The reviewer's findings land here. */
+  "review-thread",
+  /** A comment on a ticket. Anyone can write one on a public target. */
+  "ticket-comment",
+  /** Whoever opened the ticket the dispatcher is about to run. */
+  "ticket-author",
+  /** Whoever wrote the parent spec a ticket hangs off. */
+  "parent-spec",
+  /** The retry marker comment an implement run reads its last failure from. */
+  "retry-marker",
+] as const;
+
+/** One of the channels above, and nothing else. */
+export type Channel = (typeof CHANNELS)[number];
+
+/**
  * The factory's own voice. `agent-review.yml` posts its review summary and its
  * thread comments with GITHUB_TOKEN, and GitHub reports
  * `author_association: NONE` for that identity on every repo, so the
@@ -62,33 +91,45 @@ export const TRUSTED_AUTHORS_VAR = "TRUSTED_AUTHOR_ASSOCIATIONS";
  * ways across the reads (`github-actions[bot]` on REST, `github-actions` on
  * gh's JSON and on GraphQL), so it is normalised before the comparison.
  * Comments posted with FACTORY_PAT come from the owner and need no exemption.
- *
- * This login is NOT proof of trust and the exemption is not a widening only
- * because of where it is applied. `github-actions` is what every workflow in
- * the target posts under, the factory's and the target's own alike, and a
- * coverage reporter or size-diff bot routinely quotes a fork PR's branch name,
- * commit message or failing test output. Trusting the login wherever it
- * appeared would launder a stranger's words straight through this control. So
- * `factoryLogin` is set on the two channels the factory itself writes and
- * nowhere else; every other channel goes through the association alone.
  */
 export const FACTORY_LOGINS: readonly string[] = ["github-actions"];
+
+/**
+ * The only channels the factory itself writes, and so the only ones where the
+ * login above means anything.
+ *
+ * That login is NOT proof of trust. `github-actions` is what every workflow in
+ * the target posts under, the factory's and the target's own alike, and a
+ * coverage reporter or size-diff bot routinely quotes a fork PR's branch name,
+ * commit message or failing test output. Honouring the login wherever it
+ * appeared would launder a stranger's words straight through this control.
+ *
+ * So the exemption is decided here, against this list, rather than by whichever
+ * call site is doing the reading. Both of #52's shipped bugs were a call site
+ * getting this choice wrong: first every channel judged on the association
+ * alone, which dropped the reviewer's own findings before implement-pr read
+ * them; then every channel honouring the login, which trusted every bot in the
+ * target.
+ */
+const FACTORY_WRITTEN_CHANNELS: readonly Channel[] = [
+  "review-summary",
+  "review-thread",
+];
 
 const normaliseLogin = (login: string | null | undefined): string =>
   String(login ?? "")
     .toLowerCase()
     .replace(/\[bot\]$/, "");
 
-/** Who wrote something, as the policy judges it. */
+/**
+ * Who wrote something, as the policy judges it. Both fields on every channel:
+ * a read reports what it has, and the policy decides what that is worth here.
+ * They are required rather than optional so that an accessor cannot quietly
+ * report less on one channel than on another.
+ */
 export interface Author {
-  readonly association?: string | null;
-  /**
-   * The login, on the channels the factory itself writes and nowhere else: its
-   * review summaries and its review-thread comments. Setting it on a channel a
-   * stranger can reach trusts every bot in the target, which is the hole this
-   * field exists inside, not the one it closes. See `FACTORY_LOGINS`.
-   */
-  readonly factoryLogin?: string | null;
+  readonly association: string | null | undefined;
+  readonly login: string | null | undefined;
 }
 
 /** What survived the policy, and how much did not. */
@@ -104,10 +145,11 @@ export interface TrustedSelection<T> {
 export interface TrustPolicy {
   /** The associations this target acts on, uppercased, as the caller wrote them. */
   readonly associations: readonly string[];
-  /** Would the factory act on words from this author? */
-  readonly trusts: (author: Author) => boolean;
-  /** Keep what a trusted author wrote and count what was dropped. */
+  /** Would the factory act on words this author wrote on this channel? */
+  readonly trusts: (channel: Channel, author: Author) => boolean;
+  /** Keep what a trusted author wrote on this channel, and count what was dropped. */
   readonly keep: <T>(
+    channel: Channel,
     items: readonly T[],
     authorOf: (item: T) => Author,
   ) => TrustedSelection<T>;
@@ -131,17 +173,19 @@ export const trustPolicy = (value: string | undefined): TrustPolicy => {
     .filter((part) => part.length > 0);
   const associations: readonly string[] =
     parsed.length > 0 ? parsed : [...DEFAULT_TRUSTED_AUTHORS];
-  const trusts = (author: Author): boolean =>
-    FACTORY_LOGINS.includes(normaliseLogin(author.factoryLogin)) ||
+  const trusts = (channel: Channel, author: Author): boolean =>
+    (FACTORY_WRITTEN_CHANNELS.includes(channel) &&
+      FACTORY_LOGINS.includes(normaliseLogin(author.login))) ||
     associations.includes(authorAssociation(author.association));
   return {
     associations,
     trusts,
     keep: <T>(
+      channel: Channel,
       items: readonly T[],
       authorOf: (item: T) => Author,
     ): TrustedSelection<T> => {
-      const kept = items.filter((item) => trusts(authorOf(item)));
+      const kept = items.filter((item) => trusts(channel, authorOf(item)));
       return { kept, dropped: items.length - kept.length };
     },
     droppedNote: (dropped: number, what: string): string =>

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 
-import { parseAccounts, runOnAccounts } from "./accounts";
+import { ACCOUNTS_FILE_VAR, parseAccounts, runOnAccounts } from "./accounts";
 import { type ResultEvent, type RunLog, runFailure } from "./run-log";
 import type { AccountToken } from "./rotation";
 
@@ -168,4 +168,34 @@ test("parseAccounts validates the workflow's file and sorts by index", () => {
 
 test("parseAccounts falls back to account-<n> when the label variable is empty", () => {
   assert.equal(parseAccounts([{ index: 2, label: "", token: "t" }])[0].label, "account-2");
+});
+
+/**
+ * `loadAccounts` masks nothing of its own: every workflow that writes the
+ * accounts file has already masked every token in its `Enumerate accounts`
+ * step. Nothing in the type system knows that, so this is what holds the two
+ * halves together. A workflow that copies the jq and drops the mask loop puts
+ * a live OAuth token in the job log the first time anything prints one.
+ */
+test("every workflow step that hands over the accounts file masks every token first", () => {
+  const dir = new URL("../../.github/workflows/", import.meta.url);
+  const files = fs.readdirSync(dir).filter((name) => /\.ya?ml$/.test(name));
+  assert.ok(files.length > 0, "there are workflow files to read");
+  let writers = 0;
+  for (const file of files) {
+    const yaml = fs.readFileSync(new URL(file, dir), "utf8");
+    // One step per `- ` at six-space indent, the way lib/strip-types-cone.test.ts splits them.
+    for (const step of yaml.split(/\n(?= {6}- )/)) {
+      const handoverAt = step.indexOf(`${ACCOUNTS_FILE_VAR}=`);
+      if (handoverAt < 0) continue;
+      writers++;
+      const maskAt = step.indexOf("::add-mask::");
+      assert.ok(maskAt >= 0, `${file}: the step that writes ${ACCOUNTS_FILE_VAR} never masks a token`);
+      assert.ok(
+        maskAt < handoverAt,
+        `${file}: ${ACCOUNTS_FILE_VAR} is handed over before the tokens are masked`,
+      );
+    }
+  }
+  assert.ok(writers > 0, `no workflow writes ${ACCOUNTS_FILE_VAR}; this check would pass vacuously`);
 });

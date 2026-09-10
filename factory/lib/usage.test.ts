@@ -100,7 +100,9 @@ test("the table starts at its heading and carries no marker, one row per attempt
   const lines = comment.split("\n");
   assert.equal(lines[0], "## Factory usage: implementer");
   // The marker is the caller's to add: the audit puts the table inside a comment of its own.
-  assert.doesNotMatch(comment, new RegExp(USAGE_MARKER_PREFIX));
+  // Substring, not a regex built from the constant: the day the prefix gains a
+  // metacharacter, a regex would quietly stop meaning what this line says.
+  assert.ok(!comment.includes(USAGE_MARKER_PREFIX), "the table carries no usage marker");
   assert.match(comment, /\| implement-7 \(attempt 1, failed\) \| claude-opus-5 \| 3s \| 1 \| 0 \| 0 \| 0 \| 0 \| 0 \| \$0\.00 \|/);
   assert.match(comment, /\| implement-7 \(attempt 2\) \| claude-opus-5 \| 1m 30s \| 1 \| 40 \| 1,200 \| 50,000 \| 900,000 \| 8,000 \| \$1\.50 \|/);
   assert.match(comment, /\| total \| \| 1m 33s \| 2 \| 40 \| 1,200 \| 50,000 \| 900,000 \| 8,000 \| \$1\.50 \|/);

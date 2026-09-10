@@ -440,11 +440,19 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
  *
  * A requeued ticket gets neither: no factory label is exactly what the
  * dispatcher picks up on its next sweep.
+ *
+ * The label goes on with `ghWrite`, not `tryWrite`, and the marker is written
+ * only once it is on. A swallowed failure here is the one outcome this
+ * function exists to prevent: implement-pr's retry job has already dropped
+ * the label, so a PR whose re-add failed would be left with no `agent:*`
+ * label at all and the handler would still exit 0. Throwing instead hands the
+ * PR to the workflow's own fallback, which adds `agent:blocked`, and the
+ * absent marker lets agent-review.yml's last step clean up as it always did.
  */
 const keepInProgress = (pr: string, reason: string): void => {
+  ghWrite(["pr", "edit", pr, "--repo", REPO, "--add-label", IN_PROGRESS_LABEL]);
   fs.mkdirSync(outputDir(), { recursive: true });
   fs.writeFileSync(path.join(outputDir(), REQUEUED_FILE), `${reason}\n`);
-  tryWrite(["pr", "edit", pr, "--repo", REPO, "--add-label", IN_PROGRESS_LABEL]);
 };
 
 const requeue = (target: Target, reason: string): void => {

@@ -5,7 +5,10 @@ name: factory
 
 on:
   issues:
-    types: [closed, labeled]
+    # unlabeled and unassigned: a ticket held back by ready-for-human or by an
+    # assignee reaches the factory the moment the human removes the blocker,
+    # instead of waiting up to ten minutes for the next heartbeat.
+    types: [closed, labeled, unassigned, unlabeled]
   pull_request_target:
     types: [labeled]
   pull_request:
@@ -41,7 +44,9 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'factory-sweep') ||
-      (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.label.name == 'ready-for-agent'))
+      (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.action == 'unlabeled' ||
+        github.event.action == 'unassigned' ||
+        (github.event.action == 'labeled' && github.event.label.name == 'ready-for-agent')))
     uses: chizhangucb/software-factory/.github/workflows/dispatch.yml@main
     secrets: inherit
     with:

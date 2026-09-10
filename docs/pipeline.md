@@ -36,7 +36,9 @@ Every input has a default, so the template works as copied. Set them in the call
 
 ## Dispatcher
 
-Runs on `issues: closed` and `issues: labeled` (ready-for-agent), on `workflow_dispatch`, on the `repository_dispatch` event `factory-sweep`, and on the caller's `schedule` every 10 minutes.
+Runs on the caller's `issues: [closed, labeled, unassigned, unlabeled]`, on `workflow_dispatch`, on the `repository_dispatch` event `factory-sweep`, and on the caller's `schedule` every 10 minutes.
+
+A `labeled` run is for `ready-for-agent` and nothing else, but `unlabeled` and `unassigned` runs are admitted whatever was removed, so that a ticket held back by `ready-for-human` or by an assignee reaches the factory the moment the human lets go of it instead of waiting up to ten minutes for the next heartbeat. Which removals can actually unblock a ticket is the selection rules' answer, below, and a caller that named them would be a second copy of those rules drifting quietly out of step; a run over a ticket nothing unblocked labels nothing. The caller's condition says which action each of its clauses is for, because an `unassigned` payload carries no label and a clause reading `github.event.label.name` off one would compare against null and drop the event with no error anywhere.
 
 **The `schedule` is the fallback. The heartbeat is what drives the sweep.** Measured on `chizhangucb/factory-fixture` over 21 and a half hours from 2026-09-08T21:07Z: the `schedule` fired 6 times against about 129 expected at six an hour, while the heartbeat sending `factory-sweep` fired on every interval in the same window. So the heartbeat is required, not belt and braces: `gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep`, every 10 minutes, with a token that has contents write on the target and nothing else. One sender covers any number of targets. Without it the dispatcher and the reconciler below run only as often as GitHub's cron fires.
 

@@ -180,15 +180,19 @@ const resolveTarget = (): Target => {
   return { issue, pr: pr ? String(pr.number) : undefined };
 };
 
-/**
- * The open PR's mergeability and base, as GitHub reports them. Read once,
- * after the wait for checks: reading it inside the poll is #145.
- */
-const mergeabilityOf = (pr: string): { readonly mergeable: Mergeability; readonly base: string } => {
+/** An open PR's mergeability and base, as GitHub reports them, with the PR they belong to. */
+interface PrMergeability {
+  readonly pr: string;
+  readonly mergeable: Mergeability;
+  readonly base: string;
+}
+
+/** Read once, after the wait for checks: reading it inside the poll is #145. */
+const mergeabilityOf = (pr: string): PrMergeability => {
   const view = ghJson<{ mergeable: Mergeability; baseRefName: string }>([
     "pr", "view", pr, "--repo", REPO, "--json", "mergeable,baseRefName",
   ]);
-  return { mergeable: view.mergeable, base: view.baseRefName };
+  return { pr, mergeable: view.mergeable, base: view.baseRefName };
 };
 
 const labelsOf = (on: Subject): string[] =>
@@ -409,7 +413,7 @@ const requeue = (target: Target, reason: string): void => {
 };
 
 /** The conflict hand-off update-branch makes, from here: a comment naming the cause, then the implementer's label. No retry label. */
-const handOff = (pr: string, base: string, reason: string): void => {
+const handOff = ({ pr, base }: PrMergeability, reason: string): void => {
   commentOn({ kind: "pr", number: pr }, renderHandOffComment({ reason, base, runUrl: RUN_URL }));
   ghWrite(["pr", "edit", pr, "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
   console.log(`Handed off PR #${pr} without spending a retry: ${reason}; ${IMPLEMENT_LABEL} on.`);
@@ -471,14 +475,17 @@ const main = async (): Promise<void> => {
 
   const labels = labelsOf(recordOn(target));
   const used = retriesUsed(labels);
-  // Only a requeue can become a hand-off, and only a PR can conflict: read nothing otherwise.
-  const pr = failure.requeue && target.pr ? mergeabilityOf(target.pr) : undefined;
+  // Only the checks wait can end in a hand-off, and only an open PR can conflict: read
+  // nothing otherwise. A rate limit's requeue never waited for the head, so its PR is
+  // requeued whatever its mergeability; the conflict is the checks path's fact (#144).
+  const mergeability =
+    FAILURE_KIND === "checks" && failure.requeue && target.pr ? mergeabilityOf(target.pr) : undefined;
   const decision = decide({
     retriesUsed: used,
     kind: failure.kind,
     escalated: labels.includes(ESCALATION_LABEL),
     requeue: failure.requeue,
-    mergeable: pr?.mergeable,
+    mergeable: mergeability?.mergeable,
     unretryable: failure.unretryable,
   });
   console.log(`${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);
@@ -486,7 +493,11 @@ const main = async (): Promise<void> => {
   if (decision.action === "retry") retry(target, decision.retry, failure);
   else if (decision.action === "escalate") escalate(target, decision.reason, failure);
   else if (decision.action === "requeue") requeue(target, decision.reason);
-  else if (decision.action === "hand-off") handOff(target.pr as string, pr?.base ?? "main", decision.reason);
+  else if (decision.action === "hand-off") {
+    // decide answers hand-off only from a mergeability it was given, and one is given only from a read.
+    if (!mergeability) throw new Error("hand-off decided without a mergeability read");
+    handOff(mergeability, decision.reason);
+  }
 };
 
 main().catch((error) => {

@@ -173,7 +173,7 @@ jobs:
             exit 1
           fi
           echo "FACTORY_ACCOUNTS_FILE=$file" >> "$GITHUB_ENV"
-          echo "$count account(s) configured: $(jq -r '[.[] | "\(.index) (\(.label))"] | join(", ")' "$file")"
+          echo "$count account(s) configured: $(jq -r '[.[] | "\(.index)"] | join(", ")' "$file")"
 
       - name: Checkout main
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'

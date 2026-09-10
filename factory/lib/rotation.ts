@@ -11,7 +11,13 @@ import type { ResultEvent } from "./run-log";
 /** One configured account: the CLAUDE_CODE_OAUTH_TOKEN_<index> secret, labeled by CLAUDE_ACCOUNT_<index>. */
 export interface AccountToken {
   readonly index: number;
-  /** Shown in logs instead of the token. */
+  /**
+   * The operator's own name for the account, often identifying. It may appear
+   * only in `usage.json`, which stays on the runner: never in the job log,
+   * the usage comment, an escalation comment, an attached log or an uploaded
+   * artifact, since a public target publishes all of those (#126). Every one
+   * of those surfaces names the account by `index` instead.
+   */
   readonly label: string;
   readonly token: string;
 }

@@ -1,8 +1,8 @@
 /**
  * The run path around `rotation.ts`: read the accounts the workflow
  * enumerated, pick one, run, and re-run once on the next account when the
- * result event says rate limited. Logs name accounts by label, never by
- * token.
+ * result event says rate limited. Logs name accounts by index, never by
+ * token and never by label (#126).
  */
 import * as fs from "node:fs";
 import type { AgentProvider } from "@ai-hero/sandcastle";
@@ -91,8 +91,14 @@ export type RunOnAccountsOutcome<T> =
       readonly rateLimited: boolean;
     };
 
-const describe = (account: AccountToken): string =>
-  `account ${account.index} (${account.label})`;
+/**
+ * How a log line names an account: by index, never by its
+ * `CLAUDE_ACCOUNT_<n>` label (#126). The label is free text an operator
+ * chose, often their own address, and these lines reach two published
+ * surfaces: a public target's Actions log, and the escalation comment the
+ * retry handler posts, which attaches the failed run's step log.
+ */
+const describe = (account: AccountToken): string => `account ${account.index}`;
 
 /**
  * Pick, run, and rotate once. Rate limits are read from the raw result
@@ -115,7 +121,7 @@ export const runOnAccounts = async <A, T>(
   const limits: string[] = [];
   log(
     `[${name}] ${accounts.length} account(s) configured: ` +
-      accounts.map((a) => `${a.index} (${a.label})`).join(", "),
+      accounts.map((a) => `${a.index}`).join(", "),
   );
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

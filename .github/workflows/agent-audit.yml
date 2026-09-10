@@ -156,7 +156,7 @@ jobs:
             exit 1
           fi
           echo "FACTORY_ACCOUNTS_FILE=$file" >> "$GITHUB_ENV"
-          echo "$count account(s) configured: $(jq -r '[.[] | "\(.index) (\(.label))"] | join(", ")' "$file")"
+          echo "$count account(s) configured: $(jq -r '[.[] | "\(.index)"] | join(", ")' "$file")"
 
       - name: Checkout the merge commit
         uses: actions/checkout@v4

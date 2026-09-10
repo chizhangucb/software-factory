@@ -116,6 +116,10 @@ test("a rate-limited turn the library retried to success stays on its account", 
   assert.deepEqual(logs, ["t.account-1"]);
 });
 
+/**
+ * The reason reaches the requeue comment on the target, so it names both
+ * accounts by index and carries neither a token nor a label (#126).
+ */
 test("two rate limits in a row stop after the single re-run and name both accounts", async () => {
   const { createLog } = fakeLogs();
   const outcome = await runOnAccounts({
@@ -131,8 +135,9 @@ test("two rate limits in a row stop after the single re-run and name both accoun
   });
   assert.equal(outcome.ok, false);
   assert.equal(outcome.ok || outcome.rateLimited, true, "exhaustion is flagged for the retry handler");
-  assert.match(outcome.ok ? "" : outcome.reason, /alpha.*beta/s);
+  assert.match(outcome.ok ? "" : outcome.reason, /account 1.*account 2/s);
   assert.doesNotMatch(outcome.ok ? "" : outcome.reason, /tok-/);
+  assert.doesNotMatch(outcome.ok ? "" : outcome.reason, /alpha|beta|gamma/);
 });
 
 test("an auth error does not rotate; it fails on the account it happened on", async () => {

@@ -5,8 +5,14 @@
 # repairs states stuck past their deadline (#35): a ticket or PR whose label
 # never got its run, an auto-merge PR with no verdict, a merge-ready PR left
 # behind main. Called from a target repo's thin factory workflow on
-# `issues: [closed, labeled]`, the schedule, workflow_dispatch, and
-# `repository_dispatch: [factory-sweep]`.
+# `issues: [closed, labeled, unassigned, unlabeled]`, the schedule,
+# workflow_dispatch, and `repository_dispatch: [factory-sweep]`.
+#
+# The caller admits an `unlabeled` or `unassigned` event whatever was removed,
+# so a ticket held back by ready-for-human or by an assignee is dispatched the
+# moment the human lets go of it rather than on the next heartbeat. Which
+# removals can unblock a ticket is select.ts's answer, so a run over a ticket
+# nothing unblocked is a full scan that labels nothing.
 #
 # The schedule is the fallback, not the heartbeat: measured on one private
 # target it fired 6 times against about 129 expected in 21 and a half hours,

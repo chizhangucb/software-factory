@@ -9,10 +9,12 @@
  *   the PR closed with its agent:* labels off, the branch kept, a comment on
  *   the ticket linking the run and its log.
  * - requeue (rate limited on every account (#17), or a check still pending
- *   when the wait runs out): no retry spent. A ticket gets a comment and is
- *   left for the dispatcher; a PR gets the comment and `agent:blocked`,
- *   since nothing re-dispatches a PR. `agent:blocked` has one meaning: a
- *   human must look.
+ *   when the wait runs out): no retry spent, and one meaning on both sides
+ *   (#148). The subject gets a comment and nothing is labeled for a human: a
+ *   ticket is left with no factory label for the dispatcher, a PR in
+ *   `agent:in-progress` for the reconciler, which re-adds its start label at
+ *   the stuck deadline. So no requeue reaches `agent:blocked`, which keeps
+ *   its one meaning: a human must look.
  * - hand-off (#144): the checks were still pending, but the PR conflicts
  *   with its base. GitHub starts no `pull_request` workflow on a conflicting
  *   PR, so the checks that never posted are a fact about the merge, not the
@@ -69,7 +71,7 @@ import {
   unretryableReason,
   waitOver,
 } from "./checks";
-import { BLOCKED_LABEL, ESCALATION_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
+import { ESCALATION_LABEL, IMPLEMENT_LABEL, IN_PROGRESS_LABEL } from "../lib/labels.ts";
 import { escalationLabels, prCloseLabels } from "./escalation.ts";
 import {
   decide,
@@ -83,6 +85,7 @@ import {
   renderHandOffComment,
   renderRequeueComment,
   renderRetryComment,
+  REQUEUED_FILE,
   retriesUsed,
   retryLabel,
 } from "./decide";
@@ -426,14 +429,42 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   );
 };
 
+/**
+ * What a requeued PR is left in: `agent:in-progress`, the label the
+ * reconciler sweeps, so it re-adds the start label at its stuck deadline
+ * (#148). Two halves, because the workflows take that label off on both sides
+ * of this handler. implement-pr's retry job drops it a step before the handler
+ * runs, so the label is added back here; agent-review.yml drops it on its way
+ * out afterwards, so the marker file tells that step to leave it alone. Either
+ * way the PR is never left with no `agent:*` label, which nothing sweeps.
+ *
+ * A requeued ticket gets neither: no factory label is exactly what the
+ * dispatcher picks up on its next sweep.
+ *
+ * The label goes on with `ghWrite`, not `tryWrite`, and the marker is written
+ * only once it is on. A swallowed failure here is the one outcome this
+ * function exists to prevent: implement-pr's retry job has already dropped
+ * the label, so a PR whose re-add failed would be left with no `agent:*`
+ * label at all and the handler would still exit 0. Throwing instead hands the
+ * PR to the workflow's own fallback, which adds `agent:blocked`, and the
+ * absent marker lets agent-review.yml's last step clean up as it always did.
+ */
+const keepInProgress = (pr: string, reason: string): void => {
+  ghWrite(["pr", "edit", pr, "--repo", REPO, "--add-label", IN_PROGRESS_LABEL]);
+  fs.mkdirSync(outputDir(), { recursive: true });
+  fs.writeFileSync(path.join(outputDir(), REQUEUED_FILE), `${reason}\n`);
+};
+
 const requeue = (target: Target, reason: string): void => {
   const on = actOn(target);
   const onPr = on.kind === "pr";
   commentOn(on, renderRequeueComment({ reason, runUrl: RUN_URL, onPr }));
-  if (onPr) ghWrite(["pr", "edit", on.number, "--repo", REPO, "--add-label", BLOCKED_LABEL]);
+  if (onPr) keepInProgress(on.number, reason);
   console.log(
     `Requeued ${on.kind} #${on.number} without spending a retry: ${reason}` +
-      (onPr ? `; ${BLOCKED_LABEL} on, a human re-adds ${IMPLEMENT_LABEL}.` : "; the dispatcher re-dispatches it."),
+      (onPr
+        ? `; left in ${IN_PROGRESS_LABEL}, the reconciler re-adds the start label at its stuck deadline.`
+        : "; the dispatcher re-dispatches it."),
   );
 };
 

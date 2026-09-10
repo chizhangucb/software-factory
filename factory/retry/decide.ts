@@ -63,6 +63,17 @@ export const missingFailureReason = (outcome: string): string =>
 /** Why a run that could not reach an account is not the ticket's failure. */
 export const RATE_LIMITED_REASON = "rate limited on every account; not the ticket's failure";
 
+/**
+ * Written into the output dir when a PR was requeued (#148), for the workflow
+ * steps that take `agent:in-progress` off on their way out: the one they must
+ * not take it off for is a requeued PR. That label is what the reconciler
+ * sweeps, so it is what gets the start label re-added at the stuck deadline;
+ * a PR with no `agent:*` label is swept by nothing. A requeued ticket writes
+ * no marker, having the opposite need: no factory label is what the
+ * dispatcher picks up.
+ */
+export const REQUEUED_FILE = "requeued.txt";
+
 /** A PR's mergeability as GitHub reports it (`gh pr view --json mergeable`); UNKNOWN while it is still computing. */
 export type Mergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 
@@ -88,7 +99,9 @@ export const CONFLICT_REASON =
  * A head still pending when the wait for its checks runs out is requeued for
  * the same reason: nothing has failed yet, so there is no output to inform a
  * retry, and spending one on a slow target CI leaves only escalation. On a
- * PR a requeue means `agent:blocked`, a human must look; but when that PR
+ * PR a requeue means what it means on a ticket (#148): no `agent:blocked`,
+ * and something that already sweeps picks the subject up again, the
+ * reconciler at its stuck deadline. But when that PR
  * conflicts with its base (#144) the checks never came because GitHub runs
  * no gate on a conflicting PR, so it is handed to the implementer instead.
  * UNKNOWN mergeability is GitHub still deciding and is never acted on. A
@@ -229,14 +242,18 @@ export const retryPromptSection = (context: RetryContext | undefined): string =>
 /**
  * The comment on a requeued ticket or PR: what happened and what moves it
  * next. The reason names the cause, so the heading stays true of every one
- * of them. On a PR the label is `agent:blocked`, which has one meaning: a
- * human must look. A PR that conflicts with its base never gets this comment;
- * it is the implementer's, and `renderHandOffComment` says so.
+ * of them. A requeue means the same thing on both sides (#148): no retry
+ * spent, no label of the factory's added, and something that already sweeps
+ * picks the subject up again, the dispatcher on a ticket and the reconciler
+ * on a PR. Neither is a human, so no requeue reaches `agent:blocked`, which
+ * keeps its one meaning: a human must look. A PR that conflicts with its
+ * base never gets this comment; it is the implementer's, and
+ * `renderHandOffComment` says so.
  */
 export const renderRequeueComment = (input: {
   readonly reason: string;
   readonly runUrl: string;
-  /** The PR path has no dispatcher: a human re-labels it once the cause is gone. */
+  /** The PR path has no dispatcher: the reconciler re-labels it at its stuck deadline. */
   readonly onPr: boolean;
 }): string =>
   [
@@ -245,7 +262,7 @@ export const renderRequeueComment = (input: {
     `${input.reason}. No retry was spent. Run: ${input.runUrl}`,
     "",
     input.onPr
-      ? "Labeled `agent:blocked`: a human must look. Once the cause is gone, re-add `agent:review` to judge this head again, or `agent:implement` to run the implementer; the retry count is unchanged."
+      ? "This PR stays in `agent:in-progress` and nothing else is labeled. The reconciler re-adds `agent:review` at its stuck deadline, and the run starts again; the retry count is unchanged."
       : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the schedule) once `agent:in-progress` is gone.",
   ].join("\n");
 

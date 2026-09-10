@@ -310,14 +310,34 @@ jobs:
             -f event_type=factory-update-branch -F "client_payload[pr]=${PR_NUMBER}" --silent
           echo "Dispatched factory-update-branch for PR #${PR_NUMBER}."
 
-      - name: Mark blocked on failure
+      - name: Requeue or mark blocked on failure
+        # The review side's own failure labelling, separate from the retry handler below
+        # and reached where that handler is not: a reviewer that crashed, or that never
+        # got an account. A run rate limited on every account is not this PR's failure
+        # (#148), so it is requeued the way the handler requeues a ticket: the requeue
+        # comment, no `agent:blocked`, and the PR left in `agent:in-progress` for the
+        # reconciler, which re-adds the start label at its stuck deadline. Two files say
+        # so: rate_limited.txt, written by the run script (RATE_LIMITED_FILE in
+        # factory/lib/accounts.ts) and meaning every account was rate limited, is read
+        # here; requeued.txt (REQUEUED_FILE in factory/retry/decide.ts) is written here
+        # for the step that would otherwise take `agent:in-progress` off on the way out.
+        # A renderer that cannot write the comment falls through to the blocked path,
+        # because a PR with neither comment nor label is the one outcome to avoid. Any
+        # other failure keeps `agent:blocked`, which has one meaning: a human must look.
         if: failure()
         run: |
-          reason="(no reason file written; check workflow logs)"
-          if [ -f "${RUNNER_TEMP}/factory-out/failure_reason.txt" ]; then
-            reason=$(cat "${RUNNER_TEMP}/factory-out/failure_reason.txt")
-          fi
+          out="${RUNNER_TEMP}/factory-out"
           body_file="${RUNNER_TEMP}/failure-comment.md"
+          if [ -f "$out/rate_limited.txt" ] && tsx factory/factory/retry/requeue-comment.ts > "$body_file"; then
+            : > "$out/requeued.txt"
+            gh pr comment "$PR_NUMBER" --body-file "$body_file"
+            echo "Every account was rate limited: PR #${PR_NUMBER} requeued, left in agent:in-progress."
+            exit 0
+          fi
+          reason="(no reason file written; check workflow logs)"
+          if [ -f "$out/failure_reason.txt" ]; then
+            reason=$(cat "$out/failure_reason.txt")
+          fi
           printf '`agent:review` run failed.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:review` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
           gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
           gh pr comment "$PR_NUMBER" --body-file "$body_file"
@@ -351,5 +371,17 @@ jobs:
         run: rm -f "${RUNNER_TEMP}/factory-accounts.json"
 
       - name: Always remove in-progress
+        # Unless the run was requeued (#148). A requeued PR is left in `agent:in-progress`
+        # on purpose: that is the label the reconciler sweeps, so it is what gets the
+        # start label re-added at the stuck deadline. Taking it off would leave the PR
+        # with no `agent:*` label, which nothing sweeps, and no `agent:blocked` either,
+        # so the PR would be lost rather than requeued. requeued.txt is written by
+        # whichever path requeued it: the step above on a rate limit, the retry handler
+        # (factory/retry/retry.ts, REQUEUED_FILE) on a head whose checks never settled.
         if: always()
-        run: gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true
+        run: |
+          if [ -f "${RUNNER_TEMP}/factory-out/requeued.txt" ]; then
+            echo "PR #${PR_NUMBER} was requeued: agent:in-progress stays on for the reconciler."
+            exit 0
+          fi
+          gh pr edit "$PR_NUMBER" --remove-label "agent:in-progress" || true

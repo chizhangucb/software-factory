@@ -41,9 +41,13 @@ _Avoid_: cheating, slop.
 A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read.
 _Avoid_: failure, blocked (the tracker's dependency word).
 
+**Requeue**:
+A run handed back to the queue because what stopped it was not the ticket's failure: every account rate limited, or a check still pending when the wait for it runs out. A comment naming the cause, no retry spent, and no label for a human. One meaning on both sides (#148): a ticket is left with no factory label for the dispatcher, a PR in `agent:in-progress` for the reconciler, which re-adds the start label at its stuck deadline.
+_Avoid_: retry (the attempt that is counted), hand-off (the implementer's, for a conflict), blocked (a human's).
+
 **Hand-off**:
 A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`.
-_Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to a human), escalation (the human queue).
+_Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to the reconciler), escalation (the human queue).
 
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.

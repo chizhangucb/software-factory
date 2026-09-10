@@ -47,13 +47,24 @@ export const isTestFile = (p: string): boolean => {
   return /\.(test|spec)\.[^.]+$/.test(base) || /_test\.go$/.test(base) || /^test_.*\.py$|_test\.py$/.test(base);
 };
 
+const renamedOutOfTests = (f: ChangedFile): boolean =>
+  f.status === "R" && f.oldPath !== undefined && isTestFile(f.oldPath) && f.kind !== "test";
+
 /** Test files the diff removes: deleted, or renamed to a non-test path. */
 export const deletedTestFiles = (files: readonly ChangedFile[]): string[] =>
   files.flatMap((f) => {
     if (f.status === "D" && f.kind === "test") return [f.path];
-    if (f.status === "R" && f.oldPath && isTestFile(f.oldPath) && !isTestFile(f.path)) return [f.oldPath];
+    if (renamedOutOfTests(f)) return [f.oldPath!];
     return [];
   });
+
+/**
+ * A source or test file the diff takes out of the tree: deleted, or a test
+ * renamed to a non-test path. A deleted doc or config file is not one; it
+ * removes nothing a test could have proved.
+ */
+export const removesCode = (f: ChangedFile): boolean =>
+  (f.status === "D" && (f.kind === "source" || f.kind === "test")) || renamedOutOfTests(f);
 
 export const isDocFile = (p: string): boolean => {
   const segments = p.split("/");

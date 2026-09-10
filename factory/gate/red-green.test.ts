@@ -59,6 +59,14 @@ test("a deleted source file next to a changed one passes vacuously too", () => {
   assert.match(plan.reason, /nothing proved/);
 });
 
+test("a deleted doc or config file next to a source change with no test still fails", () => {
+  for (const diff of ["M\tsrc/x.js\nD\tdocs/old.md\n", "M\tsrc/x.js\nD\t.eslintrc\n", "M\tsrc/x.js\nD\tpackage-lock.json\n"]) {
+    const plan = redGreenPlan(parseNameStatus(diff));
+    assert.equal(plan.vacuous, false, diff);
+    assert.equal(redGreenVerdict(plan).ok, false, diff);
+  }
+});
+
 test("a test renamed out of the test tree counts as a deleted file", () => {
   const plan = redGreenPlan(parseNameStatus("R100\ttest/slugify.test.js\tsrc/slugify.old.js\nM\tsrc/slugify.js\n"));
   assert.equal(plan.run, false);

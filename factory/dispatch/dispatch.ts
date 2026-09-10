@@ -1,13 +1,17 @@
 /**
  * Dispatcher: move ready tickets into the factory.
  *
- * Runs on issue closed and labeled, on a schedule as the fallback, and by
- * hand. Reads the target repo's open issues (labels, assignees, open blocker
- * count from GitHub native dependencies, sub-issue count) and its open PRs,
- * asks `select.ts` which ones to dispatch, and adds `agent:implement` to
- * each. The label must be added with FACTORY_PAT: a label added with
- * GITHUB_TOKEN does not fire `issues: labeled`, so the implementer would
- * never start.
+ * Runs on the caller's `issues: [closed, labeled, unassigned, unlabeled]`, on
+ * the heartbeat, on a schedule as the fallback, and by hand. Every run is a
+ * full scan whatever woke it, so admitting an `unlabeled` or `unassigned`
+ * event is what makes a ticket the human just unblocked move at once instead
+ * of on the next heartbeat, and it dispatches nothing this module would not
+ * have dispatched anyway. Reads the target repo's open issues (labels,
+ * assignees, open blocker count from GitHub native dependencies, sub-issue
+ * count) and its open PRs, asks `select.ts` which ones to dispatch, and adds
+ * `agent:implement` to each. The label must be added with FACTORY_PAT: a
+ * label added with GITHUB_TOKEN does not fire `issues: labeled`, so the
+ * implementer would never start.
  *
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT), optional OUTPUT_DIR for
  * dispatch.json, optional DRY_RUN=1 to select without labeling, optional

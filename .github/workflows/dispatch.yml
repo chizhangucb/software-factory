@@ -10,9 +10,9 @@
 #
 # The caller admits an `unlabeled` or `unassigned` event whatever was removed,
 # so a ticket held back by ready-for-human or by an assignee is dispatched the
-# moment the human lets go of it rather than on the next heartbeat. Which
-# removals can unblock a ticket is select.ts's answer, so a run over a ticket
-# nothing unblocked is a full scan that labels nothing.
+# moment the human lets go of it rather than on the next heartbeat. Why the
+# caller does not try to name which removals matter: docs/pipeline.md, under
+# Dispatcher.
 #
 # The schedule is the fallback, not the heartbeat: measured on one private
 # target it fired 6 times against about 129 expected in 21 and a half hours,
@@ -64,8 +64,12 @@ jobs:
     timeout-minutes: 5
     # One dispatcher at a time per repo so two runs never race on the same ticket.
     # GitHub keeps one running plus one pending run per group and cancels older
-    # pending ones; safe here, every run is a full scan, so the newest run sees
-    # everything the cancelled ones would have.
+    # pending ones; safe for the dispatch step, every run is a full scan, so the
+    # newest run sees everything the cancelled ones would have. It costs the
+    # reconcile step below, which issue-event runs skip: a pending sweep that a
+    # newer issue event displaces loses that interval's repairs. The deadlines
+    # are 15 to 30 minutes against a heartbeat every 10, so the next sweep still
+    # finds the stranding.
     concurrency:
       group: factory-dispatch
       cancel-in-progress: false

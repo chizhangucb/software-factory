@@ -256,8 +256,8 @@ test("a failing or pending verdict is never carried", () => {
 });
 
 test("other contexts are ignored and a head without a verdict carries nothing", () => {
-  const gate: CommitStatus = { context: "factory/red-green", state: "success", description: "clean", target_url: null };
-  assert.equal(carriedVerdict([gate], "aaaaaaa1"), undefined);
+  const mergeGate: CommitStatus = { context: "factory/red-green", state: "success", description: "clean", target_url: null };
+  assert.equal(carriedVerdict([mergeGate], "aaaaaaa1"), undefined);
   assert.equal(carriedVerdict([], "aaaaaaa1"), undefined);
 });
 

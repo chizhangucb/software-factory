@@ -92,9 +92,9 @@ test("evaluateChecks: factory merge gate contexts fail as merge-gate, other stat
 });
 
 test("evaluateChecks: factory workflow check runs never fail the head but count as pending while running; this run is skipped", () => {
-  const gate = [status("factory/red-green", "success"), status("factory/test-integrity", "success")];
+  const mergeGate = [status("factory/red-green", "success"), status("factory/test-integrity", "success")];
   const result = evaluateChecks({
-    statuses: gate,
+    statuses: mergeGate,
     checkRuns: [
       checkRun("review / review", "in_progress", null, "factory", "500"),
       checkRun("merge-gate / merge-gate", "completed", "failure", "factory", "400"),
@@ -107,7 +107,7 @@ test("evaluateChecks: factory workflow check runs never fail the head but count 
   });
   assert.deepEqual(result.pending, []);
   const queued = evaluateChecks({
-    statuses: gate,
+    statuses: mergeGate,
     checkRuns: [checkRun("merge-gate / merge-gate", "queued", null, "factory", "400")],
     own,
   });
@@ -160,9 +160,9 @@ test("renderMergeGateOutput without a red-green run shows only the verdicts", ()
 test("a verdict that failed for want of acceptance criteria is not worth a retry", () => {
   const noCriteria = { name: "factory/verdict", kind: "verdict" as const, description: "no acceptance criteria on the ticket", url: null };
   const unmet = { name: "factory/verdict", kind: "verdict" as const, description: "2/3 acceptance criteria met", url: null };
-  const gate = { name: "factory/red-green", kind: "merge-gate" as const, description: "source changed, no test", url: null };
-  assert.match(unretryableReason([gate, noCriteria]) ?? "", /no acceptance criteria/);
-  assert.equal(unretryableReason([gate, unmet]), undefined);
+  const mergeGate = { name: "factory/red-green", kind: "merge-gate" as const, description: "source changed, no test", url: null };
+  assert.match(unretryableReason([mergeGate, noCriteria]) ?? "", /no acceptance criteria/);
+  assert.equal(unretryableReason([mergeGate, unmet]), undefined);
   assert.equal(unretryableReason([]), undefined);
 });
 

@@ -283,16 +283,16 @@ const findFile = (dir: string, name: string): string | undefined => {
   return undefined;
 };
 
-const gateOutputs = new Map<string, string>();
+const mergeGateOutputs = new Map<string, string>();
 
 /** The merge gate run's artifact (merge-gate.json plus the red-green logs), or its log when that fails. Both merge gate contexts share one run. */
-const gateOutput = async (url: string | null): Promise<string> => {
+const mergeGateOutput = async (url: string | null): Promise<string> => {
   const runId = runIdFromUrl(url);
   if (!runId) return `(no merge gate run: ${url ?? "no url"})`;
-  const cached = gateOutputs.get(runId);
+  const cached = mergeGateOutputs.get(runId);
   if (cached) return cached;
-  const output = await readGateArtifact(runId, url);
-  gateOutputs.set(runId, output);
+  const output = await readMergeGateArtifact(runId, url);
+  mergeGateOutputs.set(runId, output);
   return output;
 };
 
@@ -310,7 +310,7 @@ const downloadArtifacts = async (runId: string, dir: string): Promise<void> => {
   }
 };
 
-const readGateArtifact = async (runId: string, url: string | null): Promise<string> => {
+const readMergeGateArtifact = async (runId: string, url: string | null): Promise<string> => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "merge-gate-artifact-"));
   try {
     await downloadArtifacts(runId, dir);
@@ -348,7 +348,7 @@ const headChecks = (sha: string) => {
 
 const failureOutput = async (f: CheckFailure): Promise<string> => {
   const detail =
-    f.kind === "verdict" ? verdictOutput() : f.kind === "merge-gate" ? await gateOutput(f.url) : failedLog(f.url);
+    f.kind === "verdict" ? verdictOutput() : f.kind === "merge-gate" ? await mergeGateOutput(f.url) : failedLog(f.url);
   return `## ${f.name}: ${f.kind} failure${f.description ? ` (${f.description})` : ""}\n${f.url ?? ""}\n\n${detail}`;
 };
 

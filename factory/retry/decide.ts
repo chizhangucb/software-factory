@@ -150,7 +150,7 @@ export interface RetryContext {
 }
 
 const MARKER = /^<!-- factory:retry retry=(\d+) kind=([a-z-]+) -->\n?/;
-const RUN_LINE = /^Attempt \d+ failed \([a-z]+\)\. Run: (\S+)$/m;
+const RUN_LINE = /^Attempt \d+ failed \([a-z-]+\)\. Run: (\S+)$/m;
 /** Fits a GitHub comment (64k) with room for the rest of the body. */
 const OUTPUT_LIMITS = { head: 6_000, tail: 10_000 };
 

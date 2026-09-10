@@ -89,6 +89,8 @@ So `agent:blocked` keeps its one meaning and is reached by fewer paths: only a f
 
 `gate` was doing too much work. chronicle's own CI workflow is titled `CI Gate`, so on a target the bare word already meant two different things: the target's own checks and the factory's. The glossary's `Guard` entry shows the strain from the other side, and a harness-level egress control is a third thing the bare word would naturally cover. The maintainer hit this directly and could not tell from a sentence which one was meant.
 
+This file's own name keeps `gate` deliberately: an ADR's filename is how every other document cites it, and its number is its identity, so renaming it would break references to buy nothing. The prose inside it moved.
+
 So the concept is the **merge gate** now: `merge-gate.yml`, the `merge-gate:` job, `factory/merge-gate/`, `merge-gate.ts`, `merge-gate.json`, and the `merge-gate` failure kind and run role. `pr-merge` was considered and rejected: nothing in this workflow merges anything, GitHub's auto-merge and `update-branch.yml` do, so that name would have collided with the thing that actually merges.
 
 The three status check names, `factory/verdict`, `factory/red-green` and `factory/test-integrity`, are byte-identical to before, deliberately. None of them contains the ambiguous word, so there was nothing to fix; the `factory/` prefix is what tells a maintainer which checks on their PR are the factory's rather than their own, and renaming them would have meant editing the ruleset on every target for no gain.
@@ -96,6 +98,6 @@ The three status check names, `factory/verdict`, `factory/red-green` and `factor
 Two consequences worth recording:
 
 - The retry marker comment writes `kind=merge-gate`, and its pattern was widened to accept a hyphen. A marker written before this change says `kind=gate`, which no longer parses, so its retry context is lost and the attempt reads as a fresh one. No compatibility shim was added: the factory was paused for the cutover with no factory PR in flight, so no such marker existed.
-- The cutover is cross-repo. Each target's caller names the workflow by filename, so renaming it breaks every caller at once. The factory was paused at the heartbeat, the rename landed, both callers were updated, and the heartbeat was restored. `templates/factory.yml` carries the new name for targets onboarded after this.
+- The cutover is cross-repo, and its order is part of the decision. Each target's caller names the workflow by filename, so the rename breaks every caller the moment it reaches `main`. The sequence is therefore: stop the heartbeat and confirm no factory PR is in flight, land the rename, update both callers, restore the heartbeat, then prove the wiring with one ticket before real work resumes. A caller is a workflow file, so a fine-grained PAT generally cannot push it and that step is the maintainer's. `templates/factory.yml` carries the new name for targets onboarded after this.
 
 Nothing this ADR decides about the merge gate, auto-merge or the audit changed. The required checks, the read-only reviewer, the squash-only ruleset, the verdict carry and the first-20 audit all stand as they did.

@@ -20,7 +20,7 @@ import {
   retriesUsed,
   retryLabel,
   retryPromptSection,
-} from "./decide";
+  FAILURE_KINDS,} from "./decide";
 
 test("retriesUsed counts the highest factory:retry-<n> label, zero without one", () => {
   assert.equal(retriesUsed([]), 0);
@@ -252,6 +252,17 @@ test("a retry comment round-trips through its marker", () => {
   assert.equal(parsed.kind, "verdict");
   assert.equal(parsed.runUrl, runUrl);
   assert.match(parsed.output, /- \[ \] the helper exists/);
+});
+
+test("every failure kind round-trips through a retry comment, run link included", () => {
+  // A hyphenated kind (merge-gate) must survive both the marker and the "Attempt N
+  // failed (kind)" line. A pattern that accepts only letters parses the marker and
+  // then silently drops the run link, leaving the implementer no run to read.
+  for (const kind of FAILURE_KINDS) {
+    const parsed = parseRetryComment(renderRetryComment({ retry: 1, kind, runUrl, output: "out" }));
+    assert.equal(parsed?.kind, kind, `kind ${kind} did not survive the marker`);
+    assert.equal(parsed?.runUrl, runUrl, `kind ${kind} lost its run link`);
+  }
 });
 
 test("parseRetryComment ignores comments without the marker", () => {

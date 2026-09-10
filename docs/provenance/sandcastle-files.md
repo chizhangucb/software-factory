@@ -109,7 +109,7 @@ Kept as his: **Transition labels**, **Post PR review** (path under `factory-out`
 | Push branch | removed | the reviewer is read-only (`594fc6a`, story 5, ADR 0003, "a reviewer that pushes commits is a second implementer nobody reviews") |
 | Mark PR ready | removed | `594fc6a`; then no drafts at all (`0431d99`) |
 
-Added here alone: "Mark verdict pending", "Run target tests", "Write verdict into the PR body", "Set verdict status" (`594fc6a`, `1d4dc25`, stories 5, 6), "Trigger update-branch on a passing verdict" (`421a1b5`, story 11), "Retry or escalate on a failing verdict or gate" (`87d0eb0`, story 12).
+Added here alone: "Mark verdict pending", "Run target tests", "Write verdict into the PR body", "Set verdict status" (`594fc6a`, `1d4dc25`, stories 5, 6), "Trigger update-branch on a passing verdict" (`421a1b5`, story 11), "Retry or escalate on a failing verdict or merge gate" (`87d0eb0`, story 12).
 
 ### agent-implement-pr.yml
 

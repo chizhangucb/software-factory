@@ -359,9 +359,8 @@ const failureOutput = async (f: CheckFailure): Promise<string> => {
 const checksFailure = async (pr: string | undefined): Promise<Failure | undefined> => {
   const sha = required("HEAD_SHA");
   const deadline = Date.now() + CHECKS_TIMEOUT_MS;
-  // Each poll is three gh calls: the two check reads and, when there is a PR, its mergeability.
-  // The third is what lets a conflicting PR leave within a poll of GitHub deciding rather than
-  // at the deadline, and one call every POLL_MS for at most the deadline is cheap against that.
+  // The mergeability read is one gh call per poll on top of the two check reads (and the
+  // per-run lookups those cache): cheap against a conflicting PR leaving within a poll.
   const observe = () => {
     const state = headChecks(sha);
     const mergeability = pr ? mergeabilityOf(pr) : undefined;

@@ -43,7 +43,7 @@ _Avoid_: failure, blocked (the tracker's dependency word).
 
 **Hand-off**:
 A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`.
-_Avoid_: requeue (the retry handler's word for a ticket handed back to the dispatcher with nothing decided), escalation (the human queue).
+_Avoid_: requeue (the retry handler's other no-retry path, which ends with a human), escalation (the human queue).
 
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.

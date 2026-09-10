@@ -188,13 +188,12 @@ test("a check that failed outranks a pending one, so the failing path still runs
 
 test("a definite conflict while checks are pending ends the wait early, and the reason says so rather than naming the deadline", () => {
   const end = waitEnd({ pending: ["check", "factory/red-green (not posted yet)"], failures: [] }, "CONFLICTING");
-  assert.equal(end.over, true);
-  assert.equal(end.over && end.why, "conflict");
-  const reason = (end.over && end.why === "conflict" && end.reason) || "";
-  assert.match(reason, /check, factory\/red-green \(not posted yet\)/);
-  assert.match(reason, /GitHub reported the PR conflicting/);
-  assert.match(reason, /ended early/);
-  assert.doesNotMatch(reason, /minutes/);
+  assert.deepEqual(end, {
+    over: true,
+    why: "conflict",
+    reason:
+      "check, factory/red-green (not posted yet) still pending when GitHub reported the PR conflicting with its base; the wait ended early, not at the deadline",
+  });
 });
 
 test("unknown and mergeable keep the wait going while checks are pending, as does no PR to read", () => {

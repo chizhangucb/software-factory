@@ -124,9 +124,11 @@ export const unretryableReason = (failures: readonly CheckFailure[]): string | u
  * informed and worth spending.
  */
 export const stillPendingReason = (state: CheckState, timeoutMinutes: number): string | undefined =>
-  state.failures.length === 0 && state.pending.length > 0
-    ? `${state.pending.join(", ")} still pending after ${timeoutMinutes} minutes; not the ticket's failure`
-    : undefined;
+  pendingReason(state, `after ${timeoutMinutes} minutes; not the ticket's failure`);
+
+/** The pending checks and why the wait for them stopped; undefined when a failed check outranks them. */
+const pendingReason = (state: CheckState, cause: string): string | undefined =>
+  state.failures.length === 0 && state.pending.length > 0 ? `${state.pending.join(", ")} still pending ${cause}` : undefined;
 
 /**
  * Whether one poll's observation ends the wait for the head's checks, and
@@ -150,10 +152,7 @@ export const waitEnd = (state: CheckState, mergeable: Mergeability | undefined):
     return {
       over: true,
       why: "conflict",
-      reason:
-        state.failures.length === 0
-          ? `${state.pending.join(", ")} still pending when GitHub reported the PR conflicting with its base; the wait ended early, not at the deadline`
-          : undefined,
+      reason: pendingReason(state, "when GitHub reported the PR conflicting with its base; the wait ended early, not at the deadline"),
     };
   }
   return { over: false };

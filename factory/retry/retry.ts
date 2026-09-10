@@ -187,12 +187,17 @@ interface PrMergeability {
   readonly base: string;
 }
 
-/** Read once, after the wait for checks: reading it inside the poll is #145. */
-const mergeabilityOf = (pr: string): PrMergeability => {
-  const view = ghJson<{ mergeable: Mergeability; baseRefName: string }>([
-    "pr", "view", pr, "--repo", REPO, "--json", "mergeable,baseRefName",
+/**
+ * Read once, after the wait for checks: reading it inside the poll is #145.
+ * Undefined when the PR closed or merged as the handler waited: `resolveTarget`
+ * saw it open before the wait, and nothing is handed off or labeled on a PR
+ * that is no longer open.
+ */
+const mergeabilityOf = (pr: string): PrMergeability | undefined => {
+  const view = ghJson<{ state: string; mergeable: Mergeability; baseRefName: string }>([
+    "pr", "view", pr, "--repo", REPO, "--json", "state,mergeable,baseRefName",
   ]);
-  return { pr, mergeable: view.mergeable, base: view.baseRefName };
+  return view.state === "OPEN" ? { pr, mergeable: view.mergeable, base: view.baseRefName } : undefined;
 };
 
 const labelsOf = (on: Subject): string[] =>
@@ -450,7 +455,7 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
 };
 
 const main = async (): Promise<void> => {
-  const target = resolveTarget();
+  let target = resolveTarget();
   console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr ?? "(none)"}, branch ${BRANCH}.`);
 
   let failure: Failure | undefined;
@@ -473,13 +478,25 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  const labels = labelsOf(recordOn(target));
-  const used = retriesUsed(labels);
   // Only the checks wait can end in a hand-off, and only an open PR can conflict: read
   // nothing otherwise. A rate limit's requeue never waited for the head, so its PR is
   // requeued whatever its mergeability; the conflict is the checks path's fact (#144).
-  const mergeability =
-    FAILURE_KIND === "checks" && failure.requeue && target.pr ? mergeabilityOf(target.pr) : undefined;
+  // The same read is where a PR that closed or merged as the handler waited drops out,
+  // so the requeue falls back to the ticket instead of labeling a PR nobody keeps.
+  let mergeability: PrMergeability | undefined;
+  if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
+    mergeability = mergeabilityOf(target.pr);
+    if (!mergeability) {
+      console.log(`PR #${target.pr} closed or merged as the handler waited; it is no longer the subject.`);
+      target = { ...target, pr: undefined };
+      if (!target.issue) {
+        console.log("No ticket to fall back to; nothing to requeue.");
+        return;
+      }
+    }
+  }
+  const labels = labelsOf(recordOn(target));
+  const used = retriesUsed(labels);
   const decision = decide({
     retriesUsed: used,
     kind: failure.kind,

@@ -72,7 +72,7 @@ const SLACK_MS = 2 * 60_000;
 /** Misses before escalating, and the cap on re-dispatches of any cause on one stranding. */
 const MAX_MISSES = 2;
 
-export type RunRole = "implement" | "review" | "implement-pr" | "dispatch" | "update-branch" | "gate" | "audit" | "none";
+export type RunRole = "implement" | "review" | "implement-pr" | "dispatch" | "update-branch" | "merge-gate" | "audit" | "none";
 
 export type Run = {
   id: number;
@@ -390,7 +390,7 @@ const JOB_ROLES: Record<string, RunRole> = {
   "implement-pr": "implement-pr",
   dispatch: "dispatch",
   update: "update-branch",
-  gate: "gate",
+  "merge-gate": "merge-gate",
   decide: "audit",
   audit: "audit",
 };

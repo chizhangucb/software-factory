@@ -63,7 +63,7 @@ test("config files are workflows, manifests, lockfiles and dotfiles", () => {
   ]) {
     assert.equal(isConfigFile(p), true, p);
   }
-  // real source stays source, so a change to it with no test still fails the gate:
+  // real source stays source, so a change to it with no test still fails the merge gate:
   // a script, an action shipped under .github/, data the code reads, a fixture the tests own
   for (const p of [
     "src/a.js",
@@ -82,7 +82,7 @@ test("config files are workflows, manifests, lockfiles and dotfiles", () => {
 test("classifyFile picks test, then doc, then config, else source", () => {
   assert.equal(classifyFile("test/a.test.js"), "test");
   assert.equal(classifyFile("test/README.md"), "doc");
-  assert.equal(classifyFile(".github/workflows/gate.yml"), "config");
+  assert.equal(classifyFile(".github/workflows/merge-gate.yml"), "config");
   assert.equal(classifyFile("test/fixtures/x.json"), "source");
   assert.equal(classifyFile("src/a.js"), "source");
 });

@@ -1,7 +1,7 @@
 /**
  * The ticket a PR body says it closes, by the keywords GitHub honours
  * (`Closes #N`, `Fixed: #N`, ...). One regex for every reader that has to
- * agree on which ticket a PR belongs to: the reviewer's context, the gate,
+ * agree on which ticket a PR belongs to: the reviewer's context, the merge gate,
  * the implement workflow's preflight, the retry handler, and the dispatcher's
  * selection and reconciler.
  *
@@ -11,7 +11,7 @@
  * an open PR already covers a ticket.
  *
  * This module imports nothing, so it is safe for the strip-types jobs
- * (dispatch, implement's preflight) as well as the tsx jobs (gate, retry,
+ * (dispatch, implement's preflight) as well as the tsx jobs (merge gate, retry,
  * review). A strip-types caller must still name it with the `.ts` extension:
  * bare `node --experimental-strip-types` cannot resolve an extensionless
  * specifier, and `lib/strip-types-cone.test.ts` is what catches one.

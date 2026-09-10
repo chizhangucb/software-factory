@@ -70,7 +70,7 @@ Section 5 has the rest story by story. In short: no dependency ordering, no esca
 | Piece | Story, ADR | Could his code have served? |
 |---|---|---|
 | dispatch (`factory/dispatch/`) | 1, 2, 21, 28, 30; #15 | No. His pipeline has no dispatcher; a human applies the label, and his `simple-loop` lets an agent pick issues, which #9 excludes ("any planner that invents work"). Story 21 is the exception: the `agent:*` label vocabulary is his, and only the thing applying it is new. |
-| gate (`factory/gate/`) | 7, 8, 9; ADR 0003; #13 | No. His pipeline trusts the agent's "ran the tests". `diff-lines.ts` was reused as a seed. |
+| merge gate (`factory/merge-gate/`) | 7, 8, 9; ADR 0003; #13 | No. His pipeline trusts the agent's "ran the tests". `diff-lines.ts` was reused as a seed. |
 | audit (`factory/audit/`) | 18, 19; ADR 0003; #18 | Partly. It reuses his `review-context.ts` and `run-with-extraction.ts`; the trigger and the revert logic have no counterpart. |
 | retry (`factory/retry/`) | 12, 13; #16 | No. His failure path is `agent:blocked` plus "re-add the label". |
 | rotation and accounts (`factory/lib/rotation.ts`, `accounts.ts`) | 15, 16, 17; ADR 0004; #17 | No. `claudeCode()` takes one token, and the library drops `is_error` from the result event so a rate limit reads as success (#21, gap 2). |

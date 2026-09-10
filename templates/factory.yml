@@ -65,7 +65,7 @@ jobs:
     secrets: inherit
     with:
       factory_ref: main
-      # Optional, on implement, implement-pr, review, gate and audit: the Node the target's
+      # Optional, on implement, implement-pr, review, merge-gate and audit: the Node the target's
       # own tests and tooling need (default "22"). Set it on every one of those jobs.
       # node_version: "24"
       # Optional: whose words the implementer acts on. Keep it equal to the dispatch job's,
@@ -92,9 +92,9 @@ jobs:
       # Optional: whose words this run reads, the factory's own retry marker included.
       # Keep it equal to the implement job's, or a retry loses its failure context.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
-  gate:
+  merge-gate:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    uses: chizhangucb/software-factory/.github/workflows/gate.yml@main
+    uses: chizhangucb/software-factory/.github/workflows/merge-gate.yml@main
     secrets: inherit
     with:
       factory_ref: main

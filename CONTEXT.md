@@ -25,16 +25,16 @@ The checklist on a ticket that says what done means. Written before any agent st
 One agent's attempt at one ticket in one fresh sandbox, ending in a PR or an escalation.
 _Avoid_: iteration (Ralph's word for a loop pass), session.
 
-**Gate**:
-The mechanical checks a PR must pass before it can merge. Lives in CI as required status checks, never only in an agent prompt.
-_Avoid_: verification, validation, definition of done (say gate plus acceptance criteria).
+**Merge gate**:
+The mechanical checks a PR must pass before it can merge. Lives in CI as required status checks, never only in an agent prompt. Its own name is `merge-gate`: the workflow, the job and the module folder all carry it, while the checks it posts keep the `factory/` prefix that says whose they are.
+_Avoid_: gate on its own, because a target's own CI is often called one too (chronicle's is literally titled `CI Gate`) and because a guard is the other thing the bare word suggests; verification, validation, definition of done (say merge gate plus acceptance criteria).
 
 **Guard**:
-A check that refuses one action before it happens, in the harness rather than in CI. Lives under `scripts/guards/` and is wired from `.claude/settings.json`. Distinct from a gate: a gate blocks a merge after the work, a guard blocks a tool call before it. An accident net, never a security boundary.
-_Avoid_: gate (the merge word), hook (the harness's word for how a guard is wired).
+A check that refuses one action before it happens, in the harness rather than in CI. Lives under `scripts/guards/` and is wired from `.claude/settings.json`. Distinct from a merge gate: a merge gate blocks a merge after the work, a guard blocks a tool call before it. An accident net, never a security boundary.
+_Avoid_: merge gate (the merge word), gate on its own (too broad to name either), hook (the harness's word for how a guard is wired).
 
 **Placeholder**:
-Code that satisfies the gate without doing the work: a stub, a hardcoded return, a test that asserts the stub, a skipped test, or a deleted test the ticket does not remove.
+Code that satisfies the merge gate without doing the work: a stub, a hardcoded return, a test that asserts the stub, a skipped test, or a deleted test the ticket does not remove.
 _Avoid_: cheating, slop.
 
 **Escalation**:
@@ -67,7 +67,7 @@ The agent that runs one ticket and produces the PR. Never approves anything.
 The agent that judges a PR against its acceptance criteria and emits the verdict. Read-only on the branch.
 
 **Verdict**:
-The reviewer's pass or fail, delivered as a required status check. Merge needs gate green plus verdict pass.
+The reviewer's pass or fail, delivered as a required status check. Merge needs the merge gate green plus verdict pass.
 
 **Factory PR**:
 A PR the factory opened or worked on: a branch under `agent/`, the marker the implement workflow writes in the body, or the reviewer's verdict section in the body. A human can open one and the factory still owns it, so a PR implement-pr worked on counts. One definition, `factory/lib/factory-pr.ts`, read by the audit and the reconciler.

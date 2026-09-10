@@ -130,7 +130,7 @@ test("removing a blocking label or an assignee wakes the dispatcher and nothing 
   // naming its action would answer an event it was never meant to see.
   assert.deepEqual(
     [...conditions.keys()],
-    ["dispatch", "implement", "review", "implement-pr", "gate", "audit", "update-branch"],
+    ["dispatch", "implement", "review", "implement-pr", "merge-gate", "audit", "update-branch"],
     "every job in the caller is guarded by a condition this test evaluates",
   );
   for (const { action, label, wakes } of ISSUE_EVENTS) {

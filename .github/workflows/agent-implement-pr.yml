@@ -103,7 +103,7 @@ jobs:
         id: transition
         run: |
           set -euo pipefail
-          # The retry job's gate: this run took the PR, so it owes it a retry or a comment (#51).
+          # The retry job's condition: this run took the PR, so it owes it a retry or a comment (#51).
           # Written first, so a label call that fails still fails the step and still reaches the handler.
           echo "handle=true" >> "$GITHUB_OUTPUT"
           gh pr edit "$PR_NUMBER" --remove-label "agent:implement" || true
@@ -327,7 +327,7 @@ jobs:
     # The failure handler is a job, not a step of `implement-pr` (#51), for the same reason
     # as on the ticket path: a `timeout-minutes` kill cancels that job, so `failure()` is
     # false and a step gated on it never ran, leaving the PR with no label and no comment.
-    # See agent-implement.yml's `retry` job for why widening the gate is not the fix.
+    # See agent-implement.yml's `retry` job for why widening the merge gate is not the fix.
     # One informed retry, then needs-human (#16), for a failure of the implementer itself.
     # FACTORY_PAT so the label that starts the retry fires its event. A failure elsewhere in
     # the implement-PR job (a push refused because the branch moved, say), or a handler that

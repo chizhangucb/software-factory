@@ -63,8 +63,8 @@ import {
   type CheckRun,
   type CommitStatus,
   evaluateChecks,
-  type GateArtifact,
-  renderGateOutput,
+  type MergeGateArtifact,
+  renderMergeGateOutput,
   runIdFromUrl,
   stillPendingReason,
   summariseFailures,
@@ -285,10 +285,10 @@ const findFile = (dir: string, name: string): string | undefined => {
 
 const gateOutputs = new Map<string, string>();
 
-/** The gate run's artifact (gate.json plus the red-green logs), or its log when that fails. Both gate contexts share one run. */
+/** The merge gate run's artifact (merge-gate.json plus the red-green logs), or its log when that fails. Both merge gate contexts share one run. */
 const gateOutput = async (url: string | null): Promise<string> => {
   const runId = runIdFromUrl(url);
-  if (!runId) return `(no gate run: ${url ?? "no url"})`;
+  if (!runId) return `(no merge gate run: ${url ?? "no url"})`;
   const cached = gateOutputs.get(runId);
   if (cached) return cached;
   const output = await readGateArtifact(runId, url);
@@ -311,17 +311,17 @@ const downloadArtifacts = async (runId: string, dir: string): Promise<void> => {
 };
 
 const readGateArtifact = async (runId: string, url: string | null): Promise<string> => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-artifact-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "merge-gate-artifact-"));
   try {
     await downloadArtifacts(runId, dir);
-    const gateFile = findFile(dir, "gate.json");
-    if (!gateFile) return `(the gate run ${runId} uploaded no gate.json)
+    const mergeGateFile = findFile(dir, "merge-gate.json");
+    if (!mergeGateFile) return `(the merge gate run ${runId} uploaded no merge-gate.json)
 ${failedLog(url)}`;
-    const next = (name: string) => readIf(path.join(path.dirname(gateFile), name));
-    const gate = JSON.parse(fs.readFileSync(gateFile, "utf8")) as GateArtifact;
-    return renderGateOutput(gate, { base: next("red-green-base.log"), head: next("red-green-head.log") });
+    const next = (name: string) => readIf(path.join(path.dirname(mergeGateFile), name));
+    const mergeGate = JSON.parse(fs.readFileSync(mergeGateFile, "utf8")) as MergeGateArtifact;
+    return renderMergeGateOutput(mergeGate, { base: next("red-green-base.log"), head: next("red-green-head.log") });
   } catch (error) {
-    return `(could not read the gate artifact of run ${runId}: ${errorMessage(error)})
+    return `(could not read the merge gate artifact of run ${runId}: ${errorMessage(error)})
 ${failedLog(url)}`;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -348,7 +348,7 @@ const headChecks = (sha: string) => {
 
 const failureOutput = async (f: CheckFailure): Promise<string> => {
   const detail =
-    f.kind === "verdict" ? verdictOutput() : f.kind === "gate" ? await gateOutput(f.url) : failedLog(f.url);
+    f.kind === "verdict" ? verdictOutput() : f.kind === "merge-gate" ? await gateOutput(f.url) : failedLog(f.url);
   return `## ${f.name}: ${f.kind} failure${f.description ? ` (${f.description})` : ""}\n${f.url ?? ""}\n\n${detail}`;
 };
 

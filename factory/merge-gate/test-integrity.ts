@@ -27,7 +27,7 @@ export interface Marker {
 /**
  * Markers that silence or narrow a test by their call shape, across the
  * runners the factory is likely to meet. Scanned only on added lines of test
- * files, so a source file's own `skip` option never trips the gate.
+ * files, so a source file's own `skip` option never trips the merge gate.
  */
 const MARKER_PATTERNS: readonly RegExp[] = [
   /\b(?:test|it|describe|suite|context|bench)\s*\.\s*(?:skip|only|todo)\s*\(/,

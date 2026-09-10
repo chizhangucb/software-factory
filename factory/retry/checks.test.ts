@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   evaluateChecks,
-  renderGateOutput,
+  renderMergeGateOutput,
   runIdFromUrl,
   stillPendingReason,
   summariseFailures,
@@ -57,7 +57,7 @@ test("evaluateChecks: a pending status or check run is reported as pending", () 
   assert.deepEqual(result.failures, []);
 });
 
-test("evaluateChecks: gate contexts that are not posted yet are pending, the gate run may still be queued", () => {
+test("evaluateChecks: merge gate contexts that are not posted yet are pending, the merge gate run may still be queued", () => {
   const result = evaluateChecks({ statuses: [status("factory/verdict", "success")], checkRuns: [], own });
   assert.deepEqual(result.pending, [
     "factory/red-green (not posted yet)",
@@ -65,7 +65,7 @@ test("evaluateChecks: gate contexts that are not posted yet are pending, the gat
   ]);
 });
 
-test("evaluateChecks: factory gate contexts fail as gate, other statuses and check runs as ci, verdict as verdict", () => {
+test("evaluateChecks: factory merge gate contexts fail as merge-gate, other statuses and check runs as ci, verdict as verdict", () => {
   const result = evaluateChecks({
     statuses: [
       status("factory/verdict", "failure", "1/3 acceptance criteria met"),
@@ -80,7 +80,7 @@ test("evaluateChecks: factory gate contexts fail as gate, other statuses and che
   assert.deepEqual(
     result.failures.map((f) => [f.name, f.kind]),
     [
-      ["factory/red-green", "gate"],
+      ["factory/red-green", "merge-gate"],
       ["ci/other", "ci"],
       ["check", "ci"],
       ["factory/verdict", "verdict"],
@@ -97,7 +97,7 @@ test("evaluateChecks: factory workflow check runs never fail the head but count 
     statuses: gate,
     checkRuns: [
       checkRun("review / review", "in_progress", null, "factory", "500"),
-      checkRun("gate / gate", "completed", "failure", "factory", "400"),
+      checkRun("merge-gate / merge-gate", "completed", "failure", "factory", "400"),
       checkRun("implement / implement", "completed", "failure", undefined, "500"),
       checkRun("check", "completed", "timed_out", "check"),
       checkRun("lint", "completed", "cancelled", "lint"),
@@ -108,10 +108,10 @@ test("evaluateChecks: factory workflow check runs never fail the head but count 
   assert.deepEqual(result.pending, []);
   const queued = evaluateChecks({
     statuses: gate,
-    checkRuns: [checkRun("gate / gate", "queued", null, "factory", "400")],
+    checkRuns: [checkRun("merge-gate / merge-gate", "queued", null, "factory", "400")],
     own,
   });
-  assert.deepEqual(queued.pending, ["gate / gate"]);
+  assert.deepEqual(queued.pending, ["merge-gate / merge-gate"]);
   assert.deepEqual(
     result.failures.map((f) => [f.name, f.kind]),
     [["check", "ci"]],
@@ -129,15 +129,15 @@ test("runIdFromUrl reads the run id out of run and job urls", () => {
 test("summariseFailures is one line naming each failure and its description", () => {
   assert.equal(
     summariseFailures([
-      { name: "factory/red-green", kind: "gate", description: "no test failed on main", url: null },
+      { name: "factory/red-green", kind: "merge-gate", description: "no test failed on main", url: null },
       { name: "factory/verdict", kind: "verdict", description: "1/3 acceptance criteria met", url: null },
     ]),
-    "gate factory/red-green (no test failed on main); verdict factory/verdict (1/3 acceptance criteria met)",
+    "merge-gate factory/red-green (no test failed on main); verdict factory/verdict (1/3 acceptance criteria met)",
   );
 });
 
-test("renderGateOutput lists each check's reasons and the tails of the red-green logs", () => {
-  const out = renderGateOutput(
+test("renderMergeGateOutput lists each check's reasons and the tails of the red-green logs", () => {
+  const out = renderMergeGateOutput(
     {
       redGreen: { ok: false, reasons: ["test/x.test.js passed on main"], exitCodes: { base: 0, head: 0 } },
       testIntegrity: { ok: true, reasons: [] },
@@ -152,15 +152,15 @@ test("renderGateOutput lists each check's reasons and the tails of the red-green
   assert.doesNotMatch(out, /line1/);
 });
 
-test("renderGateOutput without a red-green run shows only the verdicts", () => {
-  const out = renderGateOutput({ testIntegrity: { ok: false, reasons: ["new skip/only/todo marker at test/a.test.js:3: test.skip(\"x\")"] } }, {});
-  assert.equal(out, "factory/red-green: (not in gate.json)\nfactory/test-integrity: fail\n- new skip/only/todo marker at test/a.test.js:3: test.skip(\"x\")");
+test("renderMergeGateOutput without a red-green run shows only the verdicts", () => {
+  const out = renderMergeGateOutput({ testIntegrity: { ok: false, reasons: ["new skip/only/todo marker at test/a.test.js:3: test.skip(\"x\")"] } }, {});
+  assert.equal(out, "factory/red-green: (not in merge-gate.json)\nfactory/test-integrity: fail\n- new skip/only/todo marker at test/a.test.js:3: test.skip(\"x\")");
 });
 
 test("a verdict that failed for want of acceptance criteria is not worth a retry", () => {
   const noCriteria = { name: "factory/verdict", kind: "verdict" as const, description: "no acceptance criteria on the ticket", url: null };
   const unmet = { name: "factory/verdict", kind: "verdict" as const, description: "2/3 acceptance criteria met", url: null };
-  const gate = { name: "factory/red-green", kind: "gate" as const, description: "source changed, no test", url: null };
+  const gate = { name: "factory/red-green", kind: "merge-gate" as const, description: "source changed, no test", url: null };
   assert.match(unretryableReason([gate, noCriteria]) ?? "", /no acceptance criteria/);
   assert.equal(unretryableReason([gate, unmet]), undefined);
   assert.equal(unretryableReason([]), undefined);

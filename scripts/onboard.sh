@@ -11,9 +11,9 @@ set -euo pipefail
 repo="${1:?usage: onboard.sh owner/repo [own-check ...]}"
 shift
 
-# ADR 0003 makes the gate three things: the target's own CI, red-green, and test-integrity,
+# ADR 0003 makes the merge gate three things: the target's own CI, red-green, and test-integrity,
 # with the verdict on top. Onboard with no own check and the ruleset is missing the first of
-# them, and silence about that is how a maintainer ends up trusting a gate that never runs
+# them, and silence about that is how a maintainer ends up trusting a merge gate that never runs
 # their build. It is a warning and not a refusal because a target with no CI at all is real,
 # and refusing it would need a flag to say so, which is a knob nobody asked for.
 # Printed twice, before the ruleset write and after it, so it cannot scroll past. Reads

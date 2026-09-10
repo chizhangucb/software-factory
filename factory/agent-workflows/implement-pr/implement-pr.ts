@@ -34,7 +34,7 @@
  *   does not have (story 12 of #46); and an exhaustive completion criterion in
  *   his PROCESS opener (story 14 of #46), which still stands and is why the
  *   trailing "Done when every thread carries one of those four outcomes" went.
- *   Story 14 of #75 cut that restatement, the gate's own description, now that
+ *   Story 14 of #75 cut that restatement, the merge gate's own description, now that
  *   `factory/red-green` and `factory/test-integrity` are required checks and
  *   the retry marker feeds back the failing excerpt, and the sentence that
  *   sent the agent at the conflict first, which `conflictSection` in

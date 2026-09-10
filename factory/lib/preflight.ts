@@ -1,7 +1,7 @@
 /**
  * The implement workflow's preflight: refuse a ticket that an open PR from a
  * collaborator already closes. The closing-keyword test is `linked-issue.ts`,
- * the same one the reviewer, the gate, and the retry handler use, so every
+ * the same one the reviewer, the merge gate, and the retry handler use, so every
  * part of the factory agrees on which PR belongs to a ticket.
  *
  * Env: GH_REPO, GH_TOKEN, ISSUE_NUMBER, GITHUB_OUTPUT. Writes `refused` and

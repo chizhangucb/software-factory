@@ -242,7 +242,7 @@ const CARRIED_SUFFIX = / \(carried from [0-9a-f]+ by update-branch\)$/;
  * The verdict to post on the new head after an update, or undefined. The
  * reviewer judged the PR's diff against its ticket; GitHub merging main into
  * the head leaves that diff as it was, so a passing verdict carries over
- * with its provenance in the description. The gate and the target's own
+ * with its provenance in the description. The merge gate and the target's own
  * CI re-run for real on the new head. Anything but success stays behind.
  */
 export const carriedVerdict = (

@@ -22,7 +22,7 @@
  * - commits counted on `refs/heads/$BRANCH` against main, not on HEAD: a retry
  *   that inherits the last attempt's commits still has a branch to judge (#16).
  * - `prompt.md` keeps his sections (TASK, ISSUE, CONTEXT, EXECUTION, COMMIT) and
- *   gains two: NO PLACEHOLDERS, since the gate is the factory's (stories 7, 8, 9,
+ *   gains two: NO PLACEHOLDERS, since the merge gate is the factory's (stories 7, 8, 9,
  *   #13), and REVIEW AND FIX, which names the review skills (story 4, story 12 of
  *   #46). The paragraphs inside every section are the factory's (stories 4, 7, 8,
  *   23); EXECUTION and REVIEW AND FIX invoke `mattpocock-skills:tdd` and
@@ -30,7 +30,7 @@
  *   of #46). Every paragraph then went through `writing-for-agents` (story 14
  *   of #46), which is where NO PLACEHOLDERS states its rules as targets to hit
  *   rather than as a list of things not to do. Story 14 of #75 then took the
- *   gate's and the reviewer's own descriptions out of NO PLACEHOLDERS, because
+ *   merge gate's and the reviewer's own descriptions out of NO PLACEHOLDERS, because
  *   `factory/red-green` and `factory/test-integrity` are required checks and
  *   the retry marker feeds the failure back. His four trailing prohibitions
  *   came back with it, with `issue` read as `ticket` because `CONTEXT.md`

@@ -3,7 +3,7 @@
  * amendment). Runs when main moves and when a factory/verdict passes.
  * Every open PR on main with auto-merge enabled and a stale head gets
  * GitHub's update-branch call with FACTORY_PAT, so the target's CI and the
- * gate re-run on the new head and auto-merge lands it on the latest main.
+ * merge gate re-run on the new head and auto-merge lands it on the latest main.
  * A passing factory/verdict is carried onto the merge commit GitHub made
  * (see plan.ts); the old head gets a factory/update-branch status the moment
  * the call is accepted, so a later run can tell that merge from one a person

@@ -159,6 +159,12 @@ test("renderMergeGateOutput lists each check's reasons, each file's exit status,
   assert.doesNotMatch(out, /line1/);
 });
 
+test("renderMergeGateOutput still shows the logs when the artifact carries no per-file runs", () => {
+  const out = renderMergeGateOutput({ redGreen: { ok: false, reasons: ["boom"] } }, { base: "red", head: "green" }, 2);
+  assert.match(out, /Changed tests on main \(expected to fail\)\nred/);
+  assert.match(out, /Changed tests on the head \(expected to pass\)\ngreen/);
+});
+
 test("renderMergeGateOutput without a red-green run shows only the verdicts", () => {
   const out = renderMergeGateOutput({ testIntegrity: { ok: false, reasons: ["new skip/only/todo marker at test/a.test.js:3: test.skip(\"x\")"] } }, {});
   assert.equal(out, "factory/red-green: (not in merge-gate.json)\nfactory/test-integrity: fail\n- new skip/only/todo marker at test/a.test.js:3: test.skip(\"x\")");

@@ -185,14 +185,18 @@ export const renderMergeGateOutput = (
       : [`${name}: (not in merge-gate.json)`];
   const lines = [...check("factory/red-green", mergeGate.redGreen), ...check("factory/test-integrity", mergeGate.testIntegrity)];
   const runs = mergeGate.redGreen?.runs;
-  if (runs?.length) {
-    const exits = (side: "baseExit" | "headExit"): string => runs.map((r) => `${r.path} exit ${r[side]}`).join(", ");
+  // The logs alone are enough to print the section: an artifact written before
+  // the per-file runs landed carries no `runs`, and dropping its logs would
+  // leave that retry marker with no test output at all.
+  if (runs?.length || logs.base || logs.head) {
+    const exitList = (side: "baseExit" | "headExit"): string =>
+      runs?.length ? `: ${runs.map((r) => `${r.path} exit ${r[side]}`).join(", ")}` : "";
     lines.push(
       "",
-      `Changed tests on main (expected to fail): ${exits("baseExit")}`,
+      `Changed tests on main (expected to fail)${exitList("baseExit")}`,
       tail(logs.base),
       "",
-      `Changed tests on the head (expected to pass): ${exits("headExit")}`,
+      `Changed tests on the head (expected to pass)${exitList("headExit")}`,
       tail(logs.head),
     );
   }

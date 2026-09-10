@@ -68,17 +68,26 @@ const jobIdsOf = (yaml: string): string[] => jobsOf(yaml).map((job) => job.id);
  * Every job-level concurrency block in the repo's workflows, in file then job
  * order. Comment lines inside the block are skipped: why a job is serialised the
  * way it is belongs next to the key.
+ *
+ * A block the pattern cannot read is a failure, not a skip: an unread block
+ * would drop out of every assertion below and they would pass on a group
+ * nobody checked.
  */
 const COMMENT_LINES = "(?: {6}#.*\\n)*";
 const CONCURRENCY = new RegExp(`^ {4}concurrency:\\n${COMMENT_LINES} {6}group: (.+)\\n${COMMENT_LINES} {6}cancel-in-progress: (.+)$`, "m");
+const CONCURRENCY_LINE = /^ {4}concurrency:$/gm;
 
 const concurrencyBlocks = (): { file: string; job: string; group: string; cancelInProgress: string }[] =>
-  workflowFiles().flatMap((file) =>
-    jobsOf(read(file)).flatMap((job) => {
+  workflowFiles().flatMap((file) => {
+    const yaml = read(file);
+    const blocks = jobsOf(yaml).flatMap((job) => {
       const block = job.body.match(CONCURRENCY);
       return block ? [{ file, job: job.id, group: block[1]!, cancelInProgress: block[2]! }] : [];
-    }),
-  );
+    });
+    const declared = yaml.match(CONCURRENCY_LINE)?.length ?? 0;
+    assert.equal(blocks.length, declared, `${file}: a job-level concurrency block is not \`group:\` then \`cancel-in-progress:\`, so it goes unchecked`);
+    return blocks;
+  });
 
 test("the workflows that run a model carry sandcastle's names and the old ones are gone", () => {
   for (const file of Object.keys(AGENT_WORKFLOWS)) assert.ok(exists(file), `${file} is missing`);

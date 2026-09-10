@@ -229,14 +229,18 @@ export const retryPromptSection = (context: RetryContext | undefined): string =>
 /**
  * The comment on a requeued ticket or PR: what happened and what moves it
  * next. The reason names the cause, so the heading stays true of every one
- * of them. On a PR the label is `agent:blocked`, which has one meaning: a
- * human must look. A PR that conflicts with its base never gets this comment;
- * it is the implementer's, and `renderHandOffComment` says so.
+ * of them. A requeue means the same thing on both sides (#148): no retry
+ * spent, no label of the factory's added, and something that already sweeps
+ * picks the subject up again, the dispatcher on a ticket and the reconciler
+ * on a PR. Neither is a human, so no requeue reaches `agent:blocked`, which
+ * keeps its one meaning: a human must look. A PR that conflicts with its
+ * base never gets this comment; it is the implementer's, and
+ * `renderHandOffComment` says so.
  */
 export const renderRequeueComment = (input: {
   readonly reason: string;
   readonly runUrl: string;
-  /** The PR path has no dispatcher: a human re-labels it once the cause is gone. */
+  /** The PR path has no dispatcher: the reconciler re-labels it at its stuck deadline. */
   readonly onPr: boolean;
 }): string =>
   [
@@ -245,7 +249,7 @@ export const renderRequeueComment = (input: {
     `${input.reason}. No retry was spent. Run: ${input.runUrl}`,
     "",
     input.onPr
-      ? "Labeled `agent:blocked`: a human must look. Once the cause is gone, re-add `agent:review` to judge this head again, or `agent:implement` to run the implementer; the retry count is unchanged."
+      ? "No label is added or removed here. The reconciler re-adds this PR's start label (`agent:review`, or `agent:implement` when the implementer was running) at its stuck deadline, and the run starts again; the retry count is unchanged."
       : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the schedule) once `agent:in-progress` is gone.",
   ].join("\n");
 

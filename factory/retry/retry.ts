@@ -9,10 +9,11 @@
  *   the PR closed with its agent:* labels off, the branch kept, a comment on
  *   the ticket linking the run and its log.
  * - requeue (rate limited on every account (#17), or a check still pending
- *   when the wait runs out): no retry spent. A ticket gets a comment and is
- *   left for the dispatcher; a PR gets the comment and `agent:blocked`,
- *   since nothing re-dispatches a PR. `agent:blocked` has one meaning: a
- *   human must look.
+ *   when the wait runs out): no retry spent, and one meaning on both sides
+ *   (#148). The subject gets a comment and no label: a ticket is left for
+ *   the dispatcher, a PR for the reconciler, which re-adds its start label
+ *   at the stuck deadline. Neither is a human, so no requeue reaches
+ *   `agent:blocked`, which keeps its one meaning: a human must look.
  * - hand-off (#144): the checks were still pending, but the PR conflicts
  *   with its base. GitHub starts no `pull_request` workflow on a conflicting
  *   PR, so the checks that never posted are a fact about the merge, not the
@@ -69,7 +70,7 @@ import {
   unretryableReason,
   waitOver,
 } from "./checks";
-import { BLOCKED_LABEL, ESCALATION_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
+import { ESCALATION_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
 import { escalationLabels, prCloseLabels } from "./escalation.ts";
 import {
   decide,
@@ -430,10 +431,11 @@ const requeue = (target: Target, reason: string): void => {
   const on = actOn(target);
   const onPr = on.kind === "pr";
   commentOn(on, renderRequeueComment({ reason, runUrl: RUN_URL, onPr }));
-  if (onPr) ghWrite(["pr", "edit", on.number, "--repo", REPO, "--add-label", BLOCKED_LABEL]);
   console.log(
     `Requeued ${on.kind} #${on.number} without spending a retry: ${reason}` +
-      (onPr ? `; ${BLOCKED_LABEL} on, a human re-adds ${IMPLEMENT_LABEL}.` : "; the dispatcher re-dispatches it."),
+      (onPr
+        ? "; no label added, the reconciler re-adds the start label at its stuck deadline."
+        : "; the dispatcher re-dispatches it."),
   );
 };
 

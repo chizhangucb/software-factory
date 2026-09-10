@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import { test } from "node:test";
 
+import { RATE_LIMITED_FILE } from "../lib/accounts.ts";
+import { BLOCKED_LABEL } from "../lib/labels.ts";
 import {
   CONFLICT_REASON,
   decide,
@@ -103,15 +106,78 @@ test("decide escalates at once on a failure a retry cannot fix", () => {
   );
 });
 
-test("the requeue comment says what moves the ticket or PR next", () => {
+test("the requeue comment says what moves the ticket or PR next, and neither is a human", () => {
   const onTicket = renderRequeueComment({ reason: "r", runUrl: "u", onPr: false });
   assert.match(onTicket, /No retry was spent/);
   assert.match(onTicket, /dispatcher/);
+  assert.doesNotMatch(onTicket, /agent:blocked/);
+  // A requeue on a PR is the ticket's requeue (#148): the reconciler re-adds the start
+  // label at its stuck deadline, nothing is labeled here, and nothing is asked of a
+  // human, so `agent:blocked` keeps its one meaning.
   const onPr = renderRequeueComment({ reason: "r", runUrl: "u", onPr: true });
-  assert.match(onPr, /agent:blocked/);
-  // Both re-labels, since a requeue is not always the implementer's to pick up again.
-  assert.match(onPr, /`agent:review`/);
-  assert.match(onPr, /`agent:implement`/);
+  assert.match(onPr, /No retry was spent/);
+  assert.match(onPr, /reconciler/);
+  assert.match(onPr, /stuck deadline/);
+  assert.doesNotMatch(onPr, /agent:blocked/);
+  assert.doesNotMatch(onPr, /human/);
+});
+
+/**
+ * The requeue was the one place the handler added `agent:blocked`, on a PR
+ * and never on a ticket (#148). The handler itself makes API calls, so what
+ * is readable without one is that the label is not in it at all: no call
+ * site, no import. The review workflow's own failure step is the only place
+ * left that adds it, and the test below reads that step.
+ */
+test("the retry handler adds agent:blocked nowhere: a requeued PR is the reconciler's, not a human's", () => {
+  const handler = fs.readFileSync(new URL("./retry.ts", import.meta.url), "utf8");
+  const code = handler.slice(handler.indexOf("import "));
+  assert.ok(!code.includes("BLOCKED_LABEL"), "the retry handler still names BLOCKED_LABEL");
+  assert.ok(!code.includes(BLOCKED_LABEL), `the retry handler still adds ${BLOCKED_LABEL}`);
+});
+
+/**
+ * One step of `agent-review.yml` by name, its comment lines dropped: what the
+ * step says about itself is prose, and every assertion below is about what it
+ * runs. Steps are split on `- ` at six-space indent, the way
+ * `lib/accounts.test.ts` and `lib/strip-types-cone.test.ts` split them.
+ */
+const reviewStep = (name: string): string => {
+  const yaml = fs.readFileSync(new URL("../../.github/workflows/agent-review.yml", import.meta.url), "utf8");
+  const step = yaml.split(/\n(?= {6}- )/).find((s) => s.includes(`- name: ${name}`));
+  assert.ok(step, `agent-review.yml has no step named ${name}`);
+  return step
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("#"))
+    .join("\n");
+};
+
+/**
+ * The review side's own failure labelling, the one the retry handler below it
+ * never reaches: a reviewer that crashed, or that never got an account. A run
+ * rate limited on every account is not this PR's failure, so it is requeued
+ * the way a ticket is (#148), and `RATE_LIMITED_FILE` in the output dir is
+ * the fact that says so. Every other failure still means a human must look.
+ */
+test("the review workflow's failure step requeues a rate limit on every account and blocks on anything else", () => {
+  const step = reviewStep("Mark blocked on failure");
+  const guard = step.indexOf(RATE_LIMITED_FILE);
+  assert.ok(guard > 0, `the step never reads ${RATE_LIMITED_FILE}`);
+  const branchEnd = step.indexOf("exit 0", guard);
+  assert.ok(branchEnd > guard, `the ${RATE_LIMITED_FILE} branch does not end the step`);
+
+  const rateLimited = step.slice(guard, branchEnd);
+  assert.ok(!rateLimited.includes(BLOCKED_LABEL), `a rate limit on every account still adds ${BLOCKED_LABEL}`);
+  assert.match(rateLimited, /pr comment/, "a rate limit on every account posts no comment");
+  // The comment is the requeue comment itself, not prose that drifts from it.
+  assert.match(rateLimited, /requeue-comment\.ts/, "the comment is not the one renderRequeueComment writes");
+
+  const otherFailure = step.slice(branchEnd);
+  assert.ok(
+    otherFailure.includes(`--add-label "${BLOCKED_LABEL}"`),
+    `a failure that is not a rate limit no longer adds ${BLOCKED_LABEL}`,
+  );
+  assert.match(otherFailure, /pr comment/, "a failure that is not a rate limit posts no comment");
 });
 
 test("the hand-off comment names the conflict, the implementer's label, and that no retry was spent", () => {

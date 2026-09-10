@@ -311,13 +311,30 @@ jobs:
           echo "Dispatched factory-update-branch for PR #${PR_NUMBER}."
 
       - name: Mark blocked on failure
+        # The review side's own failure labelling, separate from the retry handler below
+        # and reached where that handler is not: a reviewer that crashed, or that never
+        # got an account. A run rate limited on every account is not this PR's failure
+        # (#148), so it is requeued the way the handler requeues a ticket: the requeue
+        # comment, no label, and the reconciler re-adds the start label at its stuck
+        # deadline. The fact is the file the run script already wrote, rate_limited.txt
+        # (RATE_LIMITED_FILE in factory/lib/accounts.ts); its presence means every
+        # account was rate limited. Any other failure keeps `agent:blocked`, which has
+        # one meaning: a human must look.
         if: failure()
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/factory-out
         run: |
-          reason="(no reason file written; check workflow logs)"
-          if [ -f "${RUNNER_TEMP}/factory-out/failure_reason.txt" ]; then
-            reason=$(cat "${RUNNER_TEMP}/factory-out/failure_reason.txt")
-          fi
           body_file="${RUNNER_TEMP}/failure-comment.md"
+          if [ -f "${OUTPUT_DIR}/rate_limited.txt" ]; then
+            tsx factory/factory/retry/requeue-comment.ts > "$body_file"
+            gh pr comment "$PR_NUMBER" --body-file "$body_file"
+            echo "Every account was rate limited: PR #${PR_NUMBER} requeued, no label added."
+            exit 0
+          fi
+          reason="(no reason file written; check workflow logs)"
+          if [ -f "${OUTPUT_DIR}/failure_reason.txt" ]; then
+            reason=$(cat "${OUTPUT_DIR}/failure_reason.txt")
+          fi
           printf '`agent:review` run failed.\n\n**Reason:** %s\n\n**Workflow run:** %s\n\nRe-add `agent:review` to retry.\n' "$reason" "$RUN_URL" > "$body_file"
           gh pr edit "$PR_NUMBER" --add-label "agent:blocked" || true
           gh pr comment "$PR_NUMBER" --body-file "$body_file"

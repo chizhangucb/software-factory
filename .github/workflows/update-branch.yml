@@ -47,7 +47,9 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             factory/update-branch
+            factory/lib/errors.ts
             factory/lib/gh.ts
+            factory/lib/labels.ts
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

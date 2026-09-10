@@ -5,11 +5,11 @@ import { test } from "node:test";
 
 import type { ResultEvent } from "./run-log";
 import {
+  USAGE_MARKER_PREFIX,
   formatDuration,
   formatUsageComment,
   summarizeResultEvents,
   totalUsage,
-  usageMarker,
   usageOfResultEvent,
   type RunUsageRecord,
 } from "./usage";
@@ -87,7 +87,7 @@ const record = (over: Partial<RunUsageRecord>): RunUsageRecord => ({
   ...over,
 });
 
-test("the comment starts with the role marker, one row per attempt, a total when there are several", () => {
+test("the table starts at its heading and carries no marker, one row per attempt, a total when there are several", () => {
   const comment = formatUsageComment(
     "implementer",
     [
@@ -98,8 +98,9 @@ test("the comment starts with the role marker, one row per attempt, a total when
     { runUrl: "https://example.test/run/1" },
   );
   const lines = comment.split("\n");
-  assert.equal(lines[0], usageMarker("implementer"));
-  assert.equal(lines[1], "## Factory usage: implementer");
+  assert.equal(lines[0], "## Factory usage: implementer");
+  // The marker is the caller's to add: the audit puts the table inside a comment of its own.
+  assert.doesNotMatch(comment, new RegExp(USAGE_MARKER_PREFIX));
   assert.match(comment, /\| implement-7 \(attempt 1, failed\) \| claude-opus-5 \| 3s \| 1 \| 0 \| 0 \| 0 \| 0 \| 0 \| \$0\.00 \|/);
   assert.match(comment, /\| implement-7 \(attempt 2\) \| claude-opus-5 \| 1m 30s \| 1 \| 40 \| 1,200 \| 50,000 \| 900,000 \| 8,000 \| \$1\.50 \|/);
   assert.match(comment, /\| total \| \| 1m 33s \| 2 \| 40 \| 1,200 \| 50,000 \| 900,000 \| 8,000 \| \$1\.50 \|/);
@@ -132,7 +133,7 @@ test("a single attempt gets no total row", () => {
 
 test("a role with no records says so instead of rendering an empty table", () => {
   const comment = formatUsageComment("audit", [record({})], { runUrl: "u" });
-  assert.equal(comment.split("\n")[0], "<!-- factory:usage:audit -->");
+  assert.equal(comment.split("\n")[0], "## Factory usage: audit");
   assert.match(comment, /No agent run was recorded for the audit/);
 });
 

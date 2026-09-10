@@ -21,6 +21,7 @@ import * as sandcastle from "@ai-hero/sandcastle";
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 import { runWithRotation } from "../lib/accounts";
 import { fail, required, sh, writeJson, writeText } from "../agent-workflows/shared/common";
+import { errorMessage } from "../lib/errors";
 import { resolveRoleModel } from "../lib/model";
 import { assertReadOnly, worktreeState } from "../lib/read-only";
 import { describeDropped, fetchPullRequestContext } from "../agent-workflows/shared/review-context";
@@ -56,10 +57,8 @@ const TEST_OUTPUT_LIMITS = { head: 4_000, tail: 12_000 };
  * the miss files exist only on a miss, and the workflow keys on them.
  */
 const writeAudit = (result: AuditResult, context: { issueNumber: string; prTitle: string; model: string }): void => {
-  const usageSection = formatUsageComment("audit", readUsageRecords(), { runUrl: RUN_URL })
-    .split("\n")
-    .slice(1) // the role marker line; the audit comment has its own
-    .join("\n");
+  // No marker: the audit comment nests this table and carries a marker of its own.
+  const usageSection = formatUsageComment("audit", readUsageRecords(), { runUrl: RUN_URL });
   writeJson("audit.json", result);
   writeText(
     "audit-comment.md",
@@ -175,5 +174,5 @@ try {
     );
   }
 } catch (error) {
-  fail(error instanceof Error ? error.message : String(error));
+  fail(errorMessage(error));
 }

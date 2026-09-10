@@ -7,7 +7,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { outputDir } from "../agent-workflows/shared/common";
-import { formatUsageComment, type RunUsageRecord } from "./usage";
+import { errorMessage } from "./errors";
+import { formatUsageComment, type RunUsageRecord, usageMarker } from "./usage";
 
 const RECORDS_FILE = "usage.json";
 
@@ -25,7 +26,7 @@ export const readUsageRecords = (dir = outputDir()): RunUsageRecord[] => {
     parsed = JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.warn(`::warning::Ignoring unreadable ${file}: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`::warning::Ignoring unreadable ${file}: ${errorMessage(error)}`);
     }
     return [];
   }
@@ -40,9 +41,11 @@ export const appendUsageRecord = (
   fs.mkdirSync(dir, { recursive: true });
   const records = [...readUsageRecords(dir), record];
   fs.writeFileSync(path.join(dir, RECORDS_FILE), JSON.stringify(records, null, 2));
+  // This file is posted as a comment of its own, so the marker the workflow
+  // upserts by goes on top of the table the usage module returns.
   fs.writeFileSync(
     path.join(dir, usageCommentFile(record.role)),
-    `${formatUsageComment(record.role, records, { runUrl: context.runUrl })}\n`,
+    `${usageMarker(record.role)}\n${formatUsageComment(record.role, records, { runUrl: context.runUrl })}\n`,
   );
   return records;
 };

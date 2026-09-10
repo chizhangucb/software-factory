@@ -46,9 +46,13 @@ export const parseAccounts = (value: unknown): AccountToken[] =>
     .sort((a, b) => a.index - b.index);
 
 /**
- * Read the accounts file, mask every token before anything else prints, and
- * delete the file so the tokens live only in this process and in the env of
- * the one agent run that uses each of them.
+ * Read the accounts file and delete it, so the tokens live only in this
+ * process and in the env of the one agent run that uses each of them.
+ *
+ * Nothing is masked here. Every workflow that writes the file has already
+ * masked every token in its `Enumerate accounts` step, before anything else
+ * in the job prints, so a second `::add-mask::` would only re-state a
+ * decision the workflow already took.
  */
 export const loadAccounts = (file = required(ACCOUNTS_FILE_VAR)): AccountToken[] => {
   let accounts: AccountToken[];
@@ -59,7 +63,6 @@ export const loadAccounts = (file = required(ACCOUNTS_FILE_VAR)): AccountToken[]
   } finally {
     fs.rmSync(file, { force: true });
   }
-  for (const account of accounts) console.log(`::add-mask::${account.token}`);
   if (accounts.length === 0) {
     return fail(
       "No CLAUDE_CODE_OAUTH_TOKEN_<n> secret is available. Pass secrets: inherit from the caller.",

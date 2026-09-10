@@ -81,7 +81,7 @@ The prompt forbids placeholders in plain words; the gate (#13) and the reviewer 
 - `factory/red-green`: the PR's new or changed test files (`*.test.*`, `*.spec.*`, `_test.go`, `test_*.py`, anything under `__tests__/`) are copied onto a checkout of the base branch and run alone. They must fail there and pass on the head. A helper or fixture under `test/` is a source change, not a test.
 
   It passes vacuously twice over: when the diff changes no source file, and when the ticket has a `## Removes` section and the diff changes no tests. Not source: a doc, a dotfile anywhere, and a data or manifest file (`.yml`, `.json`, `.toml`, `.lock`, and the rest of `CONFIG_EXTENSIONS`) at the repo root or under a dot directory. The same extension nested deeper is data the code reads, and stays source. Outside those two passes, a source change with no test change fails.
-- `factory/test-integrity`: fails on a deleted test file and on a new `skip`, `only` or `todo` marker in a test file. A ticket with a `## Removes` section may delete the tests of the subjects it lists, one per list item, matched by name (`- \`src/slugify.js\`` covers `test/slugify.test.js`).
+- `factory/test-integrity`: fails on a deleted test file and on a new `skip`, `only` or `todo` marker in a test file. A ticket with a `## Removes` section may delete the tests of the subjects it lists, one per list item, matched by name (`- \`src/slugify.js\`` covers `test/slugify.test.js`), in any separator style, so `- The view-log module` covers `test/viewlog.test.mjs`. Whole names, though: `view` alone does not cover `viewlog`, and neither `the view log module` nor `the view.log module` does.
 
 ## Reviewer and verdict
 

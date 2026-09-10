@@ -6,7 +6,7 @@
  * target's ruleset, so a wrong refusal here has no judge after it, while a
  * wrong acceptance meets both.
  */
-import { isTestFile, type ChangedFile } from "./changed-files";
+import { deletedTestFiles, isTestFile, type ChangedFile } from "./changed-files";
 
 export interface Verdict {
   readonly ok: boolean;
@@ -127,14 +127,6 @@ export const findNewMarkers = (diff: string): Marker[] => {
   }
   return markers;
 };
-
-/** Test files the diff removes: deleted, or renamed to a non-test path. */
-export const deletedTestFiles = (files: readonly ChangedFile[]): string[] =>
-  files.flatMap((f) => {
-    if (f.status === "D" && f.kind === "test") return [f.path];
-    if (f.status === "R" && f.oldPath && isTestFile(f.oldPath) && !isTestFile(f.path)) return [f.oldPath];
-    return [];
-  });
 
 export interface IntegrityInput {
   readonly files: readonly ChangedFile[];

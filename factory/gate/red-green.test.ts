@@ -6,7 +6,7 @@ import { redGreenPlan, redGreenVerdict } from "./red-green";
 
 test("the plan lists added and modified test files, never deleted ones", () => {
   const plan = redGreenPlan(
-    parseNameStatus("A\ttest/truncate.test.js\nM\ttest/slugify.test.js\nD\ttest/old.test.js\nR100\ttest/a.test.js\ttest/b.test.js\nM\tsrc/x.js\n")
+    parseNameStatus("A\ttest/truncate.test.js\nM\ttest/slugify.test.js\nD\ttest/old.test.js\nR100\ttest/a.test.js\ttest/b.test.js\nM\tsrc/x.js\n"),
   );
   assert.deepEqual(plan, {
     run: true,

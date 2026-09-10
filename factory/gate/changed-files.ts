@@ -47,6 +47,14 @@ export const isTestFile = (p: string): boolean => {
   return /\.(test|spec)\.[^.]+$/.test(base) || /_test\.go$/.test(base) || /^test_.*\.py$|_test\.py$/.test(base);
 };
 
+/** Test files the diff removes: deleted, or renamed to a non-test path. */
+export const deletedTestFiles = (files: readonly ChangedFile[]): string[] =>
+  files.flatMap((f) => {
+    if (f.status === "D" && f.kind === "test") return [f.path];
+    if (f.status === "R" && f.oldPath && isTestFile(f.oldPath) && !isTestFile(f.path)) return [f.oldPath];
+    return [];
+  });
+
 export const isDocFile = (p: string): boolean => {
   const segments = p.split("/");
   const base = segments[segments.length - 1];

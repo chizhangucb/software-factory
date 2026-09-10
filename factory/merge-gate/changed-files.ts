@@ -1,7 +1,7 @@
 /**
  * Classifies the files a PR touches. The heuristics are generic on purpose:
  * the merge gate serves any target repo, so it only looks at paths, never at a
- * repo's test runner config.
+ * repo's test command config.
  */
 
 export type FileKind = "test" | "doc" | "config" | "source";

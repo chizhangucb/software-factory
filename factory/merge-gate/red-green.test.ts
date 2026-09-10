@@ -107,27 +107,22 @@ test("with runs: a test that already passes on the base fails as a stub", () => 
   assert.match(verdict.reasons[0], /pass on the base/);
 });
 
-test("one changed test file red on the base is enough, the rest may pass there", () => {
+test("with runs: one changed test file red on the base is enough, the rest may pass there", () => {
   const plan = redGreenPlan(parseNameStatus("A\ttest/new.test.js\nM\ttest/tidied.test.js\nM\tsrc/x.js\n"));
   const runs = [fileRun("test/new.test.js", 1, 0), fileRun("test/tidied.test.js", 0, 0)];
   assert.deepEqual(redGreenVerdict(plan, runs), { ok: true, reasons: [] });
 });
 
-test("with runs: a file that fails on the head fails the check and is named alone", () => {
+test("with runs: a file that fails on the head fails the check, and no file that passed is named", () => {
   const plan = redGreenPlan(parseNameStatus("A\ttest/broken.test.js\nM\ttest/healthy.test.js\n"));
   const runs = [fileRun("test/broken.test.js", 1, 1), fileRun("test/healthy.test.js", 1, 0)];
   const verdict = redGreenVerdict(plan, runs);
   assert.equal(verdict.ok, false);
+  // The whole list, because the bug this replaces was a failure naming a file that passed.
   assert.deepEqual(verdict.reasons, ["changed test fails on the head (exit 1): test/broken.test.js"]);
 });
 
-test("a file that passed on the head is named in no failure message", () => {
-  const plan = redGreenPlan(parseNameStatus("A\ttest/broken.test.js\nM\ttest/healthy.test.js\n"));
-  const runs = [fileRun("test/broken.test.js", 1, 1), fileRun("test/healthy.test.js", 1, 0)];
-  for (const reason of redGreenVerdict(plan, runs).reasons) assert.doesNotMatch(reason, /healthy/);
-});
-
-test("a plan that should run but has no runs is a failure, never a silent pass", () => {
+test("with runs: a plan that should run but has no runs is a failure, never a silent pass", () => {
   const plan = redGreenPlan(parseNameStatus("A\ttest/x.test.js\n"));
   assert.equal(redGreenVerdict(plan).ok, false);
 });

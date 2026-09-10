@@ -8,6 +8,7 @@ import {
   stillPendingReason,
   summariseFailures,
   unretryableReason,
+  waitEnd,
 } from "./checks";
 
 const own = { workflowName: "factory", runId: "500" };
@@ -183,4 +184,38 @@ test("a check that failed outranks a pending one, so the failing path still runs
   // The url the failure output pulls its log excerpt from survives.
   assert.equal(state.failures[0]?.url, "https://github.com/o/r/actions/runs/77/job/9");
   assert.equal(stillPendingReason({ pending: [], failures: [] }, 15), undefined);
+});
+
+test("a definite conflict while checks are pending ends the wait early, and the reason says so rather than naming the deadline", () => {
+  const end = waitEnd({ pending: ["check", "factory/red-green (not posted yet)"], failures: [] }, "CONFLICTING");
+  assert.equal(end.over, true);
+  assert.equal(end.over && end.why, "conflict");
+  const reason = (end.over && end.why === "conflict" && end.reason) || "";
+  assert.match(reason, /check, factory\/red-green \(not posted yet\)/);
+  assert.match(reason, /GitHub reported the PR conflicting/);
+  assert.match(reason, /ended early/);
+  assert.doesNotMatch(reason, /minutes/);
+});
+
+test("unknown and mergeable keep the wait going while checks are pending, as does no PR to read", () => {
+  const pending = { pending: ["check"], failures: [] };
+  assert.deepEqual(waitEnd(pending, "UNKNOWN"), { over: false });
+  assert.deepEqual(waitEnd(pending, "MERGEABLE"), { over: false });
+  assert.deepEqual(waitEnd(pending, undefined), { over: false });
+});
+
+test("settled checks end the wait whatever GitHub says about the merge", () => {
+  const settled = { pending: [], failures: [] };
+  assert.deepEqual(waitEnd(settled, "CONFLICTING"), { over: true, why: "settled" });
+  assert.deepEqual(waitEnd(settled, "UNKNOWN"), { over: true, why: "settled" });
+  const failed = { pending: [], failures: [{ name: "check", kind: "ci" as const, description: "failure", url: null }] };
+  assert.deepEqual(waitEnd(failed, "CONFLICTING"), { over: true, why: "settled" });
+});
+
+test("a check that failed outranks the conflict: the wait still ends, but with no requeue reason, so the failure path runs", () => {
+  const end = waitEnd(
+    { pending: ["slow-ci"], failures: [{ name: "check", kind: "ci" as const, description: "failure", url: null }] },
+    "CONFLICTING",
+  );
+  assert.deepEqual(end, { over: true, why: "conflict", reason: undefined });
 });

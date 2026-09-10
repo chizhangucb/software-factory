@@ -12,7 +12,7 @@
  * when the review starts.
  */
 import { NO_CRITERIA_DESCRIPTION } from "../lib/verdict";
-import type { FailureKind } from "./decide";
+import type { FailureKind, Mergeability } from "./decide";
 
 export interface CommitStatus {
   readonly context: string;
@@ -127,6 +127,37 @@ export const stillPendingReason = (state: CheckState, timeoutMinutes: number): s
   state.failures.length === 0 && state.pending.length > 0
     ? `${state.pending.join(", ")} still pending after ${timeoutMinutes} minutes; not the ticket's failure`
     : undefined;
+
+/**
+ * Whether one poll's observation ends the wait for the head's checks, and
+ * why. Settled checks end it: the failures among them, if any, are the
+ * result. A definite conflict ends it early (#145): GitHub starts no
+ * `pull_request` workflow on a conflicting PR, so the pending checks are not
+ * coming, and the PR is the implementer's whatever the deadline says. The
+ * reason names that early end, so the log does not claim a deadline that
+ * never came; undefined when a failed check outranks it, as at the deadline.
+ * UNKNOWN is GitHub still deciding and MERGEABLE is a head whose checks are
+ * on their way: both keep waiting.
+ */
+export type WaitEnd =
+  | { readonly over: false }
+  | { readonly over: true; readonly why: "settled" }
+  | { readonly over: true; readonly why: "conflict"; readonly reason: string | undefined };
+
+export const waitEnd = (state: CheckState, mergeable: Mergeability | undefined): WaitEnd => {
+  if (state.pending.length === 0) return { over: true, why: "settled" };
+  if (mergeable === "CONFLICTING") {
+    return {
+      over: true,
+      why: "conflict",
+      reason:
+        state.failures.length === 0
+          ? `${state.pending.join(", ")} still pending when GitHub reported the PR conflicting with its base; the wait ended early, not at the deadline`
+          : undefined,
+    };
+  }
+  return { over: false };
+};
 
 export const summariseFailures = (failures: readonly CheckFailure[]): string =>
   failures

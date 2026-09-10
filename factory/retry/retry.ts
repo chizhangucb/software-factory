@@ -13,13 +13,16 @@
  *   left for the dispatcher; a PR gets the comment and `agent:blocked`,
  *   since nothing re-dispatches a PR. `agent:blocked` has one meaning: a
  *   human must look.
- * - hand-off (#144): the same wait ran out, but the PR conflicts with its
- *   base. GitHub starts no `pull_request` workflow on a conflicting PR, so
- *   the checks that never posted are a fact about the merge, not the
+ * - hand-off (#144): the checks were still pending, but the PR conflicts
+ *   with its base. GitHub starts no `pull_request` workflow on a conflicting
+ *   PR, so the checks that never posted are a fact about the merge, not the
  *   ticket. The PR gets a comment naming the cause and `agent:implement`,
  *   as update-branch's conflict hand-off does: no retry spent, no
- *   `factory:retry-<n>`, no human. A mergeability GitHub has not decided yet
- *   (UNKNOWN) is never acted on and stays a requeue.
+ *   `factory:retry-<n>`, no human. The wait reads mergeability on every poll
+ *   and ends the moment GitHub reports a definite conflict (#145), rather
+ *   than at the deadline. A mergeability GitHub has not decided yet
+ *   (UNKNOWN) is never acted on: it keeps waiting, and at the deadline it
+ *   stays a requeue.
  *
  * Two tokens: reads (statuses, check runs, run logs and artifacts, labels)
  * use GH_TOKEN, the job's GITHUB_TOKEN, which needs checks: read and
@@ -35,11 +38,13 @@
  *   failed or was killed spends a retry; anything else, an attempt that never
  *   started included, exits 1 so the calling job posts its blocked comment (#51).
  * - `checks`: a verdict was just posted on HEAD_SHA; wait for the head's
- *   other checks to settle (CHECKS_TIMEOUT_MINUTES, default 15), then fail
- *   on any failing status or check run. A check still pending at the
- *   deadline with nothing failed is requeued rather than failed: it has no
- *   log, so a retry on it is uninformed; when the open PR conflicts with
- *   its base it is handed off instead. No failure means nothing to do.
+ *   other checks to settle (CHECKS_TIMEOUT_MINUTES, default 15), or for
+ *   GitHub to report the PR conflicting, then fail on any failing status or
+ *   check run. A check still pending at the deadline with nothing failed is
+ *   requeued rather than failed: it has no log, so a retry on it is
+ *   uninformed; when the open PR conflicts with its base it is handed off
+ *   instead, as soon as the conflict is definite. No failure means nothing
+ *   to do.
  * Optional: ARTIFACT_NAME for the log link, GITHUB_RUN_ID and
  * GITHUB_WORKFLOW (set by the runner) to ignore the factory's own check runs.
  */
@@ -62,6 +67,7 @@ import {
   stillPendingReason,
   summariseFailures,
   unretryableReason,
+  waitEnd,
 } from "./checks";
 import { BLOCKED_LABEL, ESCALATION_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
 import { escalationLabels, prCloseLabels } from "./escalation.ts";
@@ -188,10 +194,11 @@ interface PrMergeability {
 }
 
 /**
- * Read once, after the wait for checks: reading it inside the poll is #145.
- * Undefined when the PR closed or merged as the handler waited: `resolveTarget`
- * saw it open before the wait, and nothing is handed off or labeled on a PR
- * that is no longer open.
+ * Read on every poll of the wait for checks (#145), never again after it:
+ * the poll's last read is the answer the decision uses. Undefined when the
+ * PR closed or merged as the handler waited: `resolveTarget` saw it open
+ * before the wait, and nothing is handed off or labeled on a PR that is no
+ * longer open.
  */
 const mergeabilityOf = (pr: string): PrMergeability | undefined => {
   const view = ghJson<{ state: string; mergeable: Mergeability; baseRefName: string }>([
@@ -225,6 +232,8 @@ interface Failure {
   readonly requeue?: string;
   /** Why a retry cannot fix it; escalate at once. */
   readonly unretryable?: string;
+  /** The open PR as the wait for checks last read it; undefined when it closed as the handler waited, or when no PR was read. */
+  readonly mergeability?: PrMergeability;
 }
 
 const implementFailure = (outcome: string): Failure => {
@@ -342,19 +351,33 @@ const failureOutput = async (f: CheckFailure): Promise<string> => {
   return `## ${f.name}: ${f.kind} failure${f.description ? ` (${f.description})` : ""}\n${f.url ?? ""}\n\n${detail}`;
 };
 
-/** Wait for the head's checks to settle, then the failures among them. */
-const checksFailure = async (): Promise<Failure | undefined> => {
+/**
+ * Wait for the head's checks to settle, or for GitHub to report the open PR
+ * conflicting (#145), then the failures among them. `waitEnd` is the rule;
+ * this is the clock and the reads.
+ */
+const checksFailure = async (pr: string | undefined): Promise<Failure | undefined> => {
   const sha = required("HEAD_SHA");
   const deadline = Date.now() + CHECKS_TIMEOUT_MS;
-  let state = headChecks(sha);
-  while (state.pending.length > 0 && Date.now() < deadline) {
-    console.log(`Waiting for ${state.pending.join(", ")} on ${sha.slice(0, 7)}.`);
+  // Each poll is three gh calls: the two check reads and, when there is a PR, its mergeability.
+  // The third is what lets a conflicting PR leave within a poll of GitHub deciding rather than
+  // at the deadline, and one call every POLL_MS for at most the deadline is cheap against that.
+  const observe = () => {
+    const state = headChecks(sha);
+    const mergeability = pr ? mergeabilityOf(pr) : undefined;
+    return { state, mergeability, end: waitEnd(state, mergeability?.mergeable) };
+  };
+  let seen = observe();
+  while (!seen.end.over && Date.now() < deadline) {
+    console.log(`Waiting for ${seen.state.pending.join(", ")} on ${sha.slice(0, 7)}.`);
     await sleep(POLL_MS);
-    state = headChecks(sha);
+    seen = observe();
   }
+  const { state, mergeability, end } = seen;
   // Nothing failed, so there is no kind to name: `ci` is a placeholder the requeue path never reads.
-  const stillPending = stillPendingReason(state, CHECKS_TIMEOUT_MS / 60_000);
-  if (stillPending) return { kind: "ci", summary: stillPending, output: "", requeue: stillPending };
+  const stillPending =
+    end.over && end.why === "conflict" ? end.reason : stillPendingReason(state, CHECKS_TIMEOUT_MS / 60_000);
+  if (stillPending) return { kind: "ci", summary: stillPending, output: "", requeue: stillPending, mergeability };
   const { failures } = state;
   if (failures.length === 0) return undefined;
   const parts: string[] = [];
@@ -469,7 +492,7 @@ const main = async (): Promise<void> => {
     }
     failure = implementFailure(outcome);
   } else if (FAILURE_KIND === "checks") {
-    failure = await checksFailure();
+    failure = await checksFailure(target.pr);
   } else {
     throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_KIND}`);
   }
@@ -478,14 +501,15 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  // Only the checks wait can end in a hand-off, and only an open PR can conflict: read
-  // nothing otherwise. A rate limit's requeue never waited for the head, so its PR is
-  // requeued whatever its mergeability; the conflict is the checks path's fact (#144).
-  // The same read is where a PR that closed or merged as the handler waited drops out,
-  // so the requeue falls back to the ticket instead of labeling a PR nobody keeps.
+  // Only the checks wait can end in a hand-off, and only an open PR can conflict: the
+  // wait's last read is used and nothing is read again (#145). A rate limit's requeue
+  // never waited for the head, so its PR is requeued whatever its mergeability; the
+  // conflict is the checks path's fact (#144). The same read is where a PR that closed
+  // or merged as the handler waited drops out, so the requeue falls back to the ticket
+  // instead of labeling a PR nobody keeps.
   let mergeability: PrMergeability | undefined;
   if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
-    mergeability = mergeabilityOf(target.pr);
+    mergeability = failure.mergeability;
     if (!mergeability) {
       console.log(`PR #${target.pr} closed or merged as the handler waited; it is no longer the subject.`);
       target = { ...target, pr: undefined };

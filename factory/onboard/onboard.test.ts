@@ -39,8 +39,13 @@ esac
 exit 0
 `;
 
+/** `existingRulesetId` picks the update path over the create path. `hasCaller` defaults to
+ * true, since most tests exercise a target that carries one; false drops the factory's
+ * three checks, the way a real caller-less target does. */
+type OnboardOptions = { existingRulesetId?: string; hasCaller?: boolean };
+
 /** A temp directory holding the stub `gh`, and the environment that reaches it. */
-const sandbox = (options: { existingRulesetId?: string; hasCaller?: boolean } = {}) => {
+const sandbox = (options: OnboardOptions = {}) => {
   const { existingRulesetId, hasCaller = true } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
@@ -75,8 +80,8 @@ type Run = {
   requiredChecks: string[];
 };
 
-/** Onboard the target with these own checks. `existingRulesetId` picks the update path. */
-const onboardWith = (ownChecks: string[], options: { existingRulesetId?: string; hasCaller?: boolean } = {}): Run => {
+/** Onboard the target with these own checks. See `OnboardOptions` for `options`. */
+const onboardWith = (ownChecks: string[], options: OnboardOptions = {}): Run => {
   const box = sandbox(options);
   try {
     const result = spawnSync("/bin/sh", ["-c", 'exec "$0" "$@" 2>&1', onboard, target, ...ownChecks], {

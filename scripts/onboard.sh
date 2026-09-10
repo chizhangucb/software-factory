@@ -21,30 +21,24 @@ shift
 # Printed twice, before the ruleset write and after it, so it cannot scroll past. Reads
 # $repo, $has_caller and $own_checks from the script, like every other line here.
 warn_no_own_check() {
-  if [ "$has_caller" = "true" ]; then
-    {
-      echo "############################################################"
+  {
+    echo "############################################################"
+    if [ "$has_caller" = "true" ]; then
       echo "## WARNING: no own check given for $repo."
       echo "## The factory ruleset gates on the factory's checks alone:"
       echo "##   factory/verdict, factory/red-green, factory/test-integrity."
       echo "## The target's own CI is not required, so a PR that breaks the"
       echo "## target's build still merges."
-      echo "## Fix: re-run naming the checks the target's CI posts, e.g."
-      echo "##   scripts/onboard.sh $repo check"
-      echo "############################################################"
-    } >&2
-  else
-    {
-      echo "############################################################"
+    else
       echo "## WARNING: no own check given for $repo, and it carries no caller."
       echo "## The ruleset requires nothing at all: no factory checks, since"
       echo "## no caller posts them, and no own check either. A PR merges"
       echo "## with nothing having run on it."
-      echo "## Fix: re-run naming the checks the target's CI posts, e.g."
-      echo "##   scripts/onboard.sh $repo check"
-      echo "############################################################"
-    } >&2
-  fi
+    fi
+    echo "## Fix: re-run naming the checks the target's CI posts, e.g."
+    echo "##   scripts/onboard.sh $repo check"
+    echo "############################################################"
+  } >&2
 }
 label() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
 label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
@@ -77,14 +71,15 @@ fi
 # Empty arguments name no check, and a name handed back twice is still one check; both would
 # otherwise reach GitHub as a bogus context in the ruleset, so drop them here. First mention
 # wins, which keeps the factory's three at the front, when there is a caller to post them.
+build_checks() {
+  jq -cn '[$ARGS.positional[] | select(. != "")]
+    | reduce .[] as $c ([]; if index($c) then . else . + [$c] end)
+    | map({context: .})' --args "$@"
+}
 if [ "$has_caller" = "true" ]; then
-  checks=$(jq -cn '[$ARGS.positional[] | select(. != "")]
-    | reduce .[] as $c ([]; if index($c) then . else . + [$c] end)
-    | map({context: .})' --args factory/verdict factory/red-green factory/test-integrity "$@")
+  checks=$(build_checks factory/verdict factory/red-green factory/test-integrity "$@")
 else
-  checks=$(jq -cn '[$ARGS.positional[] | select(. != "")]
-    | reduce .[] as $c ([]; if index($c) then . else . + [$c] end)
-    | map({context: .})' --args "$@")
+  checks=$(build_checks "$@")
 fi
 # Counted off the ruleset rather than off the argument list, because the thing worth warning
 # about is a ruleset with nothing in it but the factory's checks. A `factory/` name handed

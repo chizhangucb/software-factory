@@ -34,8 +34,9 @@ const COMMENT_LINE = /^\s*(?:\/\/|#|\*|\/\*)/;
 const SILENCING_OPTION = /\{[^}]*\b(?:skip|only|todo)\s*:\s*(?!false\b)[^,}\s]/;
 
 /**
- * A runner *invoked* on this line, chained segments included, so `test(`,
- * `test.each([...])(` and `t.test(` all count.
+ * A runner *invoked* on this line, chained segments and a TypeScript type
+ * argument included, so `test(`, `test.each([...])(`, `t.test(` and
+ * `test<Ctx>(` all count.
  *
  * It has to be a call rather than a mention: chronicle's own test suite has
  * the line `{ skip: (rel) => rel === 'test/removed-routes.test.mjs' }`, where
@@ -47,7 +48,8 @@ const SILENCING_OPTION = /\{[^}]*\b(?:skip|only|todo)\s*:\s*(?!false\b)[^,}\s]/;
  * routine: a template-literal title, a `.each([{...}])` table, a hoisted
  * options object.
  */
-const RUNNER_CALL = /\b(?:test|it|describe|suite|context|bench)\s*(?:\.\s*\w+\s*)*\(/;
+const RUNNER_CALL =
+  /\b(?:test|it|describe|suite|context|bench)(?:\s*\.\s*\w+)*\s*(?:<[^<>()]*(?:<[^<>()]*>[^<>()]*)*>\s*)?\(/;
 
 /**
  * An options object is a marker only alongside a runner call, because
@@ -62,10 +64,18 @@ const RUNNER_CALL = /\b(?:test|it|describe|suite|context|bench)\s*(?:\.\s*\w+\s*
  * that gets through here still has to pass red-green and the reviewer. Go's
  * common form, `t.Skip()`, is a call and stays caught above.
  *
- * Known gap, older than #134 and not narrowed by it: SILENCING_OPTION's
- * `[^}]*` stops at the first `}`, so a key behind a nested object on the same
- * line (`test("x", { meta: { k: 1 }, skip: true })`) is missed. Closing it
- * wants balanced-brace matching rather than a wider character class.
+ * Two known gaps, both older than #134 and neither narrowed by it, because
+ * both come from matching one line at a time:
+ * - SILENCING_OPTION's `[^}]*` stops at the first `}`, so a key behind a
+ *   nested object on the same line (`test("x", { meta: { k: 1 }, skip: true })`)
+ *   is missed. Closing it wants balanced-brace matching rather than a wider
+ *   character class.
+ * - An options object a formatter has wrapped (`test("x", {` then `skip: true,`
+ *   on the next line) carries no `{` on the key's line, so neither half
+ *   matches. Closing it wants the scan to carry state across lines.
+ *
+ * A silencing option that is also a marker in some form this list misses still
+ * has to pass red-green and the reviewer.
  */
 export const isMarkerLine = (text: string): boolean =>
   !COMMENT_LINE.test(text) &&

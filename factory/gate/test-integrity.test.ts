@@ -153,6 +153,21 @@ test("an options object on any runner call is still a marker, and skip: false st
   );
 });
 
+test("a type argument on the runner does not hide a silenced test", () => {
+  // A TypeScript target names the test context on the call, and the runner is
+  // still a call: `test<Ctx>(`, `it<A & B>(`, `test.each<Row>([...])(`.
+  const hidden = [
+    'test<Ctx>("x", { skip: true }, () => {});',
+    'it<{ a: number }>("x", { skip: true }, () => {});',
+    'test.each<Row>([1])("x", { only: true }, () => {});',
+    'it<Fixtures<Db>>("x", { todo: "later" }, () => {});',
+  ];
+  assert.deepEqual(
+    findNewMarkers(diffOf("test/a.test.ts", hidden)).map((m) => m.text),
+    hidden,
+  );
+});
+
 test("markers outside test files and on unchanged lines are ignored", () => {
   const diff = [
     diffOf("src/options.js", ['const only = opts.only; if (opts.skip) return;']),

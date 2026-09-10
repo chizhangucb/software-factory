@@ -100,16 +100,21 @@ const ghJson = <T>(args: string[]): T => JSON.parse(gh(args)) as T;
 const ghWrite = (args: string[]): string =>
   gh(args, { ...process.env, GH_TOKEN: FACTORY_PAT, GITHUB_TOKEN: FACTORY_PAT });
 
-const attempt = (call: () => string, label: string): string | undefined => {
+/**
+ * A gh call whose failure is logged and shrugged off. No label is built for
+ * it: the error names its own command and cause (`GhError` in `lib/gh.ts`),
+ * and it names the whole command rather than the first three arguments.
+ */
+const attempt = (call: () => string): string | undefined => {
   try {
     return call();
   } catch (error) {
-    console.log(`${label} failed: ${errorMessage(error)}`);
+    console.log(errorMessage(error));
     return undefined;
   }
 };
-const tryGh = (args: string[]): string | undefined => attempt(() => gh(args), `gh ${args.slice(0, 3).join(" ")}`);
-const tryWrite = (args: string[]): string | undefined => attempt(() => ghWrite(args), `gh ${args.slice(0, 3).join(" ")}`);
+const tryGh = (args: string[]): string | undefined => attempt(() => gh(args));
+const tryWrite = (args: string[]): string | undefined => attempt(() => ghWrite(args));
 
 interface Target {
   readonly issue: string | undefined;

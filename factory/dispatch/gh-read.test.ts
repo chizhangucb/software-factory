@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 
-import { PROJECTIONS, STATUSES_PROJECTION, describeGhFailure, parseItems } from "./gh-read.ts";
+import { PROJECTIONS, STATUSES_PROJECTION, parseItems } from "./gh-read.ts";
 import { marksFromTimeline, roleFromJobs, runFromGitHub, stateSinceFromTimeline, ticketFromGitHub } from "./reconcile.ts";
 
 const pagesDir = path.join(import.meta.dirname, "fixtures", "pages");
@@ -68,17 +68,4 @@ test("parseItems reads one item per line, tolerates blank lines, and is empty fo
 
 test("parseItems names the line that is not JSON", () => {
   assert.throws(() => parseItems('{"id":1}\ngh: oops\n'), /line 2 is not JSON: gh: oops/);
-});
-
-test("a gh failure is described by its command and cause, never a stack", () => {
-  const enobufs = Object.assign(new Error("spawnSync gh ENOBUFS"), { code: "ENOBUFS", stdout: "x".repeat(2000), stderr: "" });
-  assert.equal(describeGhFailure(["api", "repos/o/r/actions/runs"], enobufs), "gh api repos/o/r/actions/runs failed: ENOBUFS (spawnSync gh ENOBUFS)");
-
-  const http = Object.assign(new Error("Command failed: gh api ..."), { status: 1, stderr: "gh: Not Found (HTTP 404)\n" });
-  assert.equal(describeGhFailure(["api", "repos/o/r/nope"], http), "gh api repos/o/r/nope failed: exit 1, gh: Not Found (HTTP 404)");
-
-  const killed = Object.assign(new Error("Command failed: gh api x"), { status: null, signal: "SIGTERM", stderr: "" });
-  assert.equal(describeGhFailure(["api", "x"], killed), "gh api x failed: killed by SIGTERM");
-
-  assert.equal(describeGhFailure(["pr", "list"], "boom"), "gh pr list failed: boom");
 });

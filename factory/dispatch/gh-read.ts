@@ -1,7 +1,7 @@
 /**
  * Reads for the sweep, the pure half: what each paginated `gh api` call
- * projects with `--jq`, how its output turns back into items, and how a
- * failed `gh` call is described. `sweep.ts` spawns the processes.
+ * projects with `--jq`, and how its output turns back into items. `sweep.ts`
+ * spawns the processes, and a failed one describes itself (`lib/gh.ts`).
  *
  * A full workflow run is 10 KB of JSON (actor, repository, head commit,
  * referenced workflows); a page of 100 passed Node's 1 MB spawnSync buffer
@@ -41,15 +41,3 @@ export const parseItems = (stdout: string): any[] =>
         throw new Error(`line ${i + 1} is not JSON: ${line.slice(0, 200)}`);
       }
     });
-
-/** One line: the gh command (never a token, those travel in env) and why it failed. */
-export const describeGhFailure = (args: readonly string[], error: unknown): string => {
-  const command = `gh ${args.join(" ")}`;
-  if (!(error instanceof Error)) return `${command} failed: ${String(error)}`;
-  const { code, status, signal, stderr } = error as Error & { code?: unknown; status?: unknown; signal?: unknown; stderr?: unknown };
-  const detail = typeof stderr === "string" ? stderr.trim() : "";
-  if (typeof code === "string") return `${command} failed: ${code} (${error.message})`;
-  if (typeof signal === "string") return `${command} failed: killed by ${signal}${detail ? `, ${detail}` : ""}`;
-  if (typeof status === "number") return `${command} failed: exit ${status}${detail ? `, ${detail}` : ""}`;
-  return `${command} failed: ${detail || error.message}`;
-};

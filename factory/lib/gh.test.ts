@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { gh } from "./gh.ts";
+import { GhError, gh } from "./gh.ts";
 
 /**
  * A stub `gh` on PATH, so the wrapper's own behaviour is what is observed: no
@@ -47,17 +47,64 @@ test("passes the caller's env to the child, so a second token can be used for on
   assert.equal(gh(["api", "status"], { ...process.env, GH_TOKEN_LABEL: "read-token" }), "read-token");
 });
 
-test("throws on a non-zero exit, carrying the child's stderr", () => {
-  stubGh('echo "gh: not found" >&2; exit 1');
-  assert.throws(
-    () => gh(["pr", "view", "1"]),
-    (error: unknown) => {
-      const { status, stderr } = error as { status?: number; stderr?: string };
-      assert.equal(status, 1);
-      assert.match(String(stderr), /gh: not found/);
-      return true;
-    },
+const thrownBy = (call: () => string): GhError => {
+  try {
+    call();
+  } catch (error) {
+    assert.ok(error instanceof GhError, `a failed gh call throws a GhError, got ${String(error)}`);
+    return error;
+  }
+  return assert.fail("the call was expected to fail");
+};
+
+test("a failed call throws a GhError carrying the command, the exit status, stderr and the signal", () => {
+  stubGh('echo "gh: not found" >&2; exit 3');
+  const error = thrownBy(() => gh(["pr", "view", "1"]));
+  assert.deepEqual(error.args, ["pr", "view", "1"]);
+  assert.equal(error.status, 3);
+  assert.match(error.stderr, /gh: not found/);
+  assert.equal(error.signal, null);
+});
+
+test("a killed call carries the signal and no exit status", () => {
+  stubGh("kill -TERM $$");
+  const error = thrownBy(() => gh(["api", "x"]));
+  assert.equal(error.signal, "SIGTERM");
+  assert.equal(error.status, null);
+});
+
+test("the description names the command and never the token, which travels in env", () => {
+  stubGh('echo "gh: Bad credentials (HTTP 401)" >&2; exit 1');
+  const error = thrownBy(() => gh(["api", "user"], { ...process.env, GH_TOKEN: "ghp_notatoken" }));
+  assert.equal(error.message, "gh api user failed: exit 1, gh: Bad credentials (HTTP 401)");
+  assert.ok(!error.message.includes("ghp_notatoken"), "the token is in env, so it is in no part of the description");
+  assert.ok(!error.args.includes("ghp_notatoken"));
+  assert.ok(!error.stderr.includes("ghp_notatoken"));
+});
+
+test("a gh failure is described by its command and cause, never a stack", () => {
+  const enobufs = Object.assign(new Error("spawnSync gh ENOBUFS"), { code: "ENOBUFS", stdout: "x".repeat(2000), stderr: "" });
+  assert.equal(
+    new GhError(["api", "repos/o/r/actions/runs"], enobufs).message,
+    "gh api repos/o/r/actions/runs failed: ENOBUFS (spawnSync gh ENOBUFS)",
   );
+
+  const http = Object.assign(new Error("Command failed: gh api ..."), { status: 1, stderr: "gh: Not Found (HTTP 404)\n" });
+  assert.equal(new GhError(["api", "repos/o/r/nope"], http).message, "gh api repos/o/r/nope failed: exit 1, gh: Not Found (HTTP 404)");
+
+  const killed = Object.assign(new Error("Command failed: gh api x"), { status: null, signal: "SIGTERM", stderr: "" });
+  assert.equal(new GhError(["api", "x"], killed).message, "gh api x failed: killed by SIGTERM");
+
+  assert.equal(new GhError(["pr", "list"], "boom").message, "gh pr list failed: boom");
+});
+
+test("a failure that is not a failed call at all is still described and still carries the fields", () => {
+  // The sweep describes its own non-JSON output this way, rather than defining an error of its own.
+  const error = new GhError(["api", "x"], new Error("printed something other than JSON: <html>"));
+  assert.equal(error.message, "gh api x failed: printed something other than JSON: <html>");
+  assert.equal(error.status, null);
+  assert.equal(error.stderr, "");
+  assert.equal(error.signal, null);
 });
 
 test("never inherits stdin, so a gh prompt cannot hang the job", () => {

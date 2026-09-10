@@ -136,19 +136,26 @@ test("summariseFailures is one line naming each failure and its description", ()
   );
 });
 
-test("renderMergeGateOutput lists each check's reasons and the tails of the red-green logs", () => {
+test("renderMergeGateOutput lists each check's reasons, each file's exit status, and the tails of the red-green logs", () => {
   const out = renderMergeGateOutput(
     {
-      redGreen: { ok: false, reasons: ["test/x.test.js passed on main"], exitCodes: { base: 0, head: 0 } },
+      redGreen: {
+        ok: false,
+        reasons: ["changed test fails on the head (exit 1): test/y.test.js"],
+        runs: [
+          { path: "test/x.test.js", base: 1, head: 0 },
+          { path: "test/y.test.js", base: 1, head: 1 },
+        ],
+      },
       testIntegrity: { ok: true, reasons: [] },
     },
     { base: "line1\nline2\nline3", head: "ok" },
     2,
   );
-  assert.match(out, /factory\/red-green: fail\n- test\/x\.test\.js passed on main/);
+  assert.match(out, /factory\/red-green: fail\n- changed test fails on the head \(exit 1\): test\/y\.test\.js/);
   assert.match(out, /factory\/test-integrity: pass/);
-  assert.match(out, /on main \(expected to fail\), exit 0:\nline2\nline3/);
-  assert.match(out, /on the head \(expected to pass\), exit 0:\nok/);
+  assert.match(out, /on main \(expected to fail\): test\/x\.test\.js exit 1, test\/y\.test\.js exit 1\nline2\nline3/);
+  assert.match(out, /on the head \(expected to pass\): test\/x\.test\.js exit 0, test\/y\.test\.js exit 1\nok/);
   assert.doesNotMatch(out, /line1/);
 });
 

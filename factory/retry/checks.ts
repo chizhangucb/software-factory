@@ -157,7 +157,12 @@ export const summariseFailures = (failures: readonly CheckFailure[]): string =>
     .join("; ");
 
 export interface MergeGateArtifact {
-  readonly redGreen?: { readonly ok?: boolean; readonly reasons?: readonly string[]; readonly exitCodes?: { base: number; head: number } };
+  readonly redGreen?: {
+    readonly ok?: boolean;
+    readonly reasons?: readonly string[];
+    /** One entry per changed test file, each run on its own: its exit status on each side. */
+    readonly runs?: readonly { readonly path: string; readonly base: number; readonly head: number }[];
+  };
   readonly testIntegrity?: { readonly ok?: boolean; readonly reasons?: readonly string[] };
 }
 
@@ -179,13 +184,15 @@ export const renderMergeGateOutput = (
       ? [`${name}: ${result.ok ? "pass" : "fail"}`, ...(result.reasons ?? []).map((r) => `- ${r}`)]
       : [`${name}: (not in merge-gate.json)`];
   const lines = [...check("factory/red-green", mergeGate.redGreen), ...check("factory/test-integrity", mergeGate.testIntegrity)];
-  if (mergeGate.redGreen?.exitCodes) {
+  const runs = mergeGate.redGreen?.runs;
+  if (runs?.length) {
+    const exits = (side: "base" | "head"): string => runs.map((r) => `${r.path} exit ${r[side]}`).join(", ");
     lines.push(
       "",
-      `Changed tests on main (expected to fail), exit ${mergeGate.redGreen.exitCodes.base}:`,
+      `Changed tests on main (expected to fail): ${exits("base")}`,
       tail(logs.base),
       "",
-      `Changed tests on the head (expected to pass), exit ${mergeGate.redGreen.exitCodes.head}:`,
+      `Changed tests on the head (expected to pass): ${exits("head")}`,
       tail(logs.head),
     );
   }

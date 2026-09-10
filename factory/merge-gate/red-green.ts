@@ -16,7 +16,13 @@ export interface TestResult {
   readonly output: string;
 }
 
-export interface RedGreenResults {
+/**
+ * One changed test file's outcome on each side. Each file is run in its own
+ * invocation of the test command, so a failure can name the file that failed
+ * and no other: a batch could only name every file it ran.
+ */
+export interface FileRun {
+  readonly path: string;
   readonly base: TestResult;
   readonly head: TestResult;
 }
@@ -56,17 +62,28 @@ export const redGreenPlan = (files: readonly ChangedFile[]): RedGreenPlan => {
   return { run: false, testFiles: [], vacuous: false, reason: "source changed, no test file added or changed" };
 };
 
-export const redGreenVerdict = (plan: RedGreenPlan, results?: RedGreenResults): Verdict => {
+/**
+ * Judges the per-file runs. At least one changed test file must fail on the
+ * base, not all of them: requiring all would newly refuse a PR that adds a
+ * real new test in one file and tidies the wording of another, which is
+ * correct work, and the batch this replaced gave the weaker rule by accident
+ * (a non-zero batch meant at least one file failed). A file that fails on the
+ * head fails the check and is named alone, so an implementer reading the
+ * status is never pointed at a test that passed.
+ */
+export const redGreenVerdict = (plan: RedGreenPlan, runs?: readonly FileRun[]): Verdict => {
   if (!plan.run) {
     return plan.vacuous ? { ok: true, reasons: [] } : { ok: false, reasons: [plan.reason] };
   }
-  if (!results) return { ok: false, reasons: ["tests were planned but never ran"] };
+  if (!runs) return { ok: false, reasons: ["tests were planned but never ran"] };
   const reasons: string[] = [];
-  if (results.base.exitCode === 0) {
-    reasons.push(`changed tests pass on the base (exit 0): the change is not proven by its tests (${plan.testFiles.join(", ")})`);
+  if (!runs.some((r) => r.base.exitCode !== 0)) {
+    reasons.push(
+      `changed tests pass on the base (exit 0): the change is not proven by its tests (${runs.map((r) => r.path).join(", ")})`,
+    );
   }
-  if (results.head.exitCode !== 0) {
-    reasons.push(`changed tests fail on the head (exit ${results.head.exitCode}): ${plan.testFiles.join(", ")}`);
+  for (const run of runs.filter((r) => r.head.exitCode !== 0)) {
+    reasons.push(`changed test fails on the head (exit ${run.head.exitCode}): ${run.path}`);
   }
   return { ok: reasons.length === 0, reasons };
 };

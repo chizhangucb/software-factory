@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { parseNameStatus } from "./changed-files";
-import { redGreenPlan, redGreenVerdict } from "./red-green";
+import { redGreenPlan, redGreenVerdict, type FileRun } from "./red-green";
+
+/** One file's outcome on each side; the output is the driver's business, not the verdict's. */
+const fileRun = (path: string, base: number, head: number): FileRun => ({
+  path,
+  base: { exitCode: base, output: "" },
+  head: { exitCode: head, output: "" },
+});
 
 test("the plan lists added and modified test files, never deleted ones", () => {
   const plan = redGreenPlan(
@@ -88,29 +95,39 @@ test("a source change with no deleted file and no test change still fails", () =
   assert.match(verdict.reasons[0], /no test file added or changed/);
 });
 
-test("with results: red on base then green on head passes", () => {
+test("with runs: a file red on the base and green on the head passes", () => {
   const plan = redGreenPlan(parseNameStatus("A\ttest/x.test.js\nM\tsrc/x.js\n"));
-  assert.deepEqual(
-    redGreenVerdict(plan, { base: { exitCode: 1, output: "not ok" }, head: { exitCode: 0, output: "ok" } }),
-    { ok: true, reasons: [] },
-  );
+  assert.deepEqual(redGreenVerdict(plan, [fileRun("test/x.test.js", 1, 0)]), { ok: true, reasons: [] });
 });
 
-test("with results: a test that already passes on base fails as a stub", () => {
+test("with runs: a test that already passes on the base fails as a stub", () => {
   const plan = redGreenPlan(parseNameStatus("A\ttest/x.test.js\nM\tsrc/x.js\n"));
-  const verdict = redGreenVerdict(plan, { base: { exitCode: 0, output: "ok" }, head: { exitCode: 0, output: "ok" } });
+  const verdict = redGreenVerdict(plan, [fileRun("test/x.test.js", 0, 0)]);
   assert.equal(verdict.ok, false);
   assert.match(verdict.reasons[0], /pass on the base/);
 });
 
-test("with results: a test that fails on head fails", () => {
-  const plan = redGreenPlan(parseNameStatus("A\ttest/x.test.js\n"));
-  const verdict = redGreenVerdict(plan, { base: { exitCode: 1, output: "" }, head: { exitCode: 1, output: "" } });
-  assert.equal(verdict.ok, false);
-  assert.match(verdict.reasons[0], /fail on the head/);
+test("one changed test file red on the base is enough, the rest may pass there", () => {
+  const plan = redGreenPlan(parseNameStatus("A\ttest/new.test.js\nM\ttest/tidied.test.js\nM\tsrc/x.js\n"));
+  const runs = [fileRun("test/new.test.js", 1, 0), fileRun("test/tidied.test.js", 0, 0)];
+  assert.deepEqual(redGreenVerdict(plan, runs), { ok: true, reasons: [] });
 });
 
-test("a plan that should run but has no results is a failure, never a silent pass", () => {
+test("with runs: a file that fails on the head fails the check and is named alone", () => {
+  const plan = redGreenPlan(parseNameStatus("A\ttest/broken.test.js\nM\ttest/healthy.test.js\n"));
+  const runs = [fileRun("test/broken.test.js", 1, 1), fileRun("test/healthy.test.js", 1, 0)];
+  const verdict = redGreenVerdict(plan, runs);
+  assert.equal(verdict.ok, false);
+  assert.deepEqual(verdict.reasons, ["changed test fails on the head (exit 1): test/broken.test.js"]);
+});
+
+test("a file that passed on the head is named in no failure message", () => {
+  const plan = redGreenPlan(parseNameStatus("A\ttest/broken.test.js\nM\ttest/healthy.test.js\n"));
+  const runs = [fileRun("test/broken.test.js", 1, 1), fileRun("test/healthy.test.js", 1, 0)];
+  for (const reason of redGreenVerdict(plan, runs).reasons) assert.doesNotMatch(reason, /healthy/);
+});
+
+test("a plan that should run but has no runs is a failure, never a silent pass", () => {
   const plan = redGreenPlan(parseNameStatus("A\ttest/x.test.js\n"));
   assert.equal(redGreenVerdict(plan).ok, false);
 });

@@ -133,7 +133,8 @@ export type UpdateRefusal = "conflict" | "head moved";
 /**
  * The fields of a failed `gh` call this decision reads. Written structurally
  * rather than imported: `lib/gh.ts`'s `GhError` satisfies it, and this module
- * stays the pure decision half with no imports of its own.
+ * stays the pure decision half, reaching nothing that spawns a process. The
+ * labels module it does import decides nothing and imports nothing.
  */
 export type GhFailure = {
   readonly status: number | null;

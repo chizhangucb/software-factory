@@ -101,9 +101,9 @@ test("the two documented 422s are told apart by the failed call's own fields", (
 });
 
 test("the refusal is read off the real error the shared gh module throws", () => {
-  // `GhFailure` is written structurally so this module imports nothing, so this is
-  // what holds the two shapes together: a real GhError, from the module that throws
-  // it, read by the decision. A field renamed on either side fails here.
+  // `GhFailure` is written structurally so the plan never imports `lib/gh.ts`, so
+  // this is what holds the two shapes together: a real GhError, from the module that
+  // throws it, read by the decision. A field renamed on either side fails here.
   const refused = new GhError(
     ["api", "--method", "PUT", "repos/o/r/pulls/7/update-branch", "-f", "expected_head_sha=abc"],
     Object.assign(new Error("Command failed: gh api"), { status: 1, stderr: "gh: merge conflict between base and head (HTTP 422)\n" }),

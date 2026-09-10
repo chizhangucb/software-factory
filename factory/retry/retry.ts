@@ -121,9 +121,10 @@ interface Target {
 
 /**
  * The one thing an action is taken on: a ticket or a PR, named the way the
- * sweep names one (`Subject` in `dispatch/reconcile.ts`). The number is a
- * string because that is how the workflow hands it over, and it is also the
- * `gh` argument.
+ * sweep names one (`Subject` in `dispatch/reconcile.ts`). Not imported from
+ * there: that module is the dispatch job's, and it numbers its subjects with
+ * a number, while every number here is the string the workflow handed over,
+ * which is also the `gh` argument.
  *
  * A retry has two subjects at once, the one that records it and the one whose
  * label starts the next run, so which is which has to be readable at every
@@ -134,7 +135,22 @@ interface Subject {
   readonly number: string;
 }
 
-const subject = (kind: Subject["kind"], number: string): Subject => ({ kind, number });
+/**
+ * Where the record of this run goes: a comment, the retry label, the
+ * escalation labels. The ticket when there is one, since that is what outlives
+ * the PR and what a human reads; the PR only when no ticket was found.
+ */
+const recordOn = (target: Target): Subject =>
+  target.issue ? { kind: "issue", number: target.issue } : { kind: "pr", number: target.pr as string };
+
+/**
+ * What a label has to go on to move the factory: the open PR when there is
+ * one, so implement-pr runs on the branch, and the ticket otherwise. The
+ * mirror of `recordOn`, and the reason the two are named rather than repeated:
+ * a retry uses both at once.
+ */
+const actOn = (target: Target): Subject =>
+  target.pr ? { kind: "pr", number: target.pr } : { kind: "issue", number: target.issue as string };
 
 /** The ticket and its open PR from whichever number the workflow knows. */
 const resolveTarget = (): Target => {
@@ -347,12 +363,12 @@ const commentOn = (on: Subject, body: string): void => {
 const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   const label = retryLabel(retryNumber);
   const comment = renderRetryComment({ retry: retryNumber, kind: failure.kind, runUrl: RUN_URL, output: failure.output });
-  const on = target.issue ? subject("issue", target.issue) : subject("pr", target.pr as string);
+  const on = recordOn(target);
   commentOn(on, comment);
   ensureRetryLabel(label);
   ghWrite([on.kind, "edit", on.number, "--repo", REPO, "--add-label", label]);
   // The label that starts the retry goes last, once the context it reads is in place.
-  const trigger = target.pr ? subject("pr", target.pr) : subject("issue", target.issue as string);
+  const trigger = actOn(target);
   ghWrite([trigger.kind, "edit", trigger.number, "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
   console.log(
     `Retry ${retryNumber} of ${MAX_RETRIES}: ${label} on ${on.kind} #${on.number}, ${IMPLEMENT_LABEL} on ${trigger.kind} #${trigger.number} (${failure.summary}).`,
@@ -360,7 +376,7 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
 };
 
 const requeue = (target: Target, reason: string): void => {
-  const on = target.pr ? subject("pr", target.pr) : subject("issue", target.issue as string);
+  const on = actOn(target);
   const onPr = on.kind === "pr";
   commentOn(on, renderRequeueComment({ reason, runUrl: RUN_URL, onPr }));
   if (onPr) ghWrite(["pr", "edit", on.number, "--repo", REPO, "--add-label", BLOCKED_LABEL]);
@@ -372,14 +388,14 @@ const requeue = (target: Target, reason: string): void => {
 
 const escalate = (target: Target, reason: string, failure: Failure): void => {
   if (target.pr) {
-    const prLabels = prCloseLabels(labelsOf(subject("pr", target.pr))).remove;
+    const prLabels = prCloseLabels(labelsOf({ kind: "pr", number: target.pr })).remove;
     if (prLabels.length > 0) tryWrite(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", prLabels.join(",")]);
     tryWrite([
       "pr", "close", target.pr, "--repo", REPO, "--comment",
       `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
     ]);
   }
-  const on = target.issue ? subject("issue", target.issue) : subject("pr", target.pr as string);
+  const on = recordOn(target);
   const labels = escalationLabels(labelsOf(on));
   if (labels.remove.length > 0) tryWrite([on.kind, "edit", on.number, "--repo", REPO, "--remove-label", labels.remove.join(",")]);
   ghWrite([on.kind, "edit", on.number, "--repo", REPO, "--add-label", labels.add]);
@@ -424,7 +440,7 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  const labels = labelsOf(target.issue ? subject("issue", target.issue) : subject("pr", target.pr as string));
+  const labels = labelsOf(recordOn(target));
   const used = retriesUsed(labels);
   const decision = decide({
     retriesUsed: used,

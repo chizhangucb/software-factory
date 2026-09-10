@@ -14,10 +14,6 @@ on:
         description: Model for the audit. Should be the strongest one the subscription serves; docs/pipeline.md#audit names what was verified.
         type: string
         default: claude-opus-5
-      audit_limit:
-        description: How many merged factory PRs get audited. The spec says 20.
-        type: number
-        default: 20
       test_command:
         description: The target's test command, run on the merge commit before the audit; its output is evidence.
         type: string
@@ -65,6 +61,11 @@ jobs:
     outputs:
       audit: ${{ steps.plan.outputs.audit }}
       ordinal: ${{ steps.plan.outputs.next }}
+      # 20 is written once, as AUDIT_LIMIT in factory/audit/plan.ts, which its
+      # test pins. The two steps that print "of the first N" take it from here
+      # rather than from YAML, because the failure reporter is bash and cannot
+      # import the constant. No workflow file carries the number.
+      limit: ${{ steps.plan.outputs.limit }}
       index: ${{ steps.slot.outputs.index }}
     env:
       GH_TOKEN: ${{ secrets.FACTORY_PAT }}
@@ -90,7 +91,6 @@ jobs:
         env:
           MERGED: ${{ github.event.pull_request.merged }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          AUDIT_LIMIT: ${{ inputs.audit_limit }}
         run: |
           set -euo pipefail
           audited=$(bash factory/factory/audit/state.sh get)
@@ -234,7 +234,7 @@ jobs:
           AUDIT_MODEL: ${{ inputs.audit_model }}
           TRUSTED_AUTHOR_ASSOCIATIONS: ${{ inputs.trusted_author_associations }}
           AUDIT_ORDINAL: ${{ needs.decide.outputs.ordinal }}
-          AUDIT_LIMIT: ${{ inputs.audit_limit }}
+          AUDIT_LIMIT: ${{ needs.decide.outputs.limit }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
           TEST_OUTPUT_FILE: ${{ runner.temp }}/factory-out/test-output.txt
         run: tsx ../factory/factory/audit/audit.ts
@@ -316,7 +316,7 @@ jobs:
         if: failure()
         env:
           AUDIT_ORDINAL: ${{ needs.decide.outputs.ordinal }}
-          AUDIT_LIMIT: ${{ inputs.audit_limit }}
+          AUDIT_LIMIT: ${{ needs.decide.outputs.limit }}
         run: |
           reason="(no reason file written; check workflow logs)"
           if [ -f "${RUNNER_TEMP}/factory-out/failure_reason.txt" ]; then

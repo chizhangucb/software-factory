@@ -54,3 +54,9 @@ Every ADR now reads: front matter, title, the decision as made, `Considered opti
 - Two sentences named the maintainer: the opening paragraph's reason for having no human merge path, and the first `Considered options` bullet. Both read "the maintainer" now, and the gendered pronoun in the second reads "they".
 
 Nothing was cut from this file, and no decision it records about the gate, auto-merge or the audit changed. The required checks, the read-only reviewer, the squash-only ruleset, the verdict carry and the first-20 audit all read as they did.
+
+### 2026-09-09: the audit's model is the maintainer's obligation, not a ranking (#118, #76 story 2)
+
+The opening paragraph said the audit runs on the strongest configured model. Nothing computes that: `factory/lib/model.ts` resolves a model per role from a label or an input, and no ordering over model names exists anywhere in the tree. The sentence now states the obligation instead, because the argument it carries is load-bearing: auto-merge from day one is survivable only if the second opinion is better than the first, and it is the maintainer who has to make it so by setting `audit_model`.
+
+Ranking was considered and rejected on the parent spec: `agent-audit.yml` declares only `audit_model`, so ranking the three roles' models would need two more inputs; a table of aliases goes stale on every model release with a wrong-answer failure mode; and the ordering is not total in reality. No decision this file records changed, and the first-20 audit and its revert on a miss read as they did.

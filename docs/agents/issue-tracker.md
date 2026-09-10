@@ -11,6 +11,8 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
 - **Removals**: a ticket whose work removes something says so plainly in its body, because the reviewer and the audit judge every deleted test against what the ticket says it removes.
+- **PR bodies never carry a GitHub closing keyword** (`closes #N`, `resolves #N`, etc.), not even in prose about closing keywords. The factory's own dispatcher reads the raw body of every open PR the same way GitHub does (`issuesClosedByPrs` in `factory/dispatch/select.ts`), and a match makes it treat that issue as already covered, skipping it on the next dispatch. The match is a blunt text scan, not GitHub's real parser, so it also fires on a sentence that merely mentions the words (caught on #122). So merging a PR here **never** auto-closes its ticket.
+- **Merging a ticket's PR and closing its ticket are one step, not two.** The moment a PR merges, run `gh issue close <number> --comment "Merged in #<pr>."` before doing anything else, especially before starting work on anything that ticket blocks. A blocking edge's `blocked_by` only clears when the blocker issue's *state* goes to closed — closing late (or "whenever it comes up") leaves the tracker showing a dependent ticket as blocked when the work is actually done, which is wrong for any session, human, or script that trusts the tracker instead of a particular conversation's memory of what happened.
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 

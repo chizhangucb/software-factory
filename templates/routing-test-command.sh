@@ -8,7 +8,7 @@
 #       uses: chizhangucb/software-factory/.github/workflows/merge-gate.yml@main
 #       with:
 #         test_command: ./scripts/factory-test-command.sh
-#         install_command: npm ci && npx playwright install --with-deps chromium
+#         install_command: <this target's install, plus anything its second kind needs>
 #
 # A target with one kind of test needs none of this: the merge gate already runs
 # each changed test file on its own and passes over one it cannot run. This is
@@ -39,6 +39,13 @@ set -uo pipefail
 # rather than writing a second rule here. Two rules drift, and the day they
 # disagree the merge gate runs a browser spec under the unit command, watches it
 # die on import, and passes it over as a file it could not run.
+#
+# Both patterns and both commands below are this example's own, not defaults.
+# The factory serves targets in any language, and `node --test` is its fallback
+# only because a fallback has to be something. A Go target's branches run `go
+# test` on the package holding the file; a Python target's are two pytest
+# invocations; a target whose second kind is a browser suite names whatever
+# drives that suite. Replace all four.
 run_test_file() {
   case "$1" in
     test/browser/*|*.browser.spec.*) npx playwright test "$1" ;;

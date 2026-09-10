@@ -16,8 +16,6 @@ import { READY_LABEL } from "../lib/labels.ts";
 import { issuesClosedBy } from "../lib/linked-issue.ts";
 import { authorAssociation, type AuthorAssociation, type TrustPolicy } from "../lib/trusted-authors.ts";
 
-/** Re-exported so the dispatcher's callers keep reading its rules from one module. */
-export { READY_LABEL };
 export const DISPATCH_LABEL = "agent:implement";
 
 /** A human claimed this work; the factory must never automate it. */
@@ -90,8 +88,8 @@ export const selectForDispatch = (
 
 /**
  * Issue numbers that open PRs claim to close, from their bodies. The keywords
- * are `lib/linked-issue.ts`'s, the same ones the reviewer, the gate and the
- * implement workflow's preflight read a PR's ticket with.
+ * are `lib/linked-issue.ts`'s, which is where the readers that have to agree
+ * on a PR's ticket are named.
  */
 export const issuesClosedByPrs = (
   prs: readonly { number: number; body: string | null }[],

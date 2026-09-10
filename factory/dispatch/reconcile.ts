@@ -49,8 +49,8 @@
  */
 import { isFactoryPr } from "../lib/factory-pr.ts";
 import { agentLabels, ESCALATION_LABEL, READY_LABEL } from "../lib/labels.ts";
+import { issuesClosedBy } from "../lib/linked-issue.ts";
 import { escalationLabels } from "../retry/escalation.ts";
-import { issuesClosedByPrs } from "./select.ts";
 
 export type Deadlines = {
   /** A ticket or PR label with no live run for this long is stuck. */
@@ -502,7 +502,7 @@ export const prFromGitHub = (raw: Record<string, any>): PrState => {
     labels: (raw.labels ?? []).map((l: { name: string }) => l.name),
     autoMerge: raw.autoMergeRequest !== null && raw.autoMergeRequest !== undefined,
     factory: isFactoryPr({ headRef, body }),
-    closes: [...issuesClosedByPrs([{ number: Number(raw.number), body }])][0],
+    closes: issuesClosedBy(body)[0],
     stateSince: undefined,
     marks: [],
   };

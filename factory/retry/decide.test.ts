@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  CONFLICT_REASON,
   decide,
+  renderHandOffComment,
   isImplementerFailure,
   RATE_LIMITED_REASON,
   missingFailureReason,
@@ -67,6 +69,33 @@ test("decide requeues a head still pending at the deadline without spending the 
   assert.deepEqual(decide({ retriesUsed: 0, kind: "ci" }), { action: "retry", retry: 1 });
 });
 
+test("decide hands a conflicting PR to the implementer when its checks are still pending, spending nothing", () => {
+  const requeue = "check still pending after 15 minutes; not the ticket's failure";
+  const decision = decide({ retriesUsed: 0, kind: "ci", requeue, mergeable: "CONFLICTING" });
+  assert.equal(decision.action, "hand-off");
+  assert.match("reason" in decision ? decision.reason : "", /conflict/);
+  // The retry already used stays used: a conflict never counts against the ticket's attempts.
+  assert.equal(decide({ retriesUsed: 1, kind: "ci", requeue, mergeable: "CONFLICTING" }).action, "hand-off");
+  assert.equal(decide({ retriesUsed: 0, kind: "ci", requeue, mergeable: "CONFLICTING", escalated: true }).action, "none");
+});
+
+test("decide requeues a pending head whose PR is mergeable or not yet decided; unknown is never a hand-off", () => {
+  const requeue = "check still pending after 15 minutes; not the ticket's failure";
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "ci", requeue, mergeable: "MERGEABLE" }), { action: "requeue", reason: requeue });
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "ci", requeue, mergeable: "UNKNOWN" }), { action: "requeue", reason: requeue });
+  // No PR to read: nothing to hand off.
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "ci", requeue }), { action: "requeue", reason: requeue });
+});
+
+test("a failed check outranks a conflict: a conflicting PR with a real failure follows the failure", () => {
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "gate", mergeable: "CONFLICTING" }), { action: "retry", retry: 1 });
+  assert.equal(decide({ retriesUsed: 1, kind: "gate", mergeable: "CONFLICTING" }).action, "escalate");
+  assert.equal(
+    decide({ retriesUsed: 0, kind: "verdict", mergeable: "CONFLICTING", unretryable: "the ticket has no acceptance criteria" }).action,
+    "escalate",
+  );
+});
+
 test("decide escalates at once on a failure a retry cannot fix", () => {
   assert.deepEqual(
     decide({ retriesUsed: 0, kind: "verdict", unretryable: "the ticket has no acceptance criteria" }),
@@ -83,6 +112,17 @@ test("the requeue comment says what moves the ticket or PR next", () => {
   // Both re-labels, since a requeue is not always the implementer's to pick up again.
   assert.match(onPr, /`agent:review`/);
   assert.match(onPr, /`agent:implement`/);
+});
+
+test("the hand-off comment names the conflict, the implementer's label, and that no retry was spent", () => {
+  const body = renderHandOffComment({ reason: CONFLICT_REASON, base: "main", runUrl: "u" });
+  assert.match(body, /conflicts with its base/);
+  assert.match(body, /`main`/);
+  assert.match(body, /`agent:implement`/);
+  assert.match(body, /No retry was spent/);
+  assert.match(body, /Run: u/);
+  // Not a human's: the blocked label is never named as what moves it next.
+  assert.doesNotMatch(body, /agent:blocked/);
 });
 
 test("the requeue comment names the cause in its reason, never a rate limit it did not hit", () => {

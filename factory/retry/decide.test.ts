@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { test } from "node:test";
 
-import { RATE_LIMITED_FILE } from "../lib/accounts.ts";
-import { BLOCKED_LABEL } from "../lib/labels.ts";
+import { RATE_LIMITED_FILE } from "../lib/accounts";
+import { BLOCKED_LABEL, IN_PROGRESS_LABEL } from "../lib/labels";
 import {
   CONFLICT_REASON,
   decide,
+  REQUEUED_FILE,
   renderHandOffComment,
   isImplementerFailure,
   RATE_LIMITED_REASON,
@@ -122,18 +123,27 @@ test("the requeue comment says what moves the ticket or PR next, and neither is 
   assert.doesNotMatch(onPr, /human/);
 });
 
+/** Source with its comments gone: prose that names a label is not a call that adds one. */
+const withoutComments = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+
 /**
- * The requeue was the one place the handler added `agent:blocked`, on a PR
- * and never on a ticket (#148). The handler itself makes API calls, so what
- * is readable without one is that the label is not in it at all: no call
- * site, no import. The review workflow's own failure step is the only place
- * left that adds it, and the test below reads that step.
+ * What the handler leaves on a requeued PR. It is read from its source
+ * because the handler itself only makes API calls, and two facts are
+ * readable there (#148). `agent:blocked` is nowhere in it: the requeue was
+ * the one place it added that label, on a PR and never on a ticket. And a
+ * requeued PR keeps `agent:in-progress`, the label the reconciler sweeps, so
+ * the PR is picked up at the stuck deadline instead of sitting with no label
+ * and nothing to pick it up; implement-pr's retry job takes that label off a
+ * step before the handler runs, so the handler puts it back, and it writes
+ * `REQUEUED_FILE` for the workflows that take it off afterwards.
  */
-test("the retry handler adds agent:blocked nowhere: a requeued PR is the reconciler's, not a human's", () => {
-  const handler = fs.readFileSync(new URL("./retry.ts", import.meta.url), "utf8");
-  const code = handler.slice(handler.indexOf("import "));
+test("the retry handler leaves a requeued PR in agent:in-progress, and agent:blocked nowhere", () => {
+  const code = withoutComments(fs.readFileSync(new URL("./retry.ts", import.meta.url), "utf8"));
   assert.ok(!code.includes("BLOCKED_LABEL"), "the retry handler still names BLOCKED_LABEL");
   assert.ok(!code.includes(BLOCKED_LABEL), `the retry handler still adds ${BLOCKED_LABEL}`);
+  assert.ok(code.includes("IN_PROGRESS_LABEL"), "a requeued PR is not kept in agent:in-progress");
+  assert.ok(code.includes("REQUEUED_FILE"), `the handler writes no ${REQUEUED_FILE} for the workflow to read`);
 });
 
 /**
@@ -160,7 +170,7 @@ const reviewStep = (name: string): string => {
  * the fact that says so. Every other failure still means a human must look.
  */
 test("the review workflow's failure step requeues a rate limit on every account and blocks on anything else", () => {
-  const step = reviewStep("Mark blocked on failure");
+  const step = reviewStep("Requeue or mark blocked on failure");
   const guard = step.indexOf(RATE_LIMITED_FILE);
   assert.ok(guard > 0, `the step never reads ${RATE_LIMITED_FILE}`);
   const branchEnd = step.indexOf("exit 0", guard);
@@ -171,6 +181,8 @@ test("the review workflow's failure step requeues a rate limit on every account 
   assert.match(rateLimited, /pr comment/, "a rate limit on every account posts no comment");
   // The comment is the requeue comment itself, not prose that drifts from it.
   assert.match(rateLimited, /requeue-comment\.ts/, "the comment is not the one renderRequeueComment writes");
+  // And the PR keeps the label the reconciler sweeps: the step below reads this file.
+  assert.ok(rateLimited.includes(REQUEUED_FILE), `the requeue writes no ${REQUEUED_FILE}`);
 
   const otherFailure = step.slice(branchEnd);
   assert.ok(
@@ -178,6 +190,26 @@ test("the review workflow's failure step requeues a rate limit on every account 
     `a failure that is not a rate limit no longer adds ${BLOCKED_LABEL}`,
   );
   assert.match(otherFailure, /pr comment/, "a failure that is not a rate limit posts no comment");
+});
+
+/**
+ * The review job takes `agent:in-progress` off on its way out, whatever
+ * happened. A requeued PR is the one case where it must not: that label is
+ * what `decidePrLabel` in the reconciler reads, and a PR with no `agent:*`
+ * label at all is swept by nothing, so dropping `agent:blocked` without this
+ * would strand the PR instead of requeueing it (#148).
+ */
+test("the review workflow leaves agent:in-progress on a requeued PR for the reconciler to sweep", () => {
+  const step = reviewStep("Always remove in-progress");
+  const guard = step.indexOf(REQUEUED_FILE);
+  assert.ok(guard > 0, `the step removes ${IN_PROGRESS_LABEL} without reading ${REQUEUED_FILE}`);
+  const branchEnd = step.indexOf("exit 0", guard);
+  assert.ok(branchEnd > guard, `the ${REQUEUED_FILE} branch does not end the step`);
+  assert.ok(!step.slice(guard, branchEnd).includes("--remove-label"), "a requeued PR still loses its label");
+  assert.ok(
+    step.slice(branchEnd).includes(`--remove-label "${IN_PROGRESS_LABEL}"`),
+    `nothing removes ${IN_PROGRESS_LABEL} on any other way out`,
+  );
 });
 
 test("the hand-off comment names the conflict, the implementer's label, and that no retry was spent", () => {

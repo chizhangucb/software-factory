@@ -38,8 +38,15 @@ export const IMPLEMENT_LABEL = "agent:implement";
 /** The factory is waiting on a human before this PR or ticket moves again. */
 export const BLOCKED_LABEL = "agent:blocked";
 
+/**
+ * A run holds the subject right now. It is also what the reconciler sweeps on
+ * a PR no run is left on, so a requeued PR keeps it and is picked up at the
+ * stuck deadline (#148) rather than sitting with no `agent:*` label at all.
+ */
+export const IN_PROGRESS_LABEL = "agent:in-progress";
+
 /** Labels that say an agent already holds the subject (implementer or reviewer, running or queued) or that it is parked. */
-export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, "agent:in-progress", "agent:review", BLOCKED_LABEL];
+export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, IN_PROGRESS_LABEL, "agent:review", BLOCKED_LABEL];
 
 const AGENT_LABEL_PREFIX = "agent:";
 

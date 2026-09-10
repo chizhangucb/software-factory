@@ -11,7 +11,15 @@
  * - requeue (rate limited on every account (#17), or a check still pending
  *   when the wait runs out): no retry spent. A ticket gets a comment and is
  *   left for the dispatcher; a PR gets the comment and `agent:blocked`,
- *   since nothing re-dispatches a PR.
+ *   since nothing re-dispatches a PR. `agent:blocked` has one meaning: a
+ *   human must look.
+ * - hand-off (#144): the same wait ran out, but the PR conflicts with its
+ *   base. GitHub starts no `pull_request` workflow on a conflicting PR, so
+ *   the checks that never posted are a fact about the merge, not the
+ *   ticket. The PR gets a comment naming the cause and `agent:implement`,
+ *   as update-branch's conflict hand-off does: no retry spent, no
+ *   `factory:retry-<n>`, no human. A mergeability GitHub has not decided yet
+ *   (UNKNOWN) is never acted on and stays a requeue.
  *
  * Two tokens: reads (statuses, check runs, run logs and artifacts, labels)
  * use GH_TOKEN, the job's GITHUB_TOKEN, which needs checks: read and
@@ -30,7 +38,8 @@
  *   other checks to settle (CHECKS_TIMEOUT_MINUTES, default 15), then fail
  *   on any failing status or check run. A check still pending at the
  *   deadline with nothing failed is requeued rather than failed: it has no
- *   log, so a retry on it is uninformed. No failure means nothing to do.
+ *   log, so a retry on it is uninformed; when the open PR conflicts with
+ *   its base it is handed off instead. No failure means nothing to do.
  * Optional: ARTIFACT_NAME for the log link, GITHUB_RUN_ID and
  * GITHUB_WORKFLOW (set by the runner) to ignore the factory's own check runs.
  */
@@ -61,9 +70,11 @@ import {
   type FailureKind,
   isImplementerFailure,
   MAX_RETRIES,
+  type Mergeability,
   missingFailureReason,
   RATE_LIMITED_REASON,
   renderEscalationComment,
+  renderHandOffComment,
   renderRequeueComment,
   renderRetryComment,
   retriesUsed,
@@ -167,6 +178,17 @@ const resolveTarget = (): Target => {
   ]);
   const pr = open.find((p) => linkedIssueNumber(p.body) === issue);
   return { issue, pr: pr ? String(pr.number) : undefined };
+};
+
+/**
+ * The open PR's mergeability and base, as GitHub reports them. Read once,
+ * after the wait for checks: reading it inside the poll is #145.
+ */
+const mergeabilityOf = (pr: string): { readonly mergeable: Mergeability; readonly base: string } => {
+  const view = ghJson<{ mergeable: Mergeability; baseRefName: string }>([
+    "pr", "view", pr, "--repo", REPO, "--json", "mergeable,baseRefName",
+  ]);
+  return { mergeable: view.mergeable, base: view.baseRefName };
 };
 
 const labelsOf = (on: Subject): string[] =>
@@ -386,6 +408,13 @@ const requeue = (target: Target, reason: string): void => {
   );
 };
 
+/** The conflict hand-off update-branch makes, from here: a comment naming the cause, then the implementer's label. No retry label. */
+const handOff = (pr: string, base: string, reason: string): void => {
+  commentOn({ kind: "pr", number: pr }, renderHandOffComment({ reason, base, runUrl: RUN_URL }));
+  ghWrite(["pr", "edit", pr, "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
+  console.log(`Handed off PR #${pr} without spending a retry: ${reason}; ${IMPLEMENT_LABEL} on.`);
+};
+
 const escalate = (target: Target, reason: string, failure: Failure): void => {
   if (target.pr) {
     const prLabels = prCloseLabels(labelsOf({ kind: "pr", number: target.pr })).remove;
@@ -442,11 +471,14 @@ const main = async (): Promise<void> => {
 
   const labels = labelsOf(recordOn(target));
   const used = retriesUsed(labels);
+  // Only a requeue can become a hand-off, and only a PR can conflict: read nothing otherwise.
+  const pr = failure.requeue && target.pr ? mergeabilityOf(target.pr) : undefined;
   const decision = decide({
     retriesUsed: used,
     kind: failure.kind,
     escalated: labels.includes(ESCALATION_LABEL),
     requeue: failure.requeue,
+    mergeable: pr?.mergeable,
     unretryable: failure.unretryable,
   });
   console.log(`${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);
@@ -454,6 +486,7 @@ const main = async (): Promise<void> => {
   if (decision.action === "retry") retry(target, decision.retry, failure);
   else if (decision.action === "escalate") escalate(target, decision.reason, failure);
   else if (decision.action === "requeue") requeue(target, decision.reason);
+  else if (decision.action === "hand-off") handOff(target.pr as string, pr?.base ?? "main", decision.reason);
 };
 
 main().catch((error) => {

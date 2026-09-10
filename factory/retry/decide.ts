@@ -15,7 +15,7 @@
  * implementer run reads back. Pure functions here; `retry.ts` does the API
  * calls.
  */
-import { ESCALATION_LABEL, READY_LABEL } from "../lib/labels.ts";
+import { ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { boundOutput } from "../lib/verdict";
 
 export type FailureKind = "implement" | "gate" | "ci" | "verdict";
@@ -63,12 +63,21 @@ export const missingFailureReason = (outcome: string): string =>
 /** Why a run that could not reach an account is not the ticket's failure. */
 export const RATE_LIMITED_REASON = "rate limited on every account; not the ticket's failure";
 
+/** A PR's mergeability as GitHub reports it (`gh pr view --json mergeable`); UNKNOWN while it is still computing. */
+export type Mergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+
 export type Decision =
   | { readonly action: "retry"; readonly retry: number }
   | { readonly action: "escalate"; readonly reason: string }
   /** Not the ticket's failure: hand it back to the queue without counting an attempt. */
   | { readonly action: "requeue"; readonly reason: string }
+  /** The PR conflicts with its base: the implementer's to resolve, no attempt counted. */
+  | { readonly action: "hand-off"; readonly reason: string }
   | { readonly action: "none"; readonly reason: string };
+
+/** Why a conflicting PR whose checks never came goes to the implementer rather than to a human. */
+export const CONFLICT_REASON =
+  "the PR conflicts with its base, so GitHub started no gate on this head; the implementer resolves it";
 
 /**
  * Retry or escalate. Every failure kind gets the same one retry; the kind
@@ -78,8 +87,13 @@ export type Decision =
  * the problem, rotation (#17) is the answer, and the attempt does not count.
  * A head still pending when the wait for its checks runs out is requeued for
  * the same reason: nothing has failed yet, so there is no output to inform a
- * retry, and spending one on a slow target CI leaves only escalation.
- * A failure a retry cannot fix (the ticket has no acceptance criteria)
+ * retry, and spending one on a slow target CI leaves only escalation. On a
+ * PR a requeue means `agent:blocked`, a human must look; but when that PR
+ * conflicts with its base (#144) the checks never came because GitHub runs
+ * no gate on a conflicting PR, so it is handed to the implementer instead.
+ * UNKNOWN mergeability is GitHub still deciding and is never acted on. A
+ * real failure outranks the conflict, as a failed check outranks a pending
+ * one. A failure a retry cannot fix (the ticket has no acceptance criteria)
  * escalates at once.
  */
 export const decide = (input: {
@@ -88,6 +102,8 @@ export const decide = (input: {
   readonly escalated?: boolean;
   /** Why this attempt is not the ticket's failure, so it is handed back; undefined when it is. */
   readonly requeue?: string;
+  /** The open PR's mergeability; undefined when there is no PR to read. */
+  readonly mergeable?: Mergeability;
   /** Why another implementer run cannot fix this failure; undefined when it might. */
   readonly unretryable?: string;
 }): Decision => {
@@ -95,6 +111,7 @@ export const decide = (input: {
     return { action: "none", reason: `already escalated: ${ESCALATION_LABEL} is on the ticket` };
   }
   if (input.requeue) {
+    if (input.mergeable === "CONFLICTING") return { action: "hand-off", reason: CONFLICT_REASON };
     return { action: "requeue", reason: input.requeue };
   }
   if (input.unretryable) {
@@ -212,7 +229,9 @@ export const retryPromptSection = (context: RetryContext | undefined): string =>
 /**
  * The comment on a requeued ticket or PR: what happened and what moves it
  * next. The reason names the cause, so the heading stays true of every one
- * of them.
+ * of them. On a PR the label is `agent:blocked`, which has one meaning: a
+ * human must look. A PR that conflicts with its base never gets this comment;
+ * it is the implementer's, and `renderHandOffComment` says so.
  */
 export const renderRequeueComment = (input: {
   readonly reason: string;
@@ -226,8 +245,26 @@ export const renderRequeueComment = (input: {
     `${input.reason}. No retry was spent. Run: ${input.runUrl}`,
     "",
     input.onPr
-      ? "Labeled `agent:blocked`. Once the cause is gone, re-add `agent:review` to judge this head again, or `agent:implement` to run the implementer; the retry count is unchanged."
+      ? "Labeled `agent:blocked`: a human must look. Once the cause is gone, re-add `agent:review` to judge this head again, or `agent:implement` to run the implementer; the retry count is unchanged."
       : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the schedule) once `agent:in-progress` is gone.",
+  ].join("\n");
+
+/**
+ * The comment on a PR handed to the implementer because it conflicts with
+ * its base (#144): the same hand-off update-branch makes on a conflict it
+ * cannot resolve. Nothing here is for a human.
+ */
+export const renderHandOffComment = (input: {
+  readonly reason: string;
+  readonly base: string;
+  readonly runUrl: string;
+}): string =>
+  [
+    "### Handed to the implementer without spending a retry",
+    "",
+    `${input.reason}. No retry was spent. Run: ${input.runUrl}`,
+    "",
+    `Labeled \`${IMPLEMENT_LABEL}\`. Its run merges \`${input.base}\` into the branch, resolves the conflicts, and pushes; the gate and the review then judge the new head and auto-merge lands it.`,
   ].join("\n");
 
 export interface EscalationInput {

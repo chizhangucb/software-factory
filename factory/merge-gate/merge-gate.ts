@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { gh, required, safeSh, sh, writeJson, writeText } from "../agent-workflows/shared/common";
 import { linkedIssueNumber } from "../lib/linked-issue";
 import { parseNameStatus, type ChangedFile } from "./changed-files";
-import { redGreenPlan, redGreenVerdict, type RedGreenResults, type TestResult } from "./red-green";
+import { redGreenPlan, redGreenVerdict, type FileRun, type TestResult } from "./red-green";
 import { checkTestIntegrity } from "./test-integrity";
 
 const prNumber = required("PR_NUMBER");
@@ -46,8 +46,16 @@ const install = (cwd: string): void => {
   }
 };
 
-/** Checks out the base tip, overlays the head's test files, runs just those. */
-const runOnBase = (testFiles: readonly string[]): TestResult => {
+/**
+ * Each file in its own invocation, so a failure belongs to the file that
+ * failed rather than to every file that shared a batch with it. Install is the
+ * worktree's, not the file's, and stays outside this loop.
+ */
+const runEach = (cwd: string, testFiles: readonly string[]): TestResult[] =>
+  testFiles.map((file) => run(cwd, testCommand, [file]));
+
+/** Checks out the base tip, overlays the head's test files, runs each of them alone. */
+const runOnBase = (testFiles: readonly string[]): TestResult[] => {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "merge-gate-base-"));
   sh(`git worktree add --detach "${baseDir}" "origin/${baseRef}"`);
   try {
@@ -56,10 +64,22 @@ const runOnBase = (testFiles: readonly string[]): TestResult => {
       fs.copyFileSync(file, path.join(baseDir, file));
     }
     install(baseDir);
-    return run(baseDir, testCommand, [...testFiles]);
+    return runEach(baseDir, testFiles);
   } finally {
     safeSh(`git worktree remove --force "${baseDir}"`);
   }
+};
+
+/**
+ * One side's runs as one log, in plan order, except that the head's failures
+ * are written last: a retry marker quotes this log's tail, so whichever file
+ * broke is the output the implementer reads. The base keeps plan order,
+ * because its own failure is every file passing, which singles out no file.
+ */
+const sideLog = (runs: readonly FileRun[], side: "base" | "head"): string => {
+  const ordered =
+    side === "head" ? [...runs].sort((a, b) => Number(a.head.exitCode !== 0) - Number(b.head.exitCode !== 0)) : runs;
+  return ordered.map((r) => `=== ${r.path} (exit ${r[side].exitCode}) ===\n${r[side].output}`).join("\n");
 };
 
 const summarize = (name: string, ok: boolean, reasons: readonly string[], detail: string): string =>
@@ -77,16 +97,16 @@ const main = (): void => {
   const integrity = checkTestIntegrity({ files, diff });
 
   const plan = redGreenPlan(files);
-  let results: RedGreenResults | undefined;
+  let runs: FileRun[] | undefined;
   if (plan.run) {
     const base = runOnBase(plan.testFiles);
     install(process.cwd());
-    const head = run(process.cwd(), testCommand, [...plan.testFiles]);
-    results = { base, head };
-    writeText("red-green-base.log", base.output);
-    writeText("red-green-head.log", head.output);
+    const head = runEach(process.cwd(), plan.testFiles);
+    runs = plan.testFiles.map((file, i) => ({ path: file, base: base[i], head: head[i] }));
+    writeText("red-green-base.log", sideLog(runs, "base"));
+    writeText("red-green-head.log", sideLog(runs, "head"));
   }
-  const redGreen = redGreenVerdict(plan, results);
+  const redGreen = redGreenVerdict(plan, runs);
 
   writeJson("merge-gate.json", {
     prNumber,
@@ -94,7 +114,7 @@ const main = (): void => {
     mergeBase,
     issueNumber,
     files,
-    redGreen: { ...redGreen, plan, exitCodes: results && { base: results.base.exitCode, head: results.head.exitCode } },
+    redGreen: { ...redGreen, plan, runs: runs?.map((r) => ({ path: r.path, baseExit: r.base.exitCode, headExit: r.head.exitCode })) },
     testIntegrity: integrity,
   });
 
@@ -103,7 +123,7 @@ const main = (): void => {
       "factory/red-green",
       redGreen.ok,
       redGreen.reasons,
-      results ? `${plan.reason} (base exit ${results.base.exitCode}, head exit ${results.head.exitCode})` : redGreen.ok ? plan.reason : "",
+      runs ? `${plan.reason}; ${runs.map((r) => `${r.path} base ${r.base.exitCode} head ${r.head.exitCode}`).join(", ")}` : redGreen.ok ? plan.reason : "",
     ),
     summarize(
       "factory/test-integrity",

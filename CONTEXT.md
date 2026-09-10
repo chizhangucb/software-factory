@@ -33,6 +33,10 @@ _Avoid_: gate on its own, because a target's own CI is often called one too (chr
 A check that refuses one action before it happens, in the harness rather than in CI. Lives under `scripts/guards/` and is wired from `.claude/settings.json`. Distinct from a merge gate: a merge gate blocks a merge after the work, a guard blocks a tool call before it. An accident net, never a security boundary.
 _Avoid_: merge gate (the merge word), gate on its own (too broad to name either), hook (the harness's word for how a guard is wired).
 
+**Test command**:
+The one command a target's caller hands the merge gate to run a changed test file with, defaulting to `node --test`. Each file gets its own invocation of it, so a failure names the file that failed and no other. The whole-suite command the reviewer and the audit run shares the caller input's name and is a different thing.
+_Avoid_: runner, test runner (the Harness entry reserves runner as Actions' word for the machine).
+
 **Placeholder**:
 Code that satisfies the merge gate without doing the work: a stub, a hardcoded return, a test that asserts the stub, a skipped test, or a deleted test the ticket does not remove.
 _Avoid_: cheating, slop.

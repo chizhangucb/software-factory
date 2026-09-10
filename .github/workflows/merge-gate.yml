@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       test_command:
-        description: Command that runs the test files passed as its arguments, from the target's root.
+        description: Command that runs the one changed test file passed as its argument, from the target's root. Called once per changed test file, so a failure names that file alone.
         type: string
         default: node --test
       install_command:

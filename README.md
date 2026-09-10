@@ -31,6 +31,8 @@ A failing implementer run or check in steps 3 to 5 earns one informed retry, the
 
 3. **Run the onboarding script.** `scripts/onboard.sh owner/repo [own-check ...]`, for example `scripts/onboard.sh chizhangucb/factory-fixture check`. It creates the label vocabulary, allows auto-merge on the repo, and puts a `factory` ruleset on the default branch: PR required, squash only, and `factory/verdict`, `factory/red-green`, `factory/test-integrity` plus the own checks you listed, all required on a head up to date with main. Each own check is a job name the target's CI already posts, and naming them matters: with no own check the script warns that the ruleset will gate on the factory's checks alone, so a PR that breaks the target's build can still merge. Re-run the script to update the ruleset.
 
+   The script reads whether the repo carries a caller yet (step 1); it needs no flag for this. Run it on a repo with no caller -- before step 1 lands, or on this repo itself, which carries none -- and the factory's three checks drop out, since no caller means they are never posted: the ruleset requires only the own checks you listed. Name none either, and it warns that the ruleset requires nothing at all.
+
 4. **Check the caller's permissions.** It must grant `statuses: write`, `checks: read` and `actions: read`. They are in `templates/factory.yml`, so a fresh copy has them; a target onboarded before those lines existed needs them added.
 
 5. **Let this repo serve its workflows.** Settings, Actions, General, Access. A private factory repo will not serve them otherwise.

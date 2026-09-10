@@ -27,7 +27,7 @@
  * - merge-ready PR behind main with no update-branch run in the window:
  *   dispatch factory-update-branch.
  * Every cancel is a lost event and counts as a miss (#149). The per-account
- * lanes that cancelled a third run queued for a full slot are gone, so there
+ * slots that cancelled a third run queued for a full one are gone, so there
  * is no longer a cancel the reconciler should forgive, and it no longer reads
  * a cause out of the job names.
  *
@@ -39,7 +39,7 @@
  * stranding and stops counting. `tries` caps the loop at MAX_MISSES
  * re-dispatches on one stranding whatever their cause. Now that every miss is
  * counted the miss path reaches its own limit first; `tries` still ends a
- * stranding carrying markers the lane cap wrote, which recorded `miss=0`. A
+ * stranding carrying markers the slot cap wrote, which recorded `miss=0`. A
  * marker written before `tries` existed reads its `miss` value as the try
  * count, floored at one: every marker is a re-dispatch.
  *
@@ -249,7 +249,7 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
   // Two ways to give up, one budget. A second lost event is the old one, and
   // every miss counts now, so it is the one a fresh stranding reaches. The other
   // is the cap: MAX_MISSES re-dispatches on one stranding whatever their cause,
-  // which still ends a stranding whose markers the lane cap wrote as miss=0.
+  // which still ends a stranding whose markers the slot cap wrote as miss=0.
   const lostTwice = previousMisses >= MAX_MISSES - 1;
   if (lostTwice || previousTries >= MAX_MISSES) {
     const escalation = escalationLabels(input.labels);

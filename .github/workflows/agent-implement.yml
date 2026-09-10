@@ -40,12 +40,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
-      # Keyed on the ticket, so two implement runs on one ticket never overlap and
-      # never push the same branch at once (#149). Unrelated subjects never share a
-      # key, so no run waits behind a run it has nothing to do with. Not cancelled
-      # in progress: the older run is doing real work. GitHub holds one running and
-      # one pending run per group, so a third event on this ticket cancels the older
-      # pending run before it moves a label; the reconciler's stuck path re-adds it.
+      # Keyed on the subject, this run's ticket, so two runs on it never overlap and
+      # two implementers never push the same branch at once (#149). Unrelated
+      # subjects never share a key, so nothing waits behind a run it has nothing to
+      # do with, and the older run is never cancelled: it is doing real work.
+      # ADR 0004's 2026-09-10 amendment carries the reasoning and the trade-off.
       group: factory-issue-${{ github.event.issue.number }}
       cancel-in-progress: false
     outputs:

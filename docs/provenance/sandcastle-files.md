@@ -4,7 +4,7 @@ Every file mapped to its origin, his three copied workflows stepped through step
 
 **The essay half is `docs/provenance/sandcastle.md`**: what sandcastle is, how autonomous his pipeline really is, his five agent workflows and what happened to each including what was not copied and why, what the factory added with no counterpart of his, spec #9's stories mapped onto him, and the answer to "why not just fork it". ADR 0002 (`docs/adr/0002-vendored-sandcastle-engine.md`) cites both.
 
-- **Verified against the tree of 2026-09-09.** Every "Ours now" count, every repo path and every tree enumerated below was re-derived from the tree that day rather than carried forward, covering the boundary move (#47), the workflow rename (#61), the tarball move (#48), the writing-for-agents pass over the prompts (#56) and the prompt audit (story 14 of #75). The surviving-line figures come from the 2026-09-08 comparison against his clone, except the three prompt rows, which the prompt audit re-counted against him, and the two rows #119 touched, `implement-pr/implement-pr.ts` and `shared/review-context.ts`, re-derived against his `v0.12.0` tree by the method below and unmoved by that change. A change under `factory/agent-workflows/` or `.github/workflows/agent-*.yml` updates this file, `docs/provenance/sandcastle-files.md`; sections 2 and 3 say which counts it moves.
+- **Verified against the tree of 2026-09-09.** Every "Ours now" count, every repo path and every tree enumerated below was re-derived from the tree that day rather than carried forward, covering the boundary move (#47), the workflow rename (#61), the tarball move (#48), the writing-for-agents pass over the prompts (#56) and the prompt audit (story 14 of #75). The surviving-line figures come from the 2026-09-08 comparison against his clone, except the three prompt rows, which the prompt audit re-counted against him, and the two rows #119 touched, `implement-pr/implement-pr.ts` and `shared/review-context.ts`, re-derived against his `v0.12.0` tree by the method below and unmoved by that change. A change under `factory/agent-workflows/` or `.github/workflows/agent-*.yml` updates this file, `docs/provenance/sandcastle-files.md`; sections 2 and 3 say which counts it moves. The three "Ours now" counts in section 2 were re-derived on 2026-09-10, when #149 deleted the `slot` job from all four agent workflows: each lost about 20 lines, and the review row was carrying #148's added lines as well. "His lines surviving" is unmoved, the deleted job being ours.
 - **Reference for the comparison**: a clone of sandcastle at tag `v0.12.0`, commit `e99f832`, plus `npm pack @ai-hero/sandcastle@0.12.0`. Repo HEAD and the tag are the same commit; `git log v0.12.0..HEAD` is empty.
 - **Other sources**: this repo's `git log --follow`, ADRs 0001 to 0004, spec #9, spec #46, and the two dated research snapshots in `docs/research/`. Matt's YouTube demonstration of the pipeline could not be fetched, so every claim about his intent comes from his README, his workflow files or his code.
 - **Line counting method, used everywhere below**: non-blank, non-comment lines, whitespace normalised; one of his lines survives if the same normalised line appears anywhere in our version of that file. Coarse: it undercounts a line reindented into a different shape.
@@ -61,16 +61,16 @@ Line survival, by the method at the top:
 
 | Workflow | His lines surviving | Ours now | His share of ours |
 |---|---|---|---|
-| agent-implement.yml | 129 of 188 (69%) | 392 | 33% |
-| agent-review.yml | 81 of 112 (72%) | 287 | 28% |
-| agent-implement-pr.yml | 123 of 155 (79%) | 356 | 35% |
+| agent-implement.yml | 129 of 188 (69%) | 371 | 35% |
+| agent-review.yml | 81 of 112 (72%) | 277 | 29% |
+| agent-implement-pr.yml | 123 of 155 (79%) | 334 | 37% |
 
 The "10 to 20 percent of sandcastle is left" impression comes from growth, not deletion: the files are two to two and a half times longer because of the added steps, so his share falls while the count of his surviving lines barely moves.
 
 Some changes landed identically in every workflow, so they are stated once rather than in all three tables:
 
 - **Removed everywhere**: **Install dependencies** and **Build**, which exist only so his scripts can self-reference his own `dist/`. The factory installs the pinned package instead, folding **Install Claude Code** in with them as "Install factory (pinned sandcastle, tsx, Claude Code)", from this repo's lockfile rather than `npm i -g` unpinned (#21, `8f0c3f1`).
-- **Added everywhere**: the `slot` job, "Enumerate accounts" and "Always remove the accounts file" (`27d972e`, stories 15, 17), "Checkout factory" (`8f0c3f1`, story 24), "Upload run log" (`8f0c3f1`, story 12), "Post usage comment" (`ef60ebd`, story 27). `trusted_author_associations` is an input on all four agent workflows (#52).
+- **Added everywhere**: "Enumerate accounts" and "Always remove the accounts file" (`27d972e`, stories 15, 17), "Checkout factory" (`8f0c3f1`, story 24), "Upload run log" (`8f0c3f1`, story 12), "Post usage comment" (`ef60ebd`, story 27). `trusted_author_associations` is an input on all four agent workflows (#52). The `slot` job was added everywhere too (`27d972e`, story 15) and is gone again: the factory built the per-account cap and deleted it (#149), so each agent job now carries a concurrency group keyed on its own subject number, which is his per-issue shape widened to PRs.
 - **Added to review and implement-pr**: `refuse-fork` (`20e5f95`), since `pull_request_target` runs with secrets on a fork's head.
 - **Added to implement and implement-pr**: "Collect the retry handoff" and the separate `retry:` job behind it (#51, story 20 of #46).
 

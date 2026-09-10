@@ -107,9 +107,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
-      # Keyed on the PR, the same key the review and implement-pr runs on it use, so
-      # no two runs on one PR overlap (#149). This is not the counter group above:
-      # that one serialises the counter across every merge, and stays.
+      # Keyed on the subject, this run's PR, the same key a review or implement-pr
+      # run on it uses, so no two runs on one PR overlap (#149). Unrelated subjects
+      # never share a key, and the older run is never cancelled: it is doing real
+      # work. Not the `decide` group above: that one serialises the counter across
+      # every merge and stays. ADR 0004's 2026-09-10 amendment has the reasoning.
       group: factory-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:

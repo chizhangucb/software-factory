@@ -164,9 +164,9 @@ test("a run whose jobs could not be read is treated as covering while live", () 
 });
 
 test("a cancelled run is an ordinary lost event: it is re-dispatched and it spends a miss, whatever cancelled it", () => {
-  // No cancel is read as contention any more (#149): the per-account lanes that
-  // cancelled a third run for a full slot are gone, so the only cancels left are
-  // lost events, and every one of them counts.
+  // No cancel is read as contention any more (#149): the per-account slots that
+  // cancelled a third run queued for a full one are gone, so every cancel left is
+  // a lost event, and every one of them counts.
   const cancelled = run(100, { conclusion: "cancelled", createdAt: minutesAgo(19) });
   const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"] });
   const d = only(reconcile(snapshot({ issues: [stranded], runs: [cancelled] }), DEFAULT_DEADLINES));
@@ -212,10 +212,10 @@ test("a ticket cancelled every sweep escalates on the second miss, one sweep bef
   assert.match(ds[1]!.log, /run 101 cancelled, second miss: escalate to needs-human/);
 });
 
-test("the re-dispatch cap still ends a stranding whose markers were written as miss=0, which is all the lane cap ever wrote", () => {
+test("the re-dispatch cap still ends a stranding whose markers were written as miss=0, which is all the slot cap ever wrote", () => {
   // The cap counts re-dispatches whatever their cause, and every miss is counted
   // now, so the miss path is the one a fresh stranding reaches. The cap is what
-  // ends a stranding carrying markers from before the lanes went (#149).
+  // ends a stranding carrying markers from before the slots went (#149).
   const cancelled = run(100, { conclusion: "cancelled", createdAt: minutesAgo(19) });
   const stranded = ticket(1, { labels: ["ready-for-agent", "agent:implement"], marks: [{ miss: 0, tries: 2, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ issues: [stranded], runs: [cancelled] }), DEFAULT_DEADLINES));

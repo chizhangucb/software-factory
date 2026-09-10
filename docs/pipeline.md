@@ -145,6 +145,8 @@ Rows are attempts: model, wall time, `claude -p` calls, turns, input, cache writ
 
 The workflow enumerates the `CLAUDE_CODE_OAUTH_TOKEN_<n>` secrets, masks every token, and hands the list to the run script as a file. The script picks the lowest-indexed account, deletes the file, runs, and re-runs once on the next account if the result event says rate limited. The job log names accounts by their `CLAUDE_ACCOUNT_<n>` label, never by token. The usage comment posted to the target's PR (#18) does not carry the label at all, so "which account paid for this" is answerable only from the job log. Module: `factory/lib/rotation.ts` (`pickToken`, `isRateLimited`, no network); run path: `factory/lib/accounts.ts`. Quota-aware ranking is #24.
 
+**Nothing caps how many runs are in flight.** Rotation on a real rate limit is the only thing that moves a run off an account; the per-account cap that used to bound it is gone, and no cap of any shape comes back until a real rate limit is observed (#149, ADR 0004's 2026-09-10 amendment). What the workflows still serialise is one subject: each agent job's concurrency group is its own issue number (implement) or PR number (review, implement-pr, audit), with `cancel-in-progress` false, so two runs on one ticket or PR never overlap while two different subjects never wait on each other. The audit's `decide` job has a group of its own for the counter, which is not a cap.
+
 ## Engine notes
 
 - Sandcastle 0.12.0 pinned exactly, Claude Code CLI pinned in `package.json`, both installed from the lockfile on every run. `package-lock.json`'s `integrity` for `node_modules/@ai-hero/sandcastle` is the live check on what a run installs, so `npm ci` is the check and CI needs no hash step of its own.

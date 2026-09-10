@@ -22,8 +22,11 @@ const factoryChecks = ["factory/verdict", "factory/red-green", "factory/test-int
 /**
  * A stub `gh`: it answers the reads `onboard.sh` makes and keeps the ruleset payload it
  * is handed. `GH_EXISTING_ID` is how a test picks the create path (unset) or the update
- * path (an id). A call it does not recognise fails, so a reshaped `gh` line breaks the
- * test loudly instead of degrading into an empty answer.
+ * path (an id). `GH_CALLER_ERROR`, when set, makes the caller-presence check fail with
+ * that text instead of answering -- real `gh` on a 404 prints "HTTP 404" among other
+ * text, which is what tells `onboard.sh` a missing file from any other kind of failure.
+ * A call it does not recognise fails, so a reshaped `gh` line breaks the test loudly
+ * instead of degrading into an empty answer.
  */
 const stubGh = `#!/usr/bin/env bash
 args="$*"
@@ -31,7 +34,11 @@ case "$args" in
   "label create"*|"repo edit"*) ;;
   "api --method POST"*) cat > "$GH_PAYLOAD"; echo 4242 ;;
   "api --method PUT"*)  cat > "$GH_PAYLOAD" ;;
-  *"contents/.github/workflows/factory.yml"*) [ "$GH_HAS_CALLER" = "true" ] && exit 0 || exit 1 ;;
+  *"contents/.github/workflows/factory.yml"*)
+    if [ -n "\${GH_CALLER_ERROR:-}" ]; then echo "$GH_CALLER_ERROR" >&2; exit 1
+    elif [ "$GH_HAS_CALLER" = "true" ]; then exit 0
+    else echo "gh: Not Found (HTTP 404)" >&2; exit 1
+    fi ;;
   *"--jq .default_branch") echo main ;;
   *"/rulesets --jq"*) echo "\${GH_EXISTING_ID:-}" ;;
   *) echo "stub gh: unexpected call: $args" >&2; exit 1 ;;
@@ -41,12 +48,13 @@ exit 0
 
 /** `existingRulesetId` picks the update path over the create path. `hasCaller` defaults to
  * true, since most tests exercise a target that carries one; false drops the factory's
- * three checks, the way a real caller-less target does. */
-type OnboardOptions = { existingRulesetId?: string; hasCaller?: boolean };
+ * three checks, the way a real caller-less target does. `callerError`, when set, makes
+ * the caller-presence check itself fail (not a 404), overriding `hasCaller`. */
+type OnboardOptions = { existingRulesetId?: string; hasCaller?: boolean; callerError?: string };
 
 /** A temp directory holding the stub `gh`, and the environment that reaches it. */
 const sandbox = (options: OnboardOptions = {}) => {
-  const { existingRulesetId, hasCaller = true } = options;
+  const { existingRulesetId, hasCaller = true, callerError } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
@@ -61,6 +69,7 @@ const sandbox = (options: OnboardOptions = {}) => {
       // create-path tests silently on the update path.
       GH_EXISTING_ID: existingRulesetId ?? "",
       GH_HAS_CALLER: hasCaller ? "true" : "false",
+      GH_CALLER_ERROR: callerError ?? "",
     },
   };
 };
@@ -183,4 +192,15 @@ test("with no caller and no own check, the script warns the ruleset requires not
   assert.deepEqual(run.requiredChecks, [], "no factory checks (no caller) and no own check either");
   assert.match(run.output, /WARNING/);
   assert.match(run.output, /requires nothing at all/i);
+});
+
+test("a caller check that fails for a reason other than 404 aborts, rather than being read as no caller", () => {
+  const run = onboardWith([], { callerError: "gh: API rate limit exceeded (HTTP 403)" });
+  assert.notEqual(run.code, 0, "an ambiguous answer must not be treated as a confirmed no-caller repo");
+  assert.match(run.output, /rate limit/i, "the real gh error reaches the maintainer, not a swallowed failure");
+  assert.doesNotMatch(
+    run.output,
+    /ruleset factory (created|updated)/,
+    "no ruleset should be written off a caller check that never actually answered",
+  );
 });

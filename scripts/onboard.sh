@@ -63,10 +63,18 @@ default_branch=$(gh api "repos/$repo" --jq .default_branch)
 # A caller is the one workflow file that posts the factory's three checks (CONTEXT.md).
 # A repo without one never posts them, so requiring them there is a ruleset that can never
 # be satisfied. The decision is read off the repo, not passed as a flag.
-if gh api "repos/$repo/contents/.github/workflows/factory.yml" >/dev/null 2>&1; then
+# A 404 confirms the file is absent; anything else -- a rate limit, a token missing scope,
+# a network blip -- is not an answer to "does it have a caller" and must not be read as one.
+# Every other gh api call in this script fails loudly through set -e; silencing this one's
+# stderr to make the 404 quiet would silence every other failure too, so the failure is
+# caught and re-raised by hand instead.
+if caller_error=$(gh api "repos/$repo/contents/.github/workflows/factory.yml" 2>&1 >/dev/null); then
   has_caller=true
-else
+elif [[ "$caller_error" == *"HTTP 404"* ]]; then
   has_caller=false
+else
+  echo "onboard.sh: could not tell whether $repo carries a caller: $caller_error" >&2
+  exit 1
 fi
 # Empty arguments name no check, and a name handed back twice is still one check; both would
 # otherwise reach GitHub as a bogus context in the ruleset, so drop them here. First mention

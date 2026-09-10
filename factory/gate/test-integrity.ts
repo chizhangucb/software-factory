@@ -16,12 +16,32 @@ export interface Marker {
  * Markers that silence or narrow a test, across the runners the factory is
  * likely to meet. Scanned only on added lines of test files, so a source
  * file's own `skip` option never trips the gate.
+ *
+ * The options-object pattern requires a runner call on the same line, because
+ * `{ skip: ... }` is an ordinary object literal and a test file's own helper
+ * may take one: chronicle#298 was refused for `sweep(report, { skip: pred })`,
+ * where `sweep` is that file's own scanner and no test was skipped (#134).
+ * What this deliberately stops catching is an options object passed to a
+ * project's own wrapper around a runner. That is the safe direction: this
+ * check is required in a target's ruleset, so a false positive blocks correct
+ * work permanently and no retry can clear it, while a skip smuggled through an
+ * unusual wrapper still has to get past red-green and the reviewer.
+ * A same-line requirement is no narrower than the scan already was: the diff
+ * is read line by line, so an object literal split across lines never had its
+ * `{` on the `skip:` line and was never matched.
+ *
+ * The value class is `[^,}\s]` rather than `[^,}]` so `(?!false\b)` cannot be
+ * defeated by backtracking. With whitespace allowed as the value character,
+ * `{ skip: false }` still matched: `\s*` gave back the space, the lookahead
+ * landed on that space instead of on `false`, and the space itself satisfied
+ * the value. Excluding whitespace forces `\s*` to consume it all, so the
+ * lookahead sees the value it is there to inspect (#134).
  */
 const MARKER_PATTERNS: readonly RegExp[] = [
   /\b(?:test|it|describe|suite|context|bench)\s*\.\s*(?:skip|only|todo)\s*\(/,
   /\b(?:xit|xtest|xdescribe|xcontext|fit|fdescribe|ftest)\s*\(/,
   /\bt\s*\.\s*(?:skip|todo)\s*\(/,
-  /\{[^}]*\b(?:skip|only|todo)\s*:\s*(?!false\b)[^,}]/,
+  /\b(?:test|it|describe|suite|context|bench)\s*(?:\.\s*\w+\s*)?\([^{]*\{[^}]*\b(?:skip|only|todo)\s*:\s*(?!false\b)[^,}\s]/,
   /@pytest\.mark\.skip|\bpytest\.skip\s*\(|@unittest\.skip|\bt\.Skip(?:Now)?\s*\(|@Ignore\b|@Disabled\b|\bskip\s+['"]|\bxit\s+['"]|\bpending\s*\(/,
 ];
 const COMMENT_LINE = /^\s*(?:\/\/|#|\*|\/\*)/;

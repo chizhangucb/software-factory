@@ -81,6 +81,44 @@ test("new skip, only, and todo markers in test files fail, each reported with it
   );
 });
 
+test("a test file's own helper option is not a marker", () => {
+  // The case that blocked chronicle#298: `sweep` is the test file's own helper,
+  // `function sweep(report, { skip = () => false } = {})`, and its options bag
+  // names paths to exempt from a scan. The enclosing test still runs and asserts.
+  const markers = findNewMarkers(
+    diffOf("test/repo-shape.test.mjs", [
+      "    const offenders = sweep(",
+      "      (rel, src) => scan(rel, src),",
+      "      { skip: (rel) => WORD_EXEMPT.get(word) === rel },",
+      "    );",
+    ]),
+  );
+  assert.deepEqual(markers, []);
+});
+
+test("an options object on any runner call is still a marker, and skip: false still passes", () => {
+  // Guards the narrowing in #134: the runner vocabulary keeps its options form.
+  // These were caught before that change too, so they are a regression net
+  // rather than a driver for it.
+  const runners = [
+    'it("x", { skip: true }, () => {});',
+    'describe("x", { only: true }, () => {});',
+    'suite("x", { todo: "later" }, () => {});',
+    'context("x", { skip: true }, () => {});',
+    'bench("x", { only: true }, () => {});',
+    't.test("x", { skip: true });',
+    'test.each([1])("x", { skip: true }, () => {});',
+  ];
+  assert.deepEqual(
+    findNewMarkers(diffOf("test/a.test.js", runners)).map((m) => m.text),
+    runners,
+  );
+  assert.deepEqual(
+    findNewMarkers(diffOf("test/a.test.js", ['test("on", { skip: false }, () => {});'])),
+    [],
+  );
+});
+
 test("markers outside test files and on unchanged lines are ignored", () => {
   const diff = [
     diffOf("src/options.js", ['const only = opts.only; if (opts.skip) return;']),

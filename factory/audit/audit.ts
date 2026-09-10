@@ -1,10 +1,11 @@
 /**
  * The first-20 audit (#18, ADR 0003): re-review a merged factory PR against
  * its ticket with the model the `audit_model` input names, read-only, and
- * write the result for the workflow to post. Nothing here ranks models;
- * `audit_model`'s own description is where the maintainer is told to point it
- * at the strongest model the subscription serves. The workflow decided this
- * merge is one of the first 20 (plan.ts) before running this.
+ * write the result for the workflow to post. Nothing here ranks models:
+ * whether the audit is a stronger second opinion than the review it audits is
+ * the maintainer's choice of `audit_model`, not something this file computes.
+ * The workflow decided this merge is one of the first 20 (plan.ts) before
+ * running this.
  *
  * `prompt.md` is the factory's, put through `writing-for-agents` (story 14 of
  * #46), and heads its ticket section `# TICKET` because it has no vendored

@@ -24,14 +24,15 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { errorMessage } from "../lib/errors.ts";
 import { gh } from "../lib/gh.ts";
+import { trustPolicyFromEnv } from "../lib/trusted-authors.ts";
 
 import {
   DISPATCH_LABEL,
   type DispatchIssue,
   fromGitHub,
   issuesClosedByPrs,
-  trustPolicyFromEnv,
   selectForDispatch,
   whyNotDispatchableNow,
   whySkipped,
@@ -101,7 +102,7 @@ for (const issue of dispatched) {
     labeled.push(issue.number);
     console.log(`Labeled #${issue.number} ${DISPATCH_LABEL}.`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     failed.push({ number: issue.number, error: message });
     console.error(`Could not label #${issue.number}: ${message}`);
   }

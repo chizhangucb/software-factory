@@ -67,7 +67,7 @@ import {
   stillPendingReason,
   summariseFailures,
   unretryableReason,
-  waitEnd,
+  waitOver,
 } from "./checks";
 import { BLOCKED_LABEL, ESCALATION_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
 import { escalationLabels, prCloseLabels } from "./escalation.ts";
@@ -194,11 +194,9 @@ interface PrMergeability {
 }
 
 /**
- * Read on every poll of the wait for checks (#145), never again after it:
- * the poll's last read is the answer the decision uses. Undefined when the
- * PR closed or merged as the handler waited: `resolveTarget` saw it open
- * before the wait, and nothing is handed off or labeled on a PR that is no
- * longer open.
+ * Undefined when the PR closed or merged as the handler waited:
+ * `resolveTarget` saw it open before the wait, and nothing is handed off or
+ * labeled on a PR that is no longer open.
  */
 const mergeabilityOf = (pr: string): PrMergeability | undefined => {
   const view = ghJson<{ state: string; mergeable: Mergeability; baseRefName: string }>([
@@ -353,29 +351,29 @@ const failureOutput = async (f: CheckFailure): Promise<string> => {
 
 /**
  * Wait for the head's checks to settle, or for GitHub to report the open PR
- * conflicting (#145), then the failures among them. `waitEnd` is the rule;
+ * conflicting (#145), then the failures among them. `waitOver` is the rule;
  * this is the clock and the reads.
  */
 const checksFailure = async (pr: string | undefined): Promise<Failure | undefined> => {
   const sha = required("HEAD_SHA");
   const deadline = Date.now() + CHECKS_TIMEOUT_MS;
-  // The mergeability read is one gh call per poll on top of the two check reads (and the
-  // per-run lookups those cache): cheap against a conflicting PR leaving within a poll.
+  // Mergeability is read only while a check is pending, the one state it can end or
+  // decide: one gh call per such poll on top of the two check reads, and none on a
+  // head that has settled, where a transient gh failure would block a PR for nothing.
   const observe = () => {
     const state = headChecks(sha);
-    const mergeability = pr ? mergeabilityOf(pr) : undefined;
-    return { state, mergeability, end: waitEnd(state, mergeability?.mergeable) };
+    const mergeability = pr && state.pending.length > 0 ? mergeabilityOf(pr) : undefined;
+    return { state, mergeability };
   };
   let seen = observe();
-  while (!seen.end.over && Date.now() < deadline) {
+  while (!waitOver(seen.state, seen.mergeability?.mergeable) && Date.now() < deadline) {
     console.log(`Waiting for ${seen.state.pending.join(", ")} on ${sha.slice(0, 7)}.`);
     await sleep(POLL_MS);
     seen = observe();
   }
-  const { state, mergeability, end } = seen;
+  const { state, mergeability } = seen;
   // Nothing failed, so there is no kind to name: `ci` is a placeholder the requeue path never reads.
-  const stillPending =
-    end.over && end.why === "conflict" ? end.reason : stillPendingReason(state, CHECKS_TIMEOUT_MS / 60_000);
+  const stillPending = stillPendingReason(state, mergeability?.mergeable, CHECKS_TIMEOUT_MS / 60_000);
   if (stillPending) return { kind: "ci", summary: stillPending, output: "", requeue: stillPending, mergeability };
   const { failures } = state;
   if (failures.length === 0) return undefined;
@@ -506,9 +504,8 @@ const main = async (): Promise<void> => {
   // conflict is the checks path's fact (#144). The same read is where a PR that closed
   // or merged as the handler waited drops out, so the requeue falls back to the ticket
   // instead of labeling a PR nobody keeps.
-  let mergeability: PrMergeability | undefined;
+  const mergeability = failure.mergeability;
   if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
-    mergeability = failure.mergeability;
     if (!mergeability) {
       console.log(`PR #${target.pr} closed or merged as the handler waited; it is no longer the subject.`);
       target = { ...target, pr: undefined };

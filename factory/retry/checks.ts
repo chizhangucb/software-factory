@@ -115,47 +115,40 @@ export const unretryableReason = (failures: readonly CheckFailure[]): string | u
     : undefined;
 
 /**
- * Why a head is not the ticket's failure when the wait for its checks runs
- * out, or undefined when it is. A check still running has no log to inform a
- * retry: counted as a failure it spends the one informed retry on nothing
- * and the next failure escalates, so a slow target CI alone strands the
- * ticket. Requeued instead, with the retry count untouched. A check that
- * genuinely failed outranks a pending one: it has a log, so the retry is
- * informed and worth spending.
+ * Whether one poll's observation ends the wait for the head's checks.
+ * Settled checks end it: the failures among them, if any, are the result. A
+ * definite conflict ends it early (#145): GitHub starts no `pull_request`
+ * workflow on a conflicting PR, so the checks it never started are not
+ * coming (one already running still posts, and is lost to the hand-off:
+ * the resolved push re-runs it), and the PR is the implementer's whatever
+ * the deadline says. UNKNOWN is GitHub still deciding and MERGEABLE is a
+ * head whose checks are on their way: both keep waiting. The clock is the
+ * caller's.
  */
-export const stillPendingReason = (state: CheckState, timeoutMinutes: number): string | undefined =>
-  pendingReason(state, `after ${timeoutMinutes} minutes; not the ticket's failure`);
-
-/** The pending checks and why the wait for them stopped; undefined when a failed check outranks them. */
-const pendingReason = (state: CheckState, cause: string): string | undefined =>
-  state.failures.length === 0 && state.pending.length > 0 ? `${state.pending.join(", ")} still pending ${cause}` : undefined;
+export const waitOver = (state: CheckState, mergeable: Mergeability | undefined): boolean =>
+  state.pending.length === 0 || mergeable === "CONFLICTING";
 
 /**
- * Whether one poll's observation ends the wait for the head's checks, and
- * why. Settled checks end it: the failures among them, if any, are the
- * result. A definite conflict ends it early (#145): GitHub starts no
- * `pull_request` workflow on a conflicting PR, so the pending checks are not
- * coming, and the PR is the implementer's whatever the deadline says. The
- * reason names that early end, so the log does not claim a deadline that
- * never came; undefined when a failed check outranks it, as at the deadline.
- * UNKNOWN is GitHub still deciding and MERGEABLE is a head whose checks are
- * on their way: both keep waiting.
+ * Why a head is not the ticket's failure when the wait for its checks
+ * stops, or undefined when it is. A check still running has no log to
+ * inform a retry: counted as a failure it spends the one informed retry on
+ * nothing and the next failure escalates, so a slow target CI alone strands
+ * the ticket. Requeued instead, with the retry count untouched. A check that
+ * genuinely failed outranks a pending one: it has a log, so the retry is
+ * informed and worth spending. The reason names what stopped the wait, a
+ * conflict or the deadline, so the log claims neither when the other came.
  */
-export type WaitEnd =
-  | { readonly over: false }
-  | { readonly over: true; readonly why: "settled" }
-  | { readonly over: true; readonly why: "conflict"; readonly reason: string | undefined };
-
-export const waitEnd = (state: CheckState, mergeable: Mergeability | undefined): WaitEnd => {
-  if (state.pending.length === 0) return { over: true, why: "settled" };
-  if (mergeable === "CONFLICTING") {
-    return {
-      over: true,
-      why: "conflict",
-      reason: pendingReason(state, "when GitHub reported the PR conflicting with its base; the wait ended early, not at the deadline"),
-    };
-  }
-  return { over: false };
+export const stillPendingReason = (
+  state: CheckState,
+  mergeable: Mergeability | undefined,
+  timeoutMinutes: number,
+): string | undefined => {
+  if (state.failures.length > 0 || state.pending.length === 0) return undefined;
+  const cause =
+    mergeable === "CONFLICTING"
+      ? "when GitHub reported the PR conflicting with its base, which ended the wait"
+      : `after ${timeoutMinutes} minutes`;
+  return `${state.pending.join(", ")} still pending ${cause}; not the ticket's failure`;
 };
 
 export const summariseFailures = (failures: readonly CheckFailure[]): string =>

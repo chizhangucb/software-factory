@@ -1,0 +1,29 @@
+TAP version 13
+# Subtest: passed before the crash
+ok 1 - passed before the crash
+  ---
+  duration_ms: 0.264459
+  type: 'test'
+  ...
+# Error: A resource generated asynchronous activity after the test ended. This activity created the error "Error: uncaught after the tests reported" which triggered an uncaughtException event, caught by the test runner.
+# Subtest: /home/runner/work/target/target/died-after-tests.test.js
+not ok 1 - /home/runner/work/target/target/died-after-tests.test.js
+  ---
+  duration_ms: 39.692083
+  type: 'test'
+  location: '/home/runner/work/target/target/died-after-tests.test.js:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 43.357709

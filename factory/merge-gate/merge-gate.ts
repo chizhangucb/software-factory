@@ -17,10 +17,13 @@ import { linkedIssueNumber } from "../lib/linked-issue";
 import { parseNameStatus, type ChangedFile } from "./changed-files";
 import { redGreenPlan, redGreenVerdict, type FileRun, type TestResult } from "./red-green";
 import { checkTestIntegrity } from "./test-integrity";
+import { DEFAULT_TEST_COMMAND, reportArgs, runnability } from "./unrunnable";
 
 const prNumber = required("PR_NUMBER");
 const baseRef = required("BASE_REF");
-const testCommand = process.env.TEST_COMMAND?.trim() || "node --test";
+// The fallback is the one command `runnability` can read, taken from there:
+// a second copy that drifts leaves detection silently off.
+const testCommand = process.env.TEST_COMMAND?.trim() || DEFAULT_TEST_COMMAND;
 const installCommand = process.env.INSTALL_COMMAND?.trim() ?? "npm ci";
 
 const linkedIssue = (): string => linkedIssueNumber(gh(["pr", "view", prNumber, "--json", "body", "--jq", ".body"]));
@@ -50,9 +53,16 @@ const install = (cwd: string): void => {
  * Each file in its own invocation, so a failure belongs to the file that
  * failed rather than to every file that shared a batch with it. Install is the
  * worktree's, not the file's, and stays outside this loop.
+ *
+ * The report is asked for here rather than kept in a variable of its own,
+ * because `runnability` judges by the command the caller gave: handed the
+ * reporting form instead, it would read every file as a command it cannot
+ * understand and quietly stop detecting anything.
  */
-const runEach = (cwd: string, testFiles: readonly string[]): TestResult[] =>
-  testFiles.map((file) => run(cwd, testCommand, [file]));
+const runEach = (cwd: string, testFiles: readonly string[]): TestResult[] => {
+  const reporting = [testCommand, ...reportArgs(testCommand)].join(" ");
+  return testFiles.map((file) => run(cwd, reporting, [file]));
+};
 
 /** Checks out the base tip, overlays the head's test files, runs each of them alone. */
 const runOnBase = (testFiles: readonly string[]): TestResult[] => {
@@ -75,10 +85,18 @@ const runOnBase = (testFiles: readonly string[]): TestResult[] => {
  * are written last: a retry marker quotes this log's tail, so whichever file
  * broke is the output the implementer reads. The base keeps plan order,
  * because its own failure is every file passing, which singles out no file.
+ *
+ * A file the merge gate could not run sits between the two: after the files
+ * that passed, because its output is worth reading, and before the ones that
+ * genuinely failed, because it is nobody's failure to fix and the tail belongs
+ * to the file the retry is meant to send an implementer at. When every file
+ * was passed over the tail is theirs, which is the only output there is.
  */
+const headRank = (run: FileRun): number =>
+  run.runnability === "unrunnable" ? 1 : run.head.exitCode !== 0 ? 2 : 0;
+
 const sideLog = (runs: readonly FileRun[], side: "base" | "head"): string => {
-  const ordered =
-    side === "head" ? [...runs].sort((a, b) => Number(a.head.exitCode !== 0) - Number(b.head.exitCode !== 0)) : runs;
+  const ordered = side === "head" ? [...runs].sort((a, b) => headRank(a) - headRank(b)) : runs;
   return ordered.map((r) => `=== ${r.path} (exit ${r[side].exitCode}) ===\n${r[side].output}`).join("\n");
 };
 
@@ -102,7 +120,13 @@ const main = (): void => {
     const base = runOnBase(plan.testFiles);
     install(process.cwd());
     const head = runEach(process.cwd(), plan.testFiles);
-    runs = plan.testFiles.map((file, i) => ({ path: file, base: base[i], head: head[i] }));
+    // The head decides, per FileRun.runnability, and its answer holds on the base side too.
+    runs = plan.testFiles.map((file, i) => ({
+      path: file,
+      base: base[i],
+      head: head[i],
+      runnability: runnability(testCommand, head[i]),
+    }));
     writeText("red-green-base.log", sideLog(runs, "base"));
     writeText("red-green-head.log", sideLog(runs, "head"));
   }
@@ -114,7 +138,16 @@ const main = (): void => {
     mergeBase,
     issueNumber,
     files,
-    redGreen: { ...redGreen, plan, runs: runs?.map((r) => ({ path: r.path, baseExit: r.base.exitCode, headExit: r.head.exitCode })) },
+    redGreen: {
+      ...redGreen,
+      plan,
+      runs: runs?.map((r) => ({
+        path: r.path,
+        baseExit: r.base.exitCode,
+        headExit: r.head.exitCode,
+        runnability: r.runnability,
+      })),
+    },
     testIntegrity: integrity,
   });
 
@@ -123,7 +156,7 @@ const main = (): void => {
       "factory/red-green",
       redGreen.ok,
       redGreen.reasons,
-      runs ? `${plan.reason}; ${runs.map((r) => `${r.path} base ${r.base.exitCode} head ${r.head.exitCode}`).join(", ")}` : redGreen.ok ? plan.reason : "",
+      redGreen.detail,
     ),
     summarize(
       "factory/test-integrity",

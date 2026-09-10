@@ -161,7 +161,13 @@ export interface MergeGateArtifact {
     readonly ok?: boolean;
     readonly reasons?: readonly string[];
     /** One entry per changed test file, each run on its own: its exit status on each side. */
-    readonly runs?: readonly { readonly path: string; readonly baseExit: number; readonly headExit: number }[];
+    readonly runs?: readonly {
+      readonly path: string;
+      readonly baseExit: number;
+      readonly headExit: number;
+      /** "unrunnable" means the merge gate passed the file over; it is nobody's failure to fix. */
+      readonly runnability?: string;
+    }[];
   };
   readonly testIntegrity?: { readonly ok?: boolean; readonly reasons?: readonly string[] };
 }
@@ -189,8 +195,14 @@ export const renderMergeGateOutput = (
   // the per-file runs landed carries no `runs`, and dropping its logs would
   // leave that retry marker with no test output at all.
   if (runs?.length || logs.base || logs.head) {
+    // A file the merge gate could not run is named apart from the ones it
+    // judged, never with an exit status: this is what the next attempt reads,
+    // and an implementer sent to fix a file nothing ran is the wrong blame
+    // this per-file reporting exists to end.
+    const judged = runs?.filter((r) => r.runnability !== "unrunnable") ?? [];
+    const passedOver = runs?.filter((r) => r.runnability === "unrunnable") ?? [];
     const exitList = (side: "baseExit" | "headExit"): string =>
-      runs?.length ? `: ${runs.map((r) => `${r.path} exit ${r[side]}`).join(", ")}` : "";
+      judged.length ? `: ${judged.map((r) => `${r.path} exit ${r[side]}`).join(", ")}` : "";
     lines.push(
       "",
       `Changed tests on main (expected to fail)${exitList("baseExit")}`,
@@ -199,6 +211,9 @@ export const renderMergeGateOutput = (
       `Changed tests on the head (expected to pass)${exitList("headExit")}`,
       tail(logs.head),
     );
+    if (passedOver.length) {
+      lines.push("", `passed over, the merge gate could not run: ${passedOver.map((r) => r.path).join(", ")}`);
+    }
   }
   return lines.join("\n");
 };

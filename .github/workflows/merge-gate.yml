@@ -112,7 +112,9 @@ jobs:
             field="${key%%:*}"; ctx="${key#*:}"
             ok=$(jq -r ".$field.ok" "$OUTPUT_DIR/merge-gate.json")
             if [ "$ok" = "true" ]; then
-              post "$ctx" success "$(jq -r ".$field.plan.reason // \"clean\"" "$OUTPUT_DIR/merge-gate.json")"
+              # detail before plan.reason: a passing red-green names the files it could not
+              # run, and that sentence is the only one a maintainer sees without opening the run.
+              post "$ctx" success "$(jq -r "[.$field.detail, .$field.plan.reason, \"clean\"] | map(select(. != null and . != \"\")) | first" "$OUTPUT_DIR/merge-gate.json")"
             else
               post "$ctx" failure "$(jq -r ".$field.reasons[0]" "$OUTPUT_DIR/merge-gate.json")"
             fi

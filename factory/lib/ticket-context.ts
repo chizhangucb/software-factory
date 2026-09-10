@@ -83,6 +83,12 @@ export interface IssueView {
   readonly title: string;
   readonly body?: string | null;
   readonly comments?: readonly IssueComment[];
+  /**
+   * The ticket's labels, as `gh issue view --json labels` returns them. Absent
+   * on a read that did not ask for them; a run that resolves the implementer
+   * model from the ticket asks (#119).
+   */
+  readonly labels?: readonly { readonly name: string }[];
 }
 
 /**

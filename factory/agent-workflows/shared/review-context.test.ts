@@ -7,6 +7,7 @@ import {
   type PullRequestContext,
   type PullRequestReads,
 } from "./review-context";
+import { resolveRoleModel } from "../../lib/model";
 import { trustPolicy } from "../../lib/trusted-authors";
 
 const OWNER_ONLY = trustPolicy("OWNER");
@@ -50,6 +51,8 @@ const reads = (): PullRequestReads => ({
     number: 4,
     title: "Add a helper",
     body: "## Acceptance criteria\n\n- [ ] It helps",
+    // The ticket is where a `model:` label moves the implementer (#10, #119).
+    labels: [{ name: "agent:implement" }, { name: "model:claude-sonnet-5" }],
     comments: [
       { author: { login: "chi" }, authorAssociation: "OWNER", body: "Owner on the ticket." },
       { author: { login: "stranger" }, authorAssociation: "NONE", body: "Stranger on the ticket." },
@@ -252,6 +255,40 @@ test("the audit's own diff is judged, and it is filtered the same way", () => {
   assert.equal(context.diff, merged);
   assert.ok(context.diffLines.get("b.ts")?.has(1));
   assert.doesNotMatch(context.prCommentsJson, /Stranger/);
+});
+
+/**
+ * #10's rule is that a `model:<name>` label on the ticket moves the implementer
+ * for that run. implement-pr read the label list off the pull request instead,
+ * so a follow-up run on the same work could pick a different model than the
+ * ticket asked for (#119). The labels come off the linked ticket this context
+ * already reads, and the pull request has no label channel here at all.
+ */
+test("the implementer model comes from the linked ticket's labels, not the pull request's", () => {
+  const context = pullRequestContext(reads(), OWNER_ONLY);
+  assert.deepEqual(context.issueLabels, ["agent:implement", "model:claude-sonnet-5"]);
+  assert.deepEqual(resolveRoleModel("implementer", "claude-opus-5", context.issueLabels), {
+    model: "claude-sonnet-5",
+    source: "label",
+  });
+});
+
+/**
+ * A PR whose body links no ticket has no ticket to override the implementer
+ * model, which is what #10's rule means when there is nothing to override it
+ * with: the configured default stands (#119).
+ */
+test("a pull request with no linked ticket runs the implementer on the configured default", () => {
+  const raw = reads();
+  const context = pullRequestContext(
+    { ...raw, pr: { ...raw.pr, body: "No keyword here" }, issue: undefined },
+    OWNER_ONLY,
+  );
+  assert.deepEqual(context.issueLabels, []);
+  assert.deepEqual(resolveRoleModel("implementer", "claude-opus-5", context.issueLabels), {
+    model: "claude-opus-5",
+    source: "default",
+  });
 });
 
 test("the job log names what was dropped, so a cut thread is visible without the prompt", () => {

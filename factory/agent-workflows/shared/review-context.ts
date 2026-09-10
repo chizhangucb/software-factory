@@ -18,6 +18,10 @@
  *   unit test prove it over fixtures with no network (story 27, ADR 0002
  *   amendment).
  * - an optional `diff`, so the audit can pass the merged commit's: story 18.
+ * - the ticket read asks for `labels` as well, and `issueLabels` carries them on
+ *   the context: #10's rule is that a `model:` label on the ticket moves the
+ *   implementer, and implement-pr read that list off the PR (#119). The subject
+ *   swapped on the read that was already there rather than a second one.
  */
 import { gh, safeSh, sh } from "./common";
 import { parseDiffLines } from "./diff-lines";
@@ -84,6 +88,12 @@ export interface PullRequestContext {
   readonly issueTitle: string;
   /** The linked issue's body alone, for parsing its acceptance criteria. */
   readonly issueBody: string;
+  /**
+   * The linked issue's label names, empty when the PR links no ticket. The
+   * implementer model is resolved from these, so a `model:` label on the PR
+   * alone moves nothing (#10, #119).
+   */
+  readonly issueLabels: readonly string[];
   readonly linkedIssue: string;
   readonly diff: string;
   readonly prCommentsJson: string;
@@ -254,6 +264,7 @@ export const pullRequestContext = (
     issueNumber,
     issueTitle: reads.issue?.title ?? "",
     issueBody: reads.issue?.body ?? "",
+    issueLabels: (reads.issue?.labels ?? []).map((label) => label.name),
     linkedIssue: issue.text,
     diff: reads.diff,
     prCommentsJson: JSON.stringify(payload, null, 2),
@@ -280,12 +291,13 @@ export const fetchPullRequestContext = (
   };
 
   const issueNumber = linkedIssueNumber(prView.body);
-  // One JSON read for the ticket: its title, its criteria, and its comments
-  // with the association the policy filters on. Throws on an API error, since
-  // a missing body must never read as "no criteria".
+  // One JSON read for the ticket: its title, its criteria, its comments with
+  // the association the policy filters on, and its labels, which decide the
+  // implementer's model (#119). Throws on an API error, since a missing body
+  // must never read as "no criteria".
   const issue = issueNumber
     ? (JSON.parse(
-        gh(["issue", "view", issueNumber, "--json", "number,title,body,comments"]),
+        gh(["issue", "view", issueNumber, "--json", "number,title,body,comments,labels"]),
       ) as IssueView)
     : undefined;
 

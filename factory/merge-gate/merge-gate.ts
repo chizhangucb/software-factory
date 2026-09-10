@@ -17,10 +17,13 @@ import { linkedIssueNumber } from "../lib/linked-issue";
 import { parseNameStatus, type ChangedFile } from "./changed-files";
 import { redGreenPlan, redGreenVerdict, type FileRun, type TestResult } from "./red-green";
 import { checkTestIntegrity } from "./test-integrity";
+import { reportArgs, runnability } from "./unrunnable";
 
 const prNumber = required("PR_NUMBER");
 const baseRef = required("BASE_REF");
 const testCommand = process.env.TEST_COMMAND?.trim() || "node --test";
+/** Asked for once: only a command the merge gate chose emits a report it can read. */
+const reportingTestCommand = [testCommand, ...reportArgs(testCommand)].join(" ");
 const installCommand = process.env.INSTALL_COMMAND?.trim() ?? "npm ci";
 
 const linkedIssue = (): string => linkedIssueNumber(gh(["pr", "view", prNumber, "--json", "body", "--jq", ".body"]));
@@ -52,7 +55,7 @@ const install = (cwd: string): void => {
  * worktree's, not the file's, and stays outside this loop.
  */
 const runEach = (cwd: string, testFiles: readonly string[]): TestResult[] =>
-  testFiles.map((file) => run(cwd, testCommand, [file]));
+  testFiles.map((file) => run(cwd, reportingTestCommand, [file]));
 
 /** Checks out the base tip, overlays the head's test files, runs each of them alone. */
 const runOnBase = (testFiles: readonly string[]): TestResult[] => {
@@ -102,7 +105,15 @@ const main = (): void => {
     const base = runOnBase(plan.testFiles);
     install(process.cwd());
     const head = runEach(process.cwd(), plan.testFiles);
-    runs = plan.testFiles.map((file, i) => ({ path: file, base: base[i], head: head[i] }));
+    // The head decides: it is the version being merged, so it is the honest
+    // authority on what the file now is, and a file it could not run is
+    // passed over on the base side too.
+    runs = plan.testFiles.map((file, i) => ({
+      path: file,
+      base: base[i],
+      head: head[i],
+      runnability: runnability(testCommand, head[i]),
+    }));
     writeText("red-green-base.log", sideLog(runs, "base"));
     writeText("red-green-head.log", sideLog(runs, "head"));
   }
@@ -114,7 +125,16 @@ const main = (): void => {
     mergeBase,
     issueNumber,
     files,
-    redGreen: { ...redGreen, plan, runs: runs?.map((r) => ({ path: r.path, baseExit: r.base.exitCode, headExit: r.head.exitCode })) },
+    redGreen: {
+      ...redGreen,
+      plan,
+      runs: runs?.map((r) => ({
+        path: r.path,
+        baseExit: r.base.exitCode,
+        headExit: r.head.exitCode,
+        runnability: r.runnability,
+      })),
+    },
     testIntegrity: integrity,
   });
 
@@ -123,7 +143,7 @@ const main = (): void => {
       "factory/red-green",
       redGreen.ok,
       redGreen.reasons,
-      runs ? `${plan.reason}; ${runs.map((r) => `${r.path} base ${r.base.exitCode} head ${r.head.exitCode}`).join(", ")}` : redGreen.ok ? plan.reason : "",
+      redGreen.detail,
     ),
     summarize(
       "factory/test-integrity",

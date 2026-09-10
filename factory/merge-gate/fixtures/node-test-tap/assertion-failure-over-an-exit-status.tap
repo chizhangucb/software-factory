@@ -1,0 +1,83 @@
+TAP version 13
+# Subtest: a failure whose values carry an exitCode
+not ok 1 - a failure whose values carry an exitCode
+  ---
+  duration_ms: 0.909208
+  type: 'test'
+  location: '/home/runner/work/target/target/objdump.test.js:3:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      {
+    +   exitCode: 1,
+    -   exitCode: 0,
+        output: 'boom'
+      }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    exitCode: 0
+    output: 'boom'
+  actual:
+    exitCode: 1
+    output: 'boom'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/runner/work/target/target/objdump.test.js:4:10)
+    Test.runInAsyncScope (node:async_hooks:226:14)
+    Test.run (node:internal/test_runner/test:1397:25)
+    Test.start (node:internal/test_runner/test:1257:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)
+  ...
+# Subtest: nested
+    # Subtest: also fails
+    not ok 1 - also fails
+      ---
+      duration_ms: 0.529375
+      type: 'test'
+      location: '/home/runner/work/target/target/objdump.test.js:7:3'
+      failureType: 'testCodeFailure'
+      error: |-
+        Expected values to be strictly equal:
+        
+        1 !== 2
+        
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      expected: 2
+      actual: 1
+      operator: 'strictEqual'
+      stack: |-
+        TestContext.<anonymous> (file:///home/runner/work/target/target/objdump.test.js:7:37)
+        Test.runInAsyncScope (node:async_hooks:226:14)
+        Test.run (node:internal/test_runner/test:1397:25)
+        Test.start (node:internal/test_runner/test:1257:17)
+        node:internal/test_runner/test:1887:71
+        node:internal/per_context/primordials:504:82
+        new Promise (<anonymous>)
+        new SafePromise (node:internal/per_context/primordials:478:3)
+        node:internal/per_context/primordials:504:9
+        Array.map (<anonymous>)
+      ...
+    1..1
+not ok 2 - nested
+  ---
+  duration_ms: 0.6725
+  type: 'suite'
+  location: '/home/runner/work/target/target/objdump.test.js:6:1'
+  failureType: 'subtestsFailed'
+  error: '1 subtest failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..2
+# tests 2
+# suites 1
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 36.88725

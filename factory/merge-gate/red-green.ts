@@ -1,5 +1,6 @@
 import { removesCode, type ChangedFile, type FileKind } from "./changed-files";
 import type { Verdict } from "./test-integrity";
+import type { Runnability } from "./unrunnable";
 
 export interface RedGreenPlan {
   /** Whether the tests need running at all; false means the verdict is decided by the diff alone. */
@@ -25,6 +26,18 @@ export interface FileRun {
   readonly path: string;
   readonly base: TestResult;
   readonly head: TestResult;
+  /** Decided by the head: it is the version being merged, so it is the honest authority on what the file now is. */
+  readonly runnability: Runnability;
+}
+
+export interface RedGreenVerdict extends Verdict {
+  /**
+   * Changed test files the merge gate could not run, passed over on both
+   * sides and named for the reviewer and the audit; never a reason to fail.
+   */
+  readonly unrunnable: string[];
+  /** What the check saw, one line, for the status summary. */
+  readonly detail: string;
 }
 
 /** What a vacuous pass says it saw, when the whole diff is one kind. */
@@ -63,6 +76,31 @@ export const redGreenPlan = (files: readonly ChangedFile[]): RedGreenPlan => {
 };
 
 /**
+ * One line for the status summary: what the check ran, and what it passed
+ * over. A file the merge gate could not run is named with the reason, the
+ * same route the deleted-test decision established, so the reviewer and the
+ * audit read it. When every file was passed over the line says plainly that
+ * nothing was proved, because a check that refuses what it cannot judge
+ * blocks correct work while one that passes and says so hands the judgment to
+ * readers who can read.
+ */
+const detailOf = (plan: RedGreenPlan, judged: readonly FileRun[], unrunnable: readonly FileRun[]): string => {
+  const parts = [plan.reason];
+  if (judged.length > 0) {
+    parts.push(judged.map((r) => `${r.path} base ${r.base.exitCode} head ${r.head.exitCode}`).join(", "));
+  }
+  if (unrunnable.length > 0) {
+    const names = unrunnable.map((r) => r.path).join(", ");
+    parts.push(
+      judged.length === 0
+        ? `nothing was proved: the merge gate could not run ${names}`
+        : `passed over, the merge gate could not run: ${names}`,
+    );
+  }
+  return parts.join("; ");
+};
+
+/**
  * Judges the per-file runs. At least one changed test file must fail on the
  * base, not all of them: requiring all would newly refuse a PR that adds a
  * real new test in one file and tidies the wording of another, which is
@@ -71,19 +109,29 @@ export const redGreenPlan = (files: readonly ChangedFile[]): RedGreenPlan => {
  * head fails the check and is named alone, so an implementer reading the
  * status is never pointed at a test that passed.
  */
-export const redGreenVerdict = (plan: RedGreenPlan, runs?: readonly FileRun[]): Verdict => {
+export const redGreenVerdict = (plan: RedGreenPlan, runs?: readonly FileRun[]): RedGreenVerdict => {
   if (!plan.run) {
-    return plan.vacuous ? { ok: true, reasons: [] } : { ok: false, reasons: [plan.reason] };
+    const reasons = plan.vacuous ? [] : [plan.reason];
+    // A failing plan's reason is its own bullet already, so the detail would only repeat it.
+    return { ok: plan.vacuous, reasons, unrunnable: [], detail: plan.vacuous ? plan.reason : "" };
   }
-  if (!runs) return { ok: false, reasons: ["tests were planned but never ran"] };
+  if (!runs) return { ok: false, reasons: ["tests were planned but never ran"], unrunnable: [], detail: "" };
+  const unrunnable = runs.filter((r) => r.runnability === "unrunnable");
+  const judged = runs.filter((r) => r.runnability !== "unrunnable");
   const reasons: string[] = [];
-  if (!runs.some((r) => r.base.exitCode !== 0)) {
+  // Nothing judged means nothing to require: every file was passed over, and the detail says so.
+  if (judged.length > 0 && !judged.some((r) => r.base.exitCode !== 0)) {
     reasons.push(
-      `changed tests pass on the base (exit 0): the change is not proven by its tests (${runs.map((r) => r.path).join(", ")})`,
+      `changed tests pass on the base (exit 0): the change is not proven by its tests (${judged.map((r) => r.path).join(", ")})`,
     );
   }
-  for (const run of runs.filter((r) => r.head.exitCode !== 0)) {
+  for (const run of judged.filter((r) => r.head.exitCode !== 0)) {
     reasons.push(`changed test fails on the head (exit ${run.head.exitCode}): ${run.path}`);
   }
-  return { ok: reasons.length === 0, reasons };
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    unrunnable: unrunnable.map((r) => r.path),
+    detail: detailOf(plan, judged, unrunnable),
+  };
 };

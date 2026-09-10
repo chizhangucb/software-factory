@@ -41,6 +41,10 @@ _Avoid_: runner, test runner (the Harness entry reserves runner as Actions' word
 Code that satisfies the merge gate without doing the work: a stub, a hardcoded return, a test that asserts the stub, a skipped test, or a deleted test the ticket does not remove.
 _Avoid_: cheating, slop.
 
+**Unrunnable test**:
+A changed test file whose process died before any test reported a result, so the merge gate never learned anything about it and passes over it on both sides, naming it in the status. Not a skipped test: a skipped test is a **placeholder**, the thing the merge gate exists to catch, while this one is the merge gate's own limit rather than anything the test says about itself. A file that ran and failed is neither.
+_Avoid_: skipped, skip (the placeholder's word), ignored, excluded.
+
 **Escalation**:
 A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read.
 _Avoid_: failure, blocked (the tracker's dependency word).

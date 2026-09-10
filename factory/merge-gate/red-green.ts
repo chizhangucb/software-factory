@@ -86,9 +86,11 @@ export const redGreenPlan = (files: readonly ChangedFile[]): RedGreenPlan => {
  */
 const detailOf = (plan: RedGreenPlan, judged: readonly FileRun[], unrunnable: readonly FileRun[]): string => {
   const parts = [plan.reason];
-  if (judged.length > 0) {
-    parts.push(judged.map((r) => `${r.path} base ${r.base.exitCode} head ${r.head.exitCode}`).join(", "));
-  }
+  // What was passed over comes before the per-file exit statuses: a commit
+  // status holds 140 characters and the workflow cuts the rest, so the
+  // sentence a maintainer would otherwise have to open the run for goes first
+  // and the exit statuses, which the log and merge-gate.json both carry, take
+  // the truncation.
   if (unrunnable.length > 0) {
     const names = unrunnable.map((r) => r.path).join(", ");
     parts.push(
@@ -96,6 +98,9 @@ const detailOf = (plan: RedGreenPlan, judged: readonly FileRun[], unrunnable: re
         ? `nothing was proved: the merge gate could not run ${names}`
         : `passed over, the merge gate could not run: ${names}`,
     );
+  }
+  if (judged.length > 0) {
+    parts.push(judged.map((r) => `${r.path} base ${r.base.exitCode} head ${r.head.exitCode}`).join(", "));
   }
   return parts.join("; ");
 };

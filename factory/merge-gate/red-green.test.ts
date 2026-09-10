@@ -176,6 +176,9 @@ test("the detail names what was passed over alongside what ran", () => {
   assert.match(detail, /test\/unit\.test\.js base 1 head 0/);
   assert.match(detail, /could not run: test\/browser\.spec\.js/);
   assert.doesNotMatch(detail, /nothing was proved/);
+  // What was passed over comes first: the status holds 140 characters and the
+  // rest is cut, so the sentence that needs the status is the one that survives.
+  assert.ok(detail.indexOf("could not run") < detail.indexOf("base 1 head 0"));
 });
 
 test("one real failure beside a file that could not be run fails, naming only the real one", () => {

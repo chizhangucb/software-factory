@@ -13,8 +13,10 @@ import type { TestResult } from "./red-green";
 /** Whether the merge gate managed to run a changed test file at all. */
 export type Runnability = "ran" | "unrunnable" | "unknown";
 
-/** The command the merge gate falls back to, and the only one it can read. */
-const DEFAULT_TEST_COMMAND = "node --test";
+/** The command the merge gate falls back to, and the only one it can read.
+ *  Exported so the caller's fallback and this module's rule are one string:
+ *  two copies that drift stop detection without failing anything. */
+export const DEFAULT_TEST_COMMAND = "node --test";
 
 const isDefault = (testCommand: string): boolean => testCommand.trim().replace(/\s+/g, " ") === DEFAULT_TEST_COMMAND;
 
@@ -40,8 +42,13 @@ export const reportArgs = (testCommand: string): readonly string[] =>
  * do. For the same reason an entry opens only when no entry is open: a test
  * that failed comparing report text dumps that text, entry markers and all,
  * inside its own values.
+ *
+ * A process killed by a signal carries `exitCode: ~` and the signal's name, so
+ * the marker is the field's presence at the entry's own level rather than the
+ * number in it: matching digits alone reads a segfaulted or OOM-killed file as
+ * one that ran and failed, which is the wrong blame this module exists to end.
  */
-const processExitStatus = /^(\s*)exitCode: \d+$/;
+const processExitStatus = /^(\s*)exitCode: (?:\d+|~|null)$/;
 const blockOpen = /^(\s*)---$/;
 const blockClose = /^(\s*)\.\.\.$/;
 

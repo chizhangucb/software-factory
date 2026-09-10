@@ -42,6 +42,13 @@ test("a file that registered a test before crashing at import is unrunnable, sin
   assert.equal(runnability("node --test", captured("crashed-after-registering", 1)), "unrunnable");
 });
 
+test("a file whose process was killed by a signal is unrunnable, though it carries no exit number", () => {
+  // A segfault or an OOM kill reports `exitCode: ~` with the signal's name, so
+  // reading the marker as a number would blame an implementer for a file that
+  // never ran.
+  assert.equal(runnability("node --test", captured("killed-by-signal", 1)), "unrunnable");
+});
+
 test("a file whose test failed an assertion ran", () => {
   assert.equal(runnability("node --test", captured("assertion-failure", 1)), "ran");
 });

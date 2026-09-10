@@ -17,11 +17,13 @@ import { linkedIssueNumber } from "../lib/linked-issue";
 import { parseNameStatus, type ChangedFile } from "./changed-files";
 import { redGreenPlan, redGreenVerdict, type FileRun, type TestResult } from "./red-green";
 import { checkTestIntegrity } from "./test-integrity";
-import { reportArgs, runnability } from "./unrunnable";
+import { DEFAULT_TEST_COMMAND, reportArgs, runnability } from "./unrunnable";
 
 const prNumber = required("PR_NUMBER");
 const baseRef = required("BASE_REF");
-const testCommand = process.env.TEST_COMMAND?.trim() || "node --test";
+// The fallback is the one command `runnability` can read, taken from there:
+// a second copy that drifts leaves detection silently off.
+const testCommand = process.env.TEST_COMMAND?.trim() || DEFAULT_TEST_COMMAND;
 const installCommand = process.env.INSTALL_COMMAND?.trim() ?? "npm ci";
 
 const linkedIssue = (): string => linkedIssueNumber(gh(["pr", "view", prNumber, "--json", "body", "--jq", ".body"]));
@@ -83,10 +85,18 @@ const runOnBase = (testFiles: readonly string[]): TestResult[] => {
  * are written last: a retry marker quotes this log's tail, so whichever file
  * broke is the output the implementer reads. The base keeps plan order,
  * because its own failure is every file passing, which singles out no file.
+ *
+ * A file the merge gate could not run sits between the two: after the files
+ * that passed, because its output is worth reading, and before the ones that
+ * genuinely failed, because it is nobody's failure to fix and the tail belongs
+ * to the file the retry is meant to send an implementer at. When every file
+ * was passed over the tail is theirs, which is the only output there is.
  */
+const headRank = (run: FileRun): number =>
+  run.runnability === "unrunnable" ? 1 : run.head.exitCode !== 0 ? 2 : 0;
+
 const sideLog = (runs: readonly FileRun[], side: "base" | "head"): string => {
-  const ordered =
-    side === "head" ? [...runs].sort((a, b) => Number(a.head.exitCode !== 0) - Number(b.head.exitCode !== 0)) : runs;
+  const ordered = side === "head" ? [...runs].sort((a, b) => headRank(a) - headRank(b)) : runs;
   return ordered.map((r) => `=== ${r.path} (exit ${r[side].exitCode}) ===\n${r[side].output}`).join("\n");
 };
 

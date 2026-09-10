@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { trustPolicy } from "../lib/trusted-authors.ts";
 import {
   type DispatchIssue,
   fromGitHub,
   issuesClosedByPrs,
-  trustPolicy,
   selectForDispatch,
   whyNotDispatchableNow,
   whySkipped,

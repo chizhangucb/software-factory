@@ -30,6 +30,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { errorMessage } from "../lib/errors.ts";
 import { GhError, gh } from "../lib/gh.ts";
 import { escalationLabels } from "../retry/escalation.ts";
 import { PROJECTIONS, type Projection, STATUSES_PROJECTION, parseItems } from "./gh-read.ts";
@@ -187,7 +188,7 @@ const readRuns = (issues: readonly TicketState[], prs: readonly PrState[]): Run[
         // group cancelled it (#17).
         if (run.conclusion === "cancelled") run.cancelledBy = cancelCauseFromJobs(jobs);
       } catch (error) {
-        console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live, and any cancel on it as a miss: ${error instanceof Error ? error.message : String(error)}`);
+        console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live, and any cancel on it as a miss: ${errorMessage(error)}`);
       }
     }
   }
@@ -218,14 +219,15 @@ console.log(
 );
 for (const d of decisions) console.log(d.log);
 
+/** A subject's kind is gh's own noun for it, so it is the subcommand: `gh issue edit`, `gh pr edit`. */
 const edit = (subject: Decision["subject"], args: string[]): void => {
-  gh([subject.kind === "issue" ? "issue" : "pr", "edit", String(subject.number), "--repo", repo, ...args]);
+  gh([subject.kind, "edit", String(subject.number), "--repo", repo, ...args]);
 };
 /** A subject's labels right now: the snapshot may be stale by the time a repair lands. */
 const labelsOf = (number: number): string[] =>
   ghJson(["issue", "view", String(number), "--repo", repo, "--json", "labels", "--jq", "[.labels[].name]"]);
 const comment = (subject: Decision["subject"], body: string): void => {
-  gh([subject.kind === "issue" ? "issue" : "pr", "comment", String(subject.number), "--repo", repo, "--body", body]);
+  gh([subject.kind, "comment", String(subject.number), "--repo", repo, "--body", body]);
 };
 
 const apply = (d: Decision): void => {
@@ -277,7 +279,7 @@ for (const d of decisions) {
     applied.push(d.log);
     console.log(`Applied: ${d.log}`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     // A refused re-arm is the target's setup, not a broken sweep: GitHub refuses
     // auto-merge on a repo that allows none and on a main whose ruleset requires
     // nothing. The implement workflow's own step is non-fatal for that same reason

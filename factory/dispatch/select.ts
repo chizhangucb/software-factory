@@ -13,9 +13,8 @@
  */
 
 import { READY_LABEL } from "../lib/labels.ts";
+import { issuesClosedBy } from "../lib/linked-issue.ts";
 import { authorAssociation, type AuthorAssociation, type TrustPolicy } from "../lib/trusted-authors.ts";
-
-export { trustPolicy, trustPolicyFromEnv } from "../lib/trusted-authors.ts";
 
 /** Re-exported so the dispatcher's callers keep reading its rules from one module. */
 export { READY_LABEL };
@@ -90,19 +89,16 @@ export const selectForDispatch = (
   issues.filter((issue) => whySkipped(issue, policy) === undefined);
 
 /**
- * Issue numbers that open PRs claim to close, from their bodies. Same
- * keywords GitHub honours; same test the implement workflow's preflight uses.
+ * Issue numbers that open PRs claim to close, from their bodies. The keywords
+ * are `lib/linked-issue.ts`'s, the same ones the reviewer, the gate and the
+ * implement workflow's preflight read a PR's ticket with.
  */
 export const issuesClosedByPrs = (
   prs: readonly { number: number; body: string | null }[],
 ): Set<number> => {
   const closed = new Set<number>();
   for (const pr of prs) {
-    for (const match of (pr.body ?? "").matchAll(
-      /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/gi,
-    )) {
-      closed.add(Number(match[1]));
-    }
+    for (const number of issuesClosedBy(pr.body)) closed.add(number);
   }
   return closed;
 };

@@ -91,9 +91,11 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             factory/dispatch
+            factory/lib/errors.ts
             factory/lib/factory-pr.ts
             factory/lib/gh.ts
             factory/lib/labels.ts
+            factory/lib/linked-issue.ts
             factory/lib/trusted-authors.ts
             factory/retry/escalation.ts
 

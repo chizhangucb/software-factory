@@ -37,7 +37,7 @@ Three files in that subtree are ours, because he ships no tests: `factory/agent-
 | `.github/dependabot.yml` | watches the sandcastle and Claude Code pins |
 | `factory/audit/` | `audit.ts`, `decide.ts`, `fill-links.ts`, `output.ts`, `plan.ts`, `plan.test.ts`, `report.ts`, `report.test.ts`, `prompt.md`, `extraction.md`, `state.sh` |
 | `factory/dispatch/` | `dispatch.ts`, `sweep.ts`, `select.ts`, `reconcile.ts`, `gh-read.ts`, a `.test.ts` for the last three, `workflow-names.test.ts`, `fixtures/pages/*.json` |
-| `factory/merge-gate/` | `merge-gate.ts`, `changed-files.ts`, `red-green.ts`, `test-integrity.ts`, `unrunnable.ts`, their `.test.ts` siblings plus `routing-test-command.test.ts` (which covers `templates/routing-test-command.sh`, here for the globbing reason below) and `fixtures/` (`removes.ts` and its test lived here from #13 until #138) |
+| `factory/merge-gate/` | `merge-gate.ts`, `changed-files.ts`, `red-green.ts`, `test-integrity.ts`, `unrunnable.ts`, a `.test.ts` sibling for each of those except `merge-gate.ts`, plus `routing-test-command.test.ts` (which covers `templates/routing-test-command.sh`, here for the globbing reason below) and `fixtures/` (`removes.ts` and its test lived here from #13 until #138) |
 | `factory/retry/` | `retry.ts`, `context.ts`, `checks.ts`, `decide.ts`, `escalation.ts`, `checks.test.ts`, `decide.test.ts`, `escalation.test.ts` |
 | `factory/update-branch/` | `update-branch.ts`, `plan.ts`, `plan.test.ts` |
 | `factory/onboard/` | `onboard.test.ts`, which runs `scripts/onboard.sh` against a stub `gh` (story 7 of #75). The script it tests lives under `scripts/`, but `npm test` globs `factory/**/*.test.ts`, so the test lives here |

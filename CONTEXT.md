@@ -34,7 +34,7 @@ A check that refuses one action before it happens, in the harness rather than in
 _Avoid_: gate (the merge word), hook (the harness's word for how a guard is wired).
 
 **Placeholder**:
-Code that satisfies the gate without doing the work: a stub, a hardcoded return, a test that asserts the stub, a skipped or deleted test.
+Code that satisfies the gate without doing the work: a stub, a hardcoded return, a test that asserts the stub, a skipped test, or a deleted test the ticket does not remove.
 _Avoid_: cheating, slop.
 
 **Escalation**:

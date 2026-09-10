@@ -1,8 +1,10 @@
 /**
  * The first-20 audit (#18, ADR 0003): re-review a merged factory PR against
- * its ticket with the strongest configured model, read-only, and write the
- * result for the workflow to post. The workflow decided this merge is one
- * of the first 20 (plan.ts) before running this.
+ * its ticket with the model the `audit_model` input names, read-only, and
+ * write the result for the workflow to post. Nothing here ranks models;
+ * `audit_model`'s own description is where the maintainer is told to point it
+ * at the strongest model the subscription serves. The workflow decided this
+ * merge is one of the first 20 (plan.ts) before running this.
  *
  * `prompt.md` is the factory's, put through `writing-for-agents` (story 14 of
  * #46), and heads its ticket section `# TICKET` because it has no vendored
@@ -100,7 +102,7 @@ const writeAudit = (result: AuditResult, context: { issueNumber: string; prTitle
 
 try {
   const { model } = resolveRoleModel("audit", AUDIT_MODEL);
-  console.log(`Audit model: ${model} (the strongest configured, audit_model input).`);
+  console.log(`Audit model: ${model} (from the audit_model input).`);
   const head = sh("git rev-parse HEAD").trim();
   if (head !== MERGE_SHA) fail(`Expected the checkout at the merge commit ${MERGE_SHA}, found ${head}.`);
 

@@ -1,7 +1,7 @@
 # Reusable: the first-20 audit (#18, ADR 0003). Called from a target repo's thin
 # factory workflow on `pull_request: closed`. For each of the first 20 merged
 # factory PRs (counted in .factory/state.json on the target's factory-state branch) the reviewer
-# prompt runs in audit mode with the strongest configured model against the
+# prompt runs in audit mode with the model `audit_model` names against the
 # merged diff and the ticket's acceptance criteria, read-only, and comments the
 # result on the PR. A miss opens a revert PR (not auto-merged) and a needs-human
 # issue. After 20 the job exits early with a log line.

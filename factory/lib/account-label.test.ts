@@ -37,13 +37,22 @@ const enumerateStep = (workflow: string): string[] => {
   assert.ok(start >= 0, `${workflow} has no "Enumerate accounts" step`);
   const indent = lines[start].indexOf("- name:");
   const rest = lines.slice(start + 1);
-  const end = rest.findIndex((l) => l.slice(indent).startsWith("- name:"));
+  // The step ends at the first non-blank line indented no deeper than its own
+  // `- name:`. That is the next step, and also the next job's key when this
+  // step is the last one, so moving the step never silently widens the scan
+  // to the rest of the file.
+  const end = rest.findIndex((l) => l.trim() !== "" && l.search(/\S/) <= indent);
   return rest.slice(0, end === -1 ? rest.length : end);
 };
 
-/** The lines of the step that print. Only these reach the job log. */
+/**
+ * The lines of the step that print. Only these reach the job log, and the
+ * list is every way the step could put the accounts file on stdout, not just
+ * the `echo` it uses today: a `cat "$file"` or a `jq -r` reading it would
+ * publish both the labels and the tokens.
+ */
 const printing = (step: string[]): string[] =>
-  step.filter((line) => /\b(echo|printf)\b/.test(line));
+  step.filter((line) => /\b(echo|printf|cat|tee)\b/.test(line) || /\bjq\b[^|]*"\$file"/.test(line));
 
 test("the Enumerate accounts step logs the account index and not the label", () => {
   for (const workflow of AGENT_WORKFLOWS) {
@@ -62,8 +71,12 @@ test("the Enumerate accounts step logs the account index and not the label", () 
     }
     // The step still reads the variable: it belongs in the on-runner accounts
     // file, which is where the label may live. Only printing it is the leak.
+    // Comment lines do not count, or the step's own `# ... CLAUDE_ACCOUNT_<n>
+    // variable` header would satisfy this on its own and the check would still
+    // pass with the jq that populates `label` deleted, which silently leaves
+    // usage.json naming every account `account-<n>`.
     assert.ok(
-      step.some((line) => line.includes("CLAUDE_ACCOUNT_")),
+      step.some((line) => !/^\s*#/.test(line) && line.includes("CLAUDE_ACCOUNT_")),
       `${workflow} no longer reads CLAUDE_ACCOUNT_<n> into the accounts file at all`,
     );
   }

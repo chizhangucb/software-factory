@@ -21,9 +21,11 @@
 #     one path. Looping over all of them costs nothing and keeps it usable by
 #     hand, which is how you will debug it.
 #   - It also runs in a checkout of the base branch, with only the PR's changed
-#     test files laid over it, so it has to exist on the base branch to work
-#     there. The PR that first adds it sees the base side fail; that is the base
-#     going red, which is what the check wants, and it settles from then on.
+#     test files laid over it, so it has to be on the base branch to work there.
+#     Land it there first, the way the caller itself is landed, by the
+#     maintainer. Until it is, the base side of every routed file fails because
+#     this file is missing rather than because the test is new, and a check that
+#     goes green on that has proved nothing.
 #   - Whatever the second kind of test needs installed is the caller's
 #     `install_command`, not this file's business: the merge gate installs once
 #     per checkout, and installing per file would pay for it once per test file.

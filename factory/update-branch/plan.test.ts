@@ -13,6 +13,7 @@ import {
   planUpdate,
   planUpdates,
   requestedByFactory,
+  updateRefusal,
 } from "./plan.ts";
 
 const pr = (number: number, overrides: Partial<OpenPr> = {}): OpenPr => ({
@@ -62,31 +63,48 @@ test("a PR whose verdict failed is not updated, wherever that verdict sits; it c
 });
 
 test("hand-off: a conflicting PR nobody holds goes to the implementer, whoever found the conflict", () => {
-  assert.deepEqual(planConflict({ number: 7, labels: [] }, "scan"), {
+  assert.deepEqual(planConflict({ number: 7, labels: [] }), {
     number: 7,
     action: "hand-off",
-    carry: false,
     reason: "conflicts with main; handing the PR to the implementer",
   });
 });
 
 test("held: a conflicting PR an agent already holds, or that is parked, is skipped and the reason names the label", () => {
   for (const label of [IMPLEMENT_LABEL, "agent:in-progress", "agent:review", BLOCKED_LABEL]) {
-    assert.deepEqual(planConflict({ number: 7, labels: ["ready-for-agent", label] }, "scan"), {
+    assert.deepEqual(planConflict({ number: 7, labels: ["ready-for-agent", label] }), {
       number: 7,
       action: "skip",
-      carry: false,
       reason: `conflicts with main, already ${label}`,
     }, label);
   }
 });
 
-test("skip: the same two decisions when update-branch's own call is refused, with the refusal in the reason", () => {
-  const refused = (labels: readonly string[]) => planConflict({ number: 7, labels }, "update-branch");
-  assert.equal(refused([]).action, "hand-off");
-  assert.equal(refused([]).reason, "update-branch refused: conflicts with main; handing the PR to the implementer");
-  assert.equal(refused(["agent:review"]).action, "skip");
-  assert.equal(refused(["agent:review"]).reason, "update-branch refused: conflicts with main, already agent:review");
+test("a conflict decision states no verdict carry; the plan that has an opinion on one states its own", () => {
+  // The decision never sees a verdict, so the flag it always set to false is not
+  // its to state. `planUpdate` is the one that decides a carry, and it says so.
+  assert.deepEqual(Object.keys(planConflict({ number: 7, labels: [] })).sort(), ["action", "number", "reason"]);
+  assert.equal(planUpdate(pr(7, { mergeable: "CONFLICTING" })).carry, false);
+});
+
+/**
+ * What `gh api` prints when GitHub answers the update-branch call with one of
+ * its two documented 422s: the message GitHub sent, then the status code. The
+ * moved-head one carries GitHub's own typographic apostrophe.
+ */
+const refusal = (said: string): { status: number | null; stderr: string } => ({ status: 1, stderr: `gh: ${said} (HTTP 422)\n` });
+
+test("the two documented 422s are told apart by the failed call's own fields", () => {
+  assert.equal(updateRefusal(refusal("merge conflict between base and head")), "conflict");
+  assert.equal(updateRefusal(refusal("expected head sha didn’t match current head ref.")), "head moved");
+});
+
+test("anything else GitHub answers with is not a refusal, and the caller keeps the error", () => {
+  assert.equal(updateRefusal(refusal("Validation Failed")), undefined, "a 422 this endpoint does not document");
+  assert.equal(updateRefusal({ status: 1, stderr: "gh: Not Found (HTTP 404)\n" }), undefined);
+  assert.equal(updateRefusal({ status: 1, stderr: "gh: merge conflict between base and head (HTTP 409)\n" }), undefined);
+  // No exit status is a call that never got an answer: killed, or never spawned at all.
+  assert.equal(updateRefusal({ status: null, stderr: "" }), undefined);
 });
 
 test("the plan takes the conflict decision before it looks at any verdict", () => {

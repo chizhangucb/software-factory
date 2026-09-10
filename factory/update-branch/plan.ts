@@ -118,12 +118,55 @@ export const findVerdict = (
 };
 
 /**
- * Where the conflict was seen. The scan reads it from the PR's `mergeable`
- * state before any call; `update-branch` is GitHub refusing the update call
- * itself with a 422, which is the same conflict found a moment later and
- * says so in the reason.
+ * The two outcomes GitHub documents for the update-branch call that are
+ * outcomes rather than failures: the merge conflicts, and the head moved
+ * since the sha the call named. Both come back as a 422.
  */
-export type ConflictSource = "scan" | "update-branch";
+export type UpdateRefusal = "conflict" | "head moved";
+
+/**
+ * The fields of a failed `gh` call this decision reads. Written structurally
+ * rather than imported: `lib/gh.ts`'s `GhError` satisfies it, and this module
+ * stays the pure decision half with no imports of its own.
+ */
+export type GhFailure = {
+  readonly status: number | null;
+  readonly stderr: string;
+};
+
+/** GitHub's own words for each refusal, as `gh` prints them on stderr. */
+const REFUSALS: readonly (readonly [string, UpdateRefusal])[] = [
+  ["merge conflict", "conflict"],
+  ["expected head sha", "head moved"],
+];
+
+/**
+ * Which documented 422 GitHub answered the update-branch call with, or
+ * undefined for anything else, which is a real failure for the caller to
+ * rethrow.
+ *
+ * Read from the failed call's own fields, never from a rendered message: the
+ * status says the call ran and got an answer (a killed or unspawned call has
+ * none), and stderr is that answer, the HTTP status code and the message
+ * GitHub sent. The message on the error is prose for a human reading a job
+ * log, and no decision is taken from it (#120).
+ */
+export const updateRefusal = (failure: GhFailure): UpdateRefusal | undefined => {
+  if (failure.status === null) return undefined;
+  const said = failure.stderr.toLowerCase();
+  if (!said.includes("(http 422)")) return undefined;
+  return REFUSALS.find(([words]) => said.includes(words))?.[1];
+};
+
+/**
+ * A conflict decision: what to do and why. No `carry`: this decision never
+ * sees a verdict, and the caller that has one has already acted on it.
+ */
+export type ConflictPlan = {
+  number: number;
+  action: Extract<PlanAction, "skip" | "hand-off">;
+  reason: string;
+};
 
 /**
  * What to do with a PR that conflicts with its base. No API call resolves a
@@ -133,26 +176,28 @@ export type ConflictSource = "scan" | "update-branch";
  * holding it; one nobody holds is a `hand-off`, and the caller writes the
  * comment and the `agent:implement` label that send it to implement-pr.
  *
- * The one copy of this decision. The plan reaches it through `planUpdate`
- * before any call is made, and `update-branch.ts` reaches it again when
- * GitHub refuses the call it made anyway (`mergeable: UNKNOWN` is tried).
+ * The one copy of this decision, and it does not depend on who found the
+ * conflict. The plan reaches it through `planUpdate` before any call is made,
+ * and `update-branch.ts` reaches it again when GitHub refuses the call it
+ * made anyway (`mergeable: UNKNOWN` is tried); that caller says so in front
+ * of the reason, since the refusal is its fact and not this decision's.
  */
 export const planConflict = (
   pr: { readonly number: number; readonly labels: readonly string[] },
-  source: ConflictSource,
-): Plan => {
-  const prefix = source === "update-branch" ? "update-branch refused: " : "";
+): ConflictPlan => {
   const held = pr.labels.find((l) => HANDED_OFF_LABELS.includes(l));
   return held
-    ? { number: pr.number, action: "skip", carry: false, reason: `${prefix}conflicts with main, already ${held}` }
-    : { number: pr.number, action: "hand-off", carry: false, reason: `${prefix}conflicts with main; handing the PR to the implementer` };
+    ? { number: pr.number, action: "skip", reason: `conflicts with main, already ${held}` }
+    : { number: pr.number, action: "hand-off", reason: "conflicts with main; handing the PR to the implementer" };
 };
 
 export const planUpdate = (pr: OpenPr): Plan => {
   const plan = (action: PlanAction, reason: string, carry = false): Plan =>
     ({ number: pr.number, action, carry, reason });
   if (!pr.autoMerge) return plan("skip", "auto-merge not enabled");
-  if (pr.mergeable === "CONFLICTING") return planConflict(pr, "scan");
+  // The conflict decision states no carry, and here there is none to state: a
+  // conflicting PR is not updated, so nothing moves off the head a verdict sits on.
+  if (pr.mergeable === "CONFLICTING") return { ...planConflict(pr), carry: false };
   const { verdict } = pr;
   // The reviewer is on this PR; moving the head now would strand the verdict on the
   // old sha. The review's dispatch triggers another run once it lands.

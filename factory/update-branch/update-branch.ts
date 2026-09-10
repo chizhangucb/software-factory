@@ -23,7 +23,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { gh } from "../lib/gh.ts";
+import { GhError, gh } from "../lib/gh.ts";
 import {
   IMPLEMENT_LABEL,
   type CommitStatus,
@@ -31,12 +31,14 @@ import {
   type OpenPr,
   type Plan,
   UPDATE_MARKER_CONTEXT,
+  type UpdateRefusal,
   VERDICT_CONTEXT,
   carriedVerdict,
   findVerdict,
   isUpdateMerge,
   planConflict,
   planUpdates,
+  updateRefusal,
 } from "./plan.ts";
 
 const repo = process.env.GH_REPO;
@@ -117,9 +119,14 @@ const carryOnto = (head: HeadCommit, fromSha: string): boolean => {
   return true;
 };
 
-type UpdateResult = "accepted" | "conflict" | "head moved";
+type UpdateResult = "accepted" | UpdateRefusal;
 
-/** PUT update-branch. The two documented 422s are outcomes, not failures. */
+/**
+ * PUT update-branch. The two documented 422s are outcomes, not failures, and
+ * which one it is comes off the failed call's own fields (`updateRefusal` in
+ * plan.ts): the exit status and what gh printed on stderr. Anything else is a
+ * failure and is rethrown.
+ */
 const requestUpdate = (number: number, expectedHead: string): UpdateResult => {
   try {
     gh([
@@ -128,9 +135,8 @@ const requestUpdate = (number: number, expectedHead: string): UpdateResult => {
     ]);
     return "accepted";
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/422/.test(message) && /conflict/i.test(message)) return "conflict";
-    if (/422/.test(message) && /expected head sha/i.test(message)) return "head moved";
+    const refusal = error instanceof GhError ? updateRefusal(error) : undefined;
+    if (refusal) return refusal;
     throw error;
   }
 };
@@ -213,17 +219,19 @@ for (const plan of plans) {
     const result = requestUpdate(plan.number, pr.head.sha);
     if (result === "conflict") {
       // The same decision the plan takes on a CONFLICTING PR, reached here because
-      // the scan read UNKNOWN and GitHub answered with the conflict (plan.ts).
-      const conflict = planConflict(pr, "update-branch");
-      // Action and reason only: the plan's `carry` was already acted on above,
-      // and planConflict never sees a verdict, so its `carry: false` is not this one.
+      // the scan read UNKNOWN and GitHub answered with the conflict (plan.ts). That
+      // GitHub refused the call is this caller's own fact, so this is where it is
+      // said; the decision is the same one either way.
+      const conflict = planConflict(pr);
+      const reason = `update-branch refused: ${conflict.reason}`;
+      // Action and reason only: the plan's `carry` was already acted on above.
       outcome.action = conflict.action;
-      outcome.reason = conflict.reason;
+      outcome.reason = reason;
       if (conflict.action === "hand-off") {
         handOff(plan.number);
-        console.log(`#${plan.number}: ${conflict.reason}; commented and labeled ${IMPLEMENT_LABEL}.`);
+        console.log(`#${plan.number}: ${reason}; commented and labeled ${IMPLEMENT_LABEL}.`);
       } else {
-        console.log(`#${plan.number}: ${conflict.reason}, left alone.`);
+        console.log(`#${plan.number}: ${reason}, left alone.`);
       }
       continue;
     }

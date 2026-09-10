@@ -30,9 +30,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { gh as ghExec } from "../lib/gh.ts";
+import { GhError, gh } from "../lib/gh.ts";
 import { escalationLabels } from "../retry/escalation.ts";
-import { PROJECTIONS, type Projection, STATUSES_PROJECTION, describeGhFailure, parseItems } from "./gh-read.ts";
+import { PROJECTIONS, type Projection, STATUSES_PROJECTION, parseItems } from "./gh-read.ts";
 import {
   DEFAULT_DEADLINES,
   type Deadlines,
@@ -64,22 +64,17 @@ const dryRun = process.env.DRY_RUN === "1";
 const runUrl = process.env.RUN_URL;
 const readEnv = { ...process.env, GH_TOKEN: process.env.READ_TOKEN || process.env.GH_TOKEN };
 
-/** Thrown for any failed gh call: the command and the cause, no stack, no token. */
-class GhError extends Error {}
-
-const gh = (args: string[], env: NodeJS.ProcessEnv = process.env): string => {
-  try {
-    return ghExec(args, env);
-  } catch (error) {
-    throw new GhError(describeGhFailure(args, error));
-  }
-};
+/**
+ * A read whose command answered with something other than JSON is a failure of
+ * that command, so it is thrown in the same shape `gh` itself throws (`GhError`
+ * in `lib/gh.ts`): the command and the cause, no stack, no token.
+ */
 const ghJson = (args: string[], env?: NodeJS.ProcessEnv): any => {
   const out = gh(args, env);
   try {
     return JSON.parse(out);
   } catch {
-    throw new GhError(describeGhFailure(args, new Error(`printed something other than JSON: ${out.slice(0, 200)}`)));
+    throw new GhError(args, new Error(`printed something other than JSON: ${out.slice(0, 200)}`));
   }
 };
 /** All pages of `endpoint`, each projected by gh to the fields the reconciler maps, one item per line. */
@@ -89,7 +84,7 @@ const paginate = (endpoint: string, projection: Projection, env?: NodeJS.Process
     return parseItems(gh(args, env));
   } catch (error) {
     if (error instanceof GhError) throw error;
-    throw new GhError(describeGhFailure(args, error));
+    throw new GhError(args, error);
   }
 };
 

@@ -116,6 +116,10 @@ test("a rate-limited turn the library retried to success stays on its account", 
   assert.deepEqual(logs, ["t.account-1"]);
 });
 
+/**
+ * The reason reaches the requeue comment on the target, so it names both
+ * accounts by index and carries neither a token nor a label (#126).
+ */
 test("two rate limits in a row stop after the single re-run and name both accounts", async () => {
   const { createLog } = fakeLogs();
   const outcome = await runOnAccounts({
@@ -131,8 +135,9 @@ test("two rate limits in a row stop after the single re-run and name both accoun
   });
   assert.equal(outcome.ok, false);
   assert.equal(outcome.ok || outcome.rateLimited, true, "exhaustion is flagged for the retry handler");
-  assert.match(outcome.ok ? "" : outcome.reason, /alpha.*beta/s);
+  assert.match(outcome.ok ? "" : outcome.reason, /account 1.*account 2/s);
   assert.doesNotMatch(outcome.ok ? "" : outcome.reason, /tok-/);
+  assert.doesNotMatch(outcome.ok ? "" : outcome.reason, /alpha|beta|gamma/);
 });
 
 test("an auth error does not rotate; it fails on the account it happened on", async () => {
@@ -198,4 +203,40 @@ test("every workflow step that hands over the accounts file masks every token fi
     }
   }
   assert.ok(writers > 0, `no workflow writes ${ACCOUNTS_FILE_VAR}; this check would pass vacuously`);
+});
+
+/**
+ * Every line the rotation loop logs. The `CLAUDE_ACCOUNT_<n>` label is
+ * identifying free text an operator chose, and these lines reach two
+ * published surfaces on a public target: the world-readable Actions log, and
+ * the escalation comment the retry handler posts, which attaches the failed
+ * run's step log. So no line may carry the label; the index names the account
+ * instead (#126). The first account is scripted to rate-limit, so the
+ * configured line, both attempt lines, the rate-limit line and the finished
+ * line are all exercised.
+ */
+test("runOnAccounts names accounts by index, never by the CLAUDE_ACCOUNT_<n> label", async () => {
+  const { createLog } = fakeLogs();
+  const lines: string[] = [];
+  const identifying: readonly AccountToken[] = [
+    { index: 1, label: "operator@example.com", token: "tok-1" },
+    { index: 2, label: "operator@example.com - second", token: "tok-2" },
+  ];
+  const outcome = await runOnAccounts({
+    name: "t",
+    accounts: identifying,
+    agentFor: (a) => a.token,
+    run: scripted({ "tok-1": fixture("rate-limit-session"), "tok-2": fixture("success") }),
+    createLog,
+    log: (line) => lines.push(line),
+  });
+  assert.equal(outcome.ok, true);
+  assert.ok(lines.length >= 4, `expected the loop to log; got ${lines.length} line(s)`);
+  for (const line of lines) {
+    assert.doesNotMatch(line, /operator@example\.com/, `a logged line carries the label: ${line}`);
+  }
+  assert.ok(
+    lines.some((line) => line.includes("account 1")),
+    `no line names account 1 by index: ${lines.join(" | ")}`,
+  );
 });

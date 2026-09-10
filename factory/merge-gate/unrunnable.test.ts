@@ -58,3 +58,11 @@ test("with a caller's own test command nothing is ever judged unrunnable, whatev
   // The same captured crash, which is unrunnable under the default command.
   assert.equal(runnability("npm run test:factory --", captured("crashed-on-import", 1)), "unknown");
 });
+
+test("a file whose test failed comparing a report of its own ran: the report inside it opens no entry", () => {
+  // The dumped value is itself well-formed report text, so a scan that starts a
+  // fresh entry wherever one appears finds a dead process's exit status inside a
+  // failing test's own data and excuses the failure. Nested content belongs to
+  // the key that holds it and is never read as the entry's own.
+  assert.equal(runnability("node --test", captured("assertion-failure-over-a-report", 1)), "ran");
+});

@@ -33,6 +33,11 @@ export const reportArgs = (testCommand: string): readonly string[] =>
  * that failed comparing values with an `exitCode` field of their own prints
  * that field deeper than the entry's keys. Reading it as a dead process would
  * excuse a real failure, which is the one thing this module must never do.
+ *
+ * Which is why an entry opens only when no entry is open. A test that failed
+ * comparing report text dumps that text, entry markers and all, inside its own
+ * values, and an opener honoured there would start a fresh entry deep inside a
+ * genuine failure and read the exit status printed beside it.
  */
 const processExitStatus = /^(\s*)exitCode: \d+$/;
 const blockOpen = /^(\s*)---$/;
@@ -41,7 +46,7 @@ const blockClose = /^(\s*)\.\.\.$/;
 const diedBeforeReporting = (report: string): boolean => {
   let keys: number | undefined;
   for (const line of report.split("\n")) {
-    const open = blockOpen.exec(line);
+    const open = keys === undefined ? blockOpen.exec(line) : null;
     if (open) {
       keys = open[1].length;
       continue;

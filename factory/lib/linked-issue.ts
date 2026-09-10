@@ -10,9 +10,11 @@
  * for every ticket a body claims, which is what the dispatcher needs to know
  * an open PR already covers a ticket.
  *
- * This module imports nothing, and callers may import it with or without the
- * `.ts` extension, so the strip-types jobs (dispatch) and the tsx jobs (gate,
- * retry, review) both get it.
+ * This module imports nothing, so it is safe for the strip-types jobs
+ * (dispatch, implement's preflight) as well as the tsx jobs (gate, retry,
+ * review). A strip-types caller must still name it with the `.ts` extension:
+ * bare `node --experimental-strip-types` cannot resolve an extensionless
+ * specifier, and `lib/strip-types-cone.test.ts` is what catches one.
  */
 
 /**

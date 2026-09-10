@@ -8,6 +8,7 @@ import {
   stillPendingReason,
   summariseFailures,
   unretryableReason,
+  waitOver,
 } from "./checks";
 
 const own = { workflowName: "factory", runId: "500" };
@@ -166,7 +167,7 @@ test("a verdict that failed for want of acceptance criteria is not worth a retry
 });
 
 test("a head still pending when the wait runs out is not the ticket's failure", () => {
-  const reason = stillPendingReason({ pending: ["check", "factory/red-green"], failures: [] }, 15);
+  const reason = stillPendingReason({ pending: ["check", "factory/red-green"], failures: [] }, "UNKNOWN", 15);
   assert.match(reason ?? "", /check, factory\/red-green/);
   assert.match(reason ?? "", /15 minutes/);
   assert.match(reason ?? "", /not the ticket's failure/);
@@ -179,8 +180,39 @@ test("a check that failed outranks a pending one, so the failing path still runs
     own,
   });
   assert.deepEqual(state.pending, ["slow-ci"]);
-  assert.equal(stillPendingReason(state, 15), undefined);
+  assert.equal(stillPendingReason(state, "MERGEABLE", 15), undefined);
   // The url the failure output pulls its log excerpt from survives.
   assert.equal(state.failures[0]?.url, "https://github.com/o/r/actions/runs/77/job/9");
-  assert.equal(stillPendingReason({ pending: [], failures: [] }, 15), undefined);
+  assert.equal(stillPendingReason({ pending: [], failures: [] }, "MERGEABLE", 15), undefined);
+});
+
+test("a definite conflict while checks are pending ends the wait, and the reason says the conflict ended it, not the deadline", () => {
+  const pending = { pending: ["check", "factory/red-green (not posted yet)"], failures: [] };
+  assert.equal(waitOver(pending, "CONFLICTING"), true);
+  assert.equal(
+    stillPendingReason(pending, "CONFLICTING", 15),
+    "check, factory/red-green (not posted yet) still pending when GitHub reported the PR conflicting with its base, which ended the wait; not the ticket's failure",
+  );
+});
+
+test("unknown and mergeable keep the wait going while checks are pending, as does no PR to read", () => {
+  const pending = { pending: ["check"], failures: [] };
+  assert.equal(waitOver(pending, "UNKNOWN"), false);
+  assert.equal(waitOver(pending, "MERGEABLE"), false);
+  assert.equal(waitOver(pending, undefined), false);
+});
+
+test("settled checks end the wait whatever GitHub says about the merge, with no requeue reason", () => {
+  const settled = { pending: [], failures: [] };
+  assert.equal(waitOver(settled, "CONFLICTING"), true);
+  assert.equal(waitOver(settled, "UNKNOWN"), true);
+  assert.equal(stillPendingReason(settled, "CONFLICTING", 15), undefined);
+  const failed = { pending: [], failures: [{ name: "check", kind: "ci" as const, description: "failure", url: null }] };
+  assert.equal(waitOver(failed, "CONFLICTING"), true);
+});
+
+test("a check that failed outranks the conflict: the wait still ends, but with no requeue reason, so the failure path runs", () => {
+  const state = { pending: ["slow-ci"], failures: [{ name: "check", kind: "ci" as const, description: "failure", url: null }] };
+  assert.equal(waitOver(state, "CONFLICTING"), true);
+  assert.equal(stillPendingReason(state, "CONFLICTING", 15), undefined);
 });

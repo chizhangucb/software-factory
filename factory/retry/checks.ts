@@ -12,7 +12,7 @@
  * when the review starts.
  */
 import { NO_CRITERIA_DESCRIPTION } from "../lib/verdict";
-import type { FailureKind } from "./decide";
+import type { FailureKind, Mergeability } from "./decide";
 
 export interface CommitStatus {
   readonly context: string;
@@ -115,18 +115,41 @@ export const unretryableReason = (failures: readonly CheckFailure[]): string | u
     : undefined;
 
 /**
- * Why a head is not the ticket's failure when the wait for its checks runs
- * out, or undefined when it is. A check still running has no log to inform a
- * retry: counted as a failure it spends the one informed retry on nothing
- * and the next failure escalates, so a slow target CI alone strands the
- * ticket. Requeued instead, with the retry count untouched. A check that
- * genuinely failed outranks a pending one: it has a log, so the retry is
- * informed and worth spending.
+ * Whether one poll's observation ends the wait for the head's checks.
+ * Settled checks end it: the failures among them, if any, are the result. A
+ * definite conflict ends it early (#145): GitHub starts no `pull_request`
+ * workflow on a conflicting PR, so the checks it never started are not
+ * coming (one already running still posts, and is lost to the hand-off:
+ * the resolved push re-runs it), and the PR is the implementer's whatever
+ * the deadline says. UNKNOWN is GitHub still deciding and MERGEABLE is a
+ * head whose checks are on their way: both keep waiting. The clock is the
+ * caller's.
  */
-export const stillPendingReason = (state: CheckState, timeoutMinutes: number): string | undefined =>
-  state.failures.length === 0 && state.pending.length > 0
-    ? `${state.pending.join(", ")} still pending after ${timeoutMinutes} minutes; not the ticket's failure`
-    : undefined;
+export const waitOver = (state: CheckState, mergeable: Mergeability | undefined): boolean =>
+  state.pending.length === 0 || mergeable === "CONFLICTING";
+
+/**
+ * Why a head is not the ticket's failure when the wait for its checks
+ * stops, or undefined when it is. A check still running has no log to
+ * inform a retry: counted as a failure it spends the one informed retry on
+ * nothing and the next failure escalates, so a slow target CI alone strands
+ * the ticket. Requeued instead, with the retry count untouched. A check that
+ * genuinely failed outranks a pending one: it has a log, so the retry is
+ * informed and worth spending. The reason names what stopped the wait, a
+ * conflict or the deadline, so the log claims neither when the other came.
+ */
+export const stillPendingReason = (
+  state: CheckState,
+  mergeable: Mergeability | undefined,
+  timeoutMinutes: number,
+): string | undefined => {
+  if (state.failures.length > 0 || state.pending.length === 0) return undefined;
+  const cause =
+    mergeable === "CONFLICTING"
+      ? "when GitHub reported the PR conflicting with its base, which ended the wait"
+      : `after ${timeoutMinutes} minutes`;
+  return `${state.pending.join(", ")} still pending ${cause}; not the ticket's failure`;
+};
 
 export const summariseFailures = (failures: readonly CheckFailure[]): string =>
   failures

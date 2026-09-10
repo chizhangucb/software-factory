@@ -97,7 +97,7 @@ The mapping that answers "how much of this did sandcastle already do".
 - Story 11, update-branch. His is an agent on a label; ours an API call on push.
 - Story 12, failure handling. His is `agent:blocked` plus a comment, with no retry, no `needs-human` and no push of the partial branch.
 - Story 14, limits. His 60 minute job timeout, yes; a turn cap, no. The factory built one and deleted it (#49, story 18 of #46), so on both sides the stop on a run is the job timeout plus sandcastle's own idle timeout.
-- Story 15, concurrency. His is per issue; ours per account.
+- Story 15, concurrency. His is per issue; ours was per account and is now per subject (#149), the issue number on the ticket side and the PR number on the PR side, since three of our four agent runs are about a PR rather than a ticket.
 - Story 20, the model. His is hardcoded.
 - Story 22, sub-issues. He refuses them; `/to-tickets` output is sub-issues by design.
 - Story 23, coding standards. His prompts cite `.sandcastle/CODING_STANDARDS.md`; ours cite the target repo's own docs.

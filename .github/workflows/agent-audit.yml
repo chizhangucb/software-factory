@@ -18,10 +18,6 @@ on:
         description: The target's test command, run on the merge commit before the audit; its output is evidence.
         type: string
         default: npm ci && npm run typecheck --if-present && npm test
-      per_account_slots:
-        description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
-        type: number
-        default: 5
       trusted_author_associations:
         description: >-
           Comma-separated GitHub author_association values whose words the factory acts on
@@ -66,7 +62,6 @@ jobs:
       # reporter below prints it from bash, which can import nothing; the audit
       # runner takes the same output so the two cannot disagree.
       limit: ${{ steps.plan.outputs.limit }}
-      index: ${{ steps.slot.outputs.index }}
     env:
       GH_TOKEN: ${{ secrets.FACTORY_PAT }}
       GH_REPO: ${{ github.repository }}
@@ -106,27 +101,18 @@ jobs:
           NEXT: ${{ steps.plan.outputs.next }}
         run: bash factory/factory/audit/state.sh set "$NEXT"
 
-      - name: Pick the account slot
-        # Same per-account cap as implement, review, and implement-pr (#17).
-        id: slot
-        if: steps.plan.outputs.audit == 'true'
-        env:
-          SLOTS: ${{ inputs.per_account_slots }}
-        run: |
-          case "$SLOTS" in
-            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 5." >&2; SLOTS=5 ;;
-          esac
-          index=$(( PR_NUMBER % SLOTS ))
-          echo "index=$index" >> "$GITHUB_OUTPUT"
-          echo "Concurrency group account-slot-$index (number $PR_NUMBER, $SLOTS slots per account)."
-
   audit:
     needs: decide
     if: needs.decide.outputs.audit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
-      group: account-slot-${{ needs.decide.outputs.index }}
+      # Keyed on the subject, this run's PR, the same key a review or implement-pr
+      # run on it uses, so no two runs on one PR overlap (#149). Unrelated subjects
+      # never share a key, and the older run is never cancelled: it is doing real
+      # work. Not the `decide` group above: that one serialises the counter across
+      # every merge and stays. ADR 0004's 2026-09-10 amendment has the reasoning.
+      group: factory-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
       contents: read

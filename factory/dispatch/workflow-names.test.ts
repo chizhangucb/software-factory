@@ -2,14 +2,15 @@
  * The wiring a rename can break. The subject is the repo's own workflow files,
  * so the tree is the fixture: the four workflows that run a model carry
  * sandcastle's `agent-` names and nothing answers to the old ones, the caller
- * template calls files the factory has, and the reconciler still reads a role,
- * and a slot cancel, out of each agent workflow's jobs.
+ * template calls files the factory has, the reconciler still reads a role out
+ * of each agent workflow's jobs, and every agent job is serialised on its own
+ * subject number with no per-account slot left anywhere (#149).
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { test } from "node:test";
 
-import { type RunRole, cancelCauseFromJobs, roleFromJobs } from "./reconcile.ts";
+import { type RunRole, roleFromJobs } from "./reconcile.ts";
 
 const repoRoot = new URL("../../", import.meta.url);
 const workflowsDir = new URL(".github/workflows/", repoRoot);
@@ -25,7 +26,32 @@ const AGENT_WORKFLOWS: Record<string, RunRole> = {
 /** What those four were called before #61. No file answers to them now. */
 const OLD_NAMES = ["implement.yml", "review.yml", "implement-pr.yml", "audit.yml"];
 
+/**
+ * The group each agent job must be serialised on: its subject, the issue number
+ * on the ticket side and the PR number on the PR side (#149). The role is not
+ * part of the key, so a review and an implement-pr run on one PR share a group
+ * and cannot overlap, while two different subjects never share one at all.
+ */
+const SUBJECT_KEYS: Record<string, string> = {
+  "agent-implement.yml": "factory-issue-${{ github.event.issue.number }}",
+  "agent-review.yml": "factory-pr-${{ github.event.pull_request.number }}",
+  "agent-implement-pr.yml": "factory-pr-${{ github.event.pull_request.number }}",
+  "agent-audit.yml": "factory-pr-${{ github.event.pull_request.number }}",
+};
+
+/**
+ * The audit's own group, on its `decide` job: the one concurrency group inside an
+ * agent workflow that is not an agent job's. It serialises the counter, so two
+ * merges landing together cannot both read 19, and it was never the per-account
+ * cap, so #149 left it alone.
+ */
+const AUDIT_COUNTER = { file: "agent-audit.yml", job: "decide", group: "factory-audit-counter" };
+
 const exists = (file: string): boolean => fs.existsSync(new URL(file, workflowsDir));
+
+const workflowFiles = (): string[] => fs.readdirSync(workflowsDir).sort();
+
+const read = (file: string): string => fs.readFileSync(new URL(file, workflowsDir), "utf8");
 
 /** Top-level jobs with their bodies: two-space indented keys, from the `jobs:` line on. */
 const jobsOf = (yaml: string): { id: string; body: string }[] => {
@@ -37,6 +63,31 @@ const jobsOf = (yaml: string): { id: string; body: string }[] => {
 };
 
 const jobIdsOf = (yaml: string): string[] => jobsOf(yaml).map((job) => job.id);
+
+/**
+ * Every job-level concurrency block in the repo's workflows, in file then job
+ * order. Comment lines inside the block are skipped: why a job is serialised the
+ * way it is belongs next to the key.
+ *
+ * A block the pattern cannot read is a failure, not a skip: an unread block
+ * would drop out of every assertion below and they would pass on a group
+ * nobody checked.
+ */
+const COMMENT_LINES = "(?: {6}#.*\\n)*";
+const CONCURRENCY = new RegExp(`^ {4}concurrency:\\n${COMMENT_LINES} {6}group: (.+)\\n${COMMENT_LINES} {6}cancel-in-progress: (.+)$`, "m");
+const CONCURRENCY_LINE = /^ {4}concurrency:$/gm;
+
+const concurrencyBlocks = (): { file: string; job: string; group: string; cancelInProgress: string }[] =>
+  workflowFiles().flatMap((file) => {
+    const yaml = read(file);
+    const blocks = jobsOf(yaml).flatMap((job) => {
+      const block = job.body.match(CONCURRENCY);
+      return block ? [{ file, job: job.id, group: block[1]!, cancelInProgress: block[2]! }] : [];
+    });
+    const declared = yaml.match(CONCURRENCY_LINE)?.length ?? 0;
+    assert.equal(blocks.length, declared, `${file}: a job-level concurrency block is not \`group:\` then \`cancel-in-progress:\`, so it goes unchecked`);
+    return blocks;
+  });
 
 test("the workflows that run a model carry sandcastle's names and the old ones are gone", () => {
   for (const file of Object.keys(AGENT_WORKFLOWS)) assert.ok(exists(file), `${file} is missing`);
@@ -57,34 +108,52 @@ test("the caller template calls workflow files the factory has", () => {
   for (const file of Object.keys(AGENT_WORKFLOWS)) assert.ok(called.includes(file), `the template never calls ${file}`);
 });
 
-test("the reconciler reads a slot cancel out of the jobs the account-slot group actually holds", () => {
-  // #17's cap is a `slot` group entered after a picker job hands over an index.
-  // The reconciler only knows those two by name, so the workflows are the fixture:
-  // rename either job and this fails instead of every cancel quietly re-reading
-  // as a lost event.
-  const held: string[] = [];
-  for (const file of fs.readdirSync(workflowsDir).sort()) {
-    const yaml = fs.readFileSync(new URL(file, workflowsDir), "utf8");
-    for (const job of jobsOf(yaml)) {
-      const group = job.body.match(/group: account-slot-\$\{\{ needs\.([a-z][a-z0-9_-]*)\.outputs\.index \}\}/);
-      if (!group) continue;
-      held.push(`${file}:${job.id}`);
-      assert.equal(
-        cancelCauseFromJobs([
-          { name: `caller / ${group[1]}`, conclusion: "success" },
-          { name: `caller / ${job.id}`, conclusion: "cancelled" },
-        ]),
-        "slot",
-        `${file}: a cancelled ${job.id} behind a finished ${group[1]} reads as slot contention`,
-      );
-    }
+test("no workflow picks a slot or declares the per-account cap, and the template does not offer it", () => {
+  // The cap is gone (#149). A slot was a job or step that divided the subject
+  // number by N, handing an index to an `account-slot-<i>` group; a caller that
+  // still passed the input would fail the whole factory workflow at parse time.
+  for (const file of workflowFiles()) {
+    const yaml = read(file);
+    assert.ok(!yaml.includes("per_account_slots"), `${file} still declares per_account_slots`);
+    assert.ok(!yaml.includes("account-slot"), `${file} still names an account-slot group`);
+    assert.ok(!jobIdsOf(yaml).includes("slot"), `${file} still has a slot job`);
+    assert.doesNotMatch(yaml, /^\s*id: slot$/m, `${file} still has a slot step`);
   }
-  assert.deepEqual(held, ["agent-audit.yml:audit", "agent-implement-pr.yml:implement-pr", "agent-implement.yml:implement", "agent-review.yml:review"]);
+  const template = fs.readFileSync(new URL("templates/factory.yml", repoRoot), "utf8");
+  assert.ok(!template.includes("per_account_slots"), "the template still mentions per_account_slots");
+});
+
+test("every agent job is serialised on its subject number, and no other group is keyed on a subject", () => {
+  // Two runs on one ticket or PR never overlap; unrelated subjects never share a
+  // key, so nothing waits behind a run it has nothing to do with (#149).
+  const blocks = concurrencyBlocks();
+  const agentJobs = Object.entries(AGENT_WORKFLOWS).map(([file, role]) => {
+    const block = blocks.find((b) => b.file === file && b.job === role);
+    assert.ok(block, `${file}: the ${role} job declares no concurrency group`);
+    return block;
+  });
+  for (const { file, group, cancelInProgress } of agentJobs) {
+    assert.equal(group, SUBJECT_KEYS[file], `${file}: the agent job's group is keyed on its subject number`);
+    // Never cancel a sibling run on the same subject: the older one is doing real work.
+    assert.equal(cancelInProgress, "false", `${file}: the agent job cancels a run on the same subject`);
+  }
+  // The role is not part of the key, so the three PR-side roles share one group.
+  const prSide = agentJobs.filter(({ file }) => file !== "agent-implement.yml").map(({ group }) => group);
+  assert.equal(new Set(prSide).size, 1, "review, implement-pr and audit share one group on one PR");
+  assert.ok(!prSide.includes(SUBJECT_KEYS["agent-implement.yml"]!), "a PR number and an issue number are different keys");
+  // The audit keeps its counter group, which the cap's removal must not take with it.
+  const counter = blocks.find((b) => b.file === AUDIT_COUNTER.file && b.job === AUDIT_COUNTER.job);
+  assert.equal(counter?.group, AUDIT_COUNTER.group, "the audit's decide job keeps its own group for the counter");
+  // Every remaining group names a fixed shared resource. None is computed from a
+  // number, which is what a lane was, so nothing can queue behind an unrelated run.
+  for (const other of blocks.filter((b) => !agentJobs.includes(b) && b !== counter)) {
+    assert.doesNotMatch(other.group, /\$\{\{/, `${other.file}:${other.job} keys its group on an expression, not a fixed resource name`);
+  }
 });
 
 test("the reconciler reads a role from each agent workflow's own job", () => {
   for (const [file, role] of Object.entries(AGENT_WORKFLOWS)) {
-    const ids = jobIdsOf(fs.readFileSync(new URL(file, workflowsDir), "utf8"));
+    const ids = jobIdsOf(read(file));
     assert.ok(!ids.includes("workflow_call"), `${file} job ids come from jobs:, not on:`);
     assert.equal(
       roleFromJobs(ids.map((name) => ({ name: `caller / ${name}`, conclusion: null }))),

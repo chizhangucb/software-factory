@@ -21,8 +21,7 @@
  * sweep with one `::error::` line naming the command and the cause,
  * nothing is repaired from a partial snapshot; the one exception is a
  * run's jobs, where a failure only leaves the run's role unknown (it then
- * counts as covering while live) and, on a cancelled run, leaves the cancel
- * unattributed (it then counts as a miss rather than as slot contention).
+ * counts as covering while live).
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine.
@@ -44,7 +43,6 @@ import {
   type TicketState,
   type VerdictState,
   PARKED_LABELS,
-  cancelCauseFromJobs,
   marksFromTimeline,
   prFromGitHub,
   reconcile,
@@ -183,12 +181,8 @@ const readRuns = (issues: readonly TicketState[], prs: readonly PrState[]): Run[
       try {
         const jobs = paginate(`repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`, "jobs", readEnv);
         run.role = roleFromJobs(jobs);
-        // A cancel is ambiguous from the conclusion alone (a superseded push
-        // reads as CANCELLED too), so the job names say whether the slot
-        // group cancelled it (#17).
-        if (run.conclusion === "cancelled") run.cancelledBy = cancelCauseFromJobs(jobs);
       } catch (error) {
-        console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live, and any cancel on it as a miss: ${errorMessage(error)}`);
+        console.log(`::warning::Could not read the jobs of run ${run.id}; treating it as covering while live: ${errorMessage(error)}`);
       }
     }
   }

@@ -24,42 +24,52 @@ export const reportArgs = (testCommand: string): readonly string[] =>
   isDefault(testCommand) ? ["--test-reporter=tap"] : [];
 
 /**
- * A dead process's own exit status, attached to the entry the report
- * synthesises for a file that never reported a test. A file that ran and
- * failed carries the assertion instead and no exit status.
+ * Whether the report shows a file whose process died before any test reported
+ * a result. Two things have to be true, and the second is what keeps this from
+ * excusing work: an entry carries the dead process's own exit status, and no
+ * entry is a test result. A file whose tests reported and whose process then
+ * died has run, and its non-zero exit is the file's own failure to answer for,
+ * or "the merge gate could not run it" becomes a way through for a change
+ * nothing proved.
  *
- * The indentation is the whole rule. The report writes an entry's keys at one
- * level and anything nested inside a key's value one level deeper, so a test
- * that failed comparing values with an `exitCode` field of their own prints
- * that field deeper than the entry's keys. Reading it as a dead process would
- * excuse a real failure, which is the one thing this module must never do.
- *
- * Which is why an entry opens only when no entry is open. A test that failed
- * comparing report text dumps that text, entry markers and all, inside its own
- * values, and an opener honoured there would start a fresh entry deep inside a
- * genuine failure and read the exit status printed beside it.
+ * The indentation is the rest of the rule. The report writes an entry's keys
+ * at one level and anything nested inside a key's value one level deeper, so a
+ * test that failed comparing values with an `exitCode` field of their own
+ * prints that field deeper than the entry's keys. Reading it as a dead process
+ * would excuse a real failure, which is the one thing this module must never
+ * do. For the same reason an entry opens only when no entry is open: a test
+ * that failed comparing report text dumps that text, entry markers and all,
+ * inside its own values.
  */
 const processExitStatus = /^(\s*)exitCode: \d+$/;
 const blockOpen = /^(\s*)---$/;
 const blockClose = /^(\s*)\.\.\.$/;
 
 const diedBeforeReporting = (report: string): boolean => {
-  let keys: number | undefined;
+  let died = false;
+  let reported = false;
+  let keyIndent: number | undefined;
+  let carriesExitStatus = false;
   for (const line of report.split("\n")) {
-    const open = keys === undefined ? blockOpen.exec(line) : null;
-    if (open) {
-      keys = open[1].length;
+    if (keyIndent === undefined) {
+      const open = blockOpen.exec(line);
+      if (open) {
+        keyIndent = open[1].length;
+        carriesExitStatus = false;
+      }
       continue;
     }
     const close = blockClose.exec(line);
-    if (close && close[1].length === keys) {
-      keys = undefined;
+    if (close && close[1].length === keyIndent) {
+      if (carriesExitStatus) died = true;
+      else reported = true;
+      keyIndent = undefined;
       continue;
     }
     const exit = processExitStatus.exec(line);
-    if (exit && exit[1].length === keys) return true;
+    if (exit && exit[1].length === keyIndent) carriesExitStatus = true;
   }
-  return false;
+  return died && !reported;
 };
 
 /** What one file did, read from the test command's own report. "unknown"

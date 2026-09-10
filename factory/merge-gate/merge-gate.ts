@@ -22,8 +22,6 @@ import { reportArgs, runnability } from "./unrunnable";
 const prNumber = required("PR_NUMBER");
 const baseRef = required("BASE_REF");
 const testCommand = process.env.TEST_COMMAND?.trim() || "node --test";
-/** Asked for once: only a command the merge gate chose emits a report it can read. */
-const reportingTestCommand = [testCommand, ...reportArgs(testCommand)].join(" ");
 const installCommand = process.env.INSTALL_COMMAND?.trim() ?? "npm ci";
 
 const linkedIssue = (): string => linkedIssueNumber(gh(["pr", "view", prNumber, "--json", "body", "--jq", ".body"]));
@@ -53,9 +51,16 @@ const install = (cwd: string): void => {
  * Each file in its own invocation, so a failure belongs to the file that
  * failed rather than to every file that shared a batch with it. Install is the
  * worktree's, not the file's, and stays outside this loop.
+ *
+ * The report is asked for here rather than kept in a variable of its own,
+ * because `runnability` judges by the command the caller gave: handed the
+ * reporting form instead, it would read every file as a command it cannot
+ * understand and quietly stop detecting anything.
  */
-const runEach = (cwd: string, testFiles: readonly string[]): TestResult[] =>
-  testFiles.map((file) => run(cwd, reportingTestCommand, [file]));
+const runEach = (cwd: string, testFiles: readonly string[]): TestResult[] => {
+  const reporting = [testCommand, ...reportArgs(testCommand)].join(" ");
+  return testFiles.map((file) => run(cwd, reporting, [file]));
+};
 
 /** Checks out the base tip, overlays the head's test files, runs each of them alone. */
 const runOnBase = (testFiles: readonly string[]): TestResult[] => {
@@ -105,9 +110,7 @@ const main = (): void => {
     const base = runOnBase(plan.testFiles);
     install(process.cwd());
     const head = runEach(process.cwd(), plan.testFiles);
-    // The head decides: it is the version being merged, so it is the honest
-    // authority on what the file now is, and a file it could not run is
-    // passed over on the base side too.
+    // The head decides, per FileRun.runnability, and its answer holds on the base side too.
     runs = plan.testFiles.map((file, i) => ({
       path: file,
       base: base[i],

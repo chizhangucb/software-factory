@@ -99,9 +99,12 @@ test("a source change with no deleted file and no test change still fails", () =
 
 test("with runs: a file red on the base and green on the head passes", () => {
   const plan = redGreenPlan(parseNameStatus("A\ttest/x.test.js\nM\tsrc/x.js\n"));
-  const verdict = redGreenVerdict(plan, [fileRun("test/x.test.js", 1, 0)]);
-  assert.equal(verdict.ok, true);
-  assert.deepEqual(verdict.reasons, []);
+  assert.deepEqual(redGreenVerdict(plan, [fileRun("test/x.test.js", 1, 0)]), {
+    ok: true,
+    reasons: [],
+    unrunnable: [],
+    detail: "1 changed test file(s); test/x.test.js base 1 head 0",
+  });
 });
 
 test("with runs: a test that already passes on the base fails as a stub", () => {
@@ -114,9 +117,12 @@ test("with runs: a test that already passes on the base fails as a stub", () => 
 test("with runs: one changed test file red on the base is enough, the rest may pass there", () => {
   const plan = redGreenPlan(parseNameStatus("A\ttest/new.test.js\nM\ttest/tidied.test.js\nM\tsrc/x.js\n"));
   const runs = [fileRun("test/new.test.js", 1, 0), fileRun("test/tidied.test.js", 0, 0)];
-  const verdict = redGreenVerdict(plan, runs);
-  assert.equal(verdict.ok, true);
-  assert.deepEqual(verdict.reasons, []);
+  assert.deepEqual(redGreenVerdict(plan, runs), {
+    ok: true,
+    reasons: [],
+    unrunnable: [],
+    detail: "2 changed test file(s); test/new.test.js base 1 head 0, test/tidied.test.js base 0 head 0",
+  });
 });
 
 test("with runs: a file that fails on the head fails the check, and no file that passed is named", () => {

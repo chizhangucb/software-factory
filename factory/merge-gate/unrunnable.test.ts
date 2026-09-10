@@ -66,3 +66,10 @@ test("a file whose test failed comparing a report of its own ran: the report ins
   // the key that holds it and is never read as the entry's own.
   assert.equal(runnability("node --test", captured("assertion-failure-over-a-report", 1)), "ran");
 });
+
+test("a file whose test reported before the process died ran: unrunnable is about reporting nothing, not about dying", () => {
+  // Otherwise a file whose tests pass and whose process then dies is passed
+  // over, and "the merge gate could not run it" becomes a way through for a
+  // change nothing proved.
+  assert.equal(runnability("node --test", captured("reported-then-died", 1)), "ran");
+});

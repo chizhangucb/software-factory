@@ -143,8 +143,8 @@ test("renderMergeGateOutput lists each check's reasons, each file's exit status,
         ok: false,
         reasons: ["changed test fails on the head (exit 1): test/y.test.js"],
         runs: [
-          { path: "test/x.test.js", baseExit: 1, headExit: 0 },
-          { path: "test/y.test.js", baseExit: 1, headExit: 1 },
+          { path: "test/x.test.js", baseExit: 1, headExit: 0, runnability: "ran" },
+          { path: "test/y.test.js", baseExit: 1, headExit: 1, runnability: "ran" },
         ],
       },
       testIntegrity: { ok: true, reasons: [] },
@@ -157,6 +157,27 @@ test("renderMergeGateOutput lists each check's reasons, each file's exit status,
   assert.match(out, /on main \(expected to fail\): test\/x\.test\.js exit 1, test\/y\.test\.js exit 1\nline2\nline3/);
   assert.match(out, /on the head \(expected to pass\): test\/x\.test\.js exit 0, test\/y\.test\.js exit 1\nok/);
   assert.doesNotMatch(out, /line1/);
+});
+
+test("renderMergeGateOutput says a file was passed over rather than listing its exit status", () => {
+  // The implementer reads this to decide what to fix next. A file the merge
+  // gate could not run is not a file it should be sent to repair.
+  const out = renderMergeGateOutput(
+    {
+      redGreen: {
+        ok: false,
+        reasons: ["changed test fails on the head (exit 1): test/unit.test.js"],
+        runs: [
+          { path: "test/unit.test.js", baseExit: 1, headExit: 1, runnability: "ran" },
+          { path: "test/browser.spec.js", baseExit: 1, headExit: 1, runnability: "unrunnable" },
+        ],
+      },
+    },
+    { base: "b", head: "h" },
+  );
+  assert.match(out, /expected to pass\): test\/unit\.test\.js exit 1/);
+  assert.doesNotMatch(out, /test\/browser\.spec\.js exit/);
+  assert.match(out, /passed over, the merge gate could not run: test\/browser\.spec\.js/);
 });
 
 test("renderMergeGateOutput still shows the logs when the artifact carries no per-file runs", () => {

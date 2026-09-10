@@ -42,8 +42,8 @@ Code that satisfies the merge gate without doing the work: a stub, a hardcoded r
 _Avoid_: cheating, slop.
 
 **Unrunnable test**:
-A changed test file whose process died before any test reported a result, so the merge gate never learned anything about it and passes over it on both sides, naming it in the status. Not a skipped test: a skipped test is a **placeholder**, the thing the merge gate exists to catch, while this one is the merge gate's own limit rather than anything the test says about itself. A file that ran and failed is neither.
-_Avoid_: skipped, skip (the placeholder's word), ignored, excluded.
+A changed test file whose process died before any test reported a result, which is neither a test that ran and failed nor one the merge gate declined to run. Not a skipped test: a skipped test is a **placeholder**, the thing the merge gate exists to catch, while this is the merge gate's own limit rather than anything the test says about itself.
+_Avoid_: skipped, skip (the placeholder's word), ignored (it is named in the status, never passed over in silence).
 
 **Escalation**:
 A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read.

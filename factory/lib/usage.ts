@@ -103,7 +103,12 @@ export const totalUsage = (records: readonly RunUsageRecord[]): AttemptSummary &
 
 export const USAGE_MARKER_PREFIX = "<!-- factory:usage:";
 
-/** First line of the comment; the workflow finds and replaces a role's comment by it. */
+/**
+ * The first line of a comment the workflow upserts, which it finds and
+ * replaces a role's comment by. Not part of the table below: a caller that
+ * posts the table as a comment of its own puts this on top of it, and the
+ * audit, which nests the table inside its own comment, does not.
+ */
 export const usageMarker = (role: string): string => `${USAGE_MARKER_PREFIX}${role} -->`;
 
 export const formatDuration = (ms: number): string => {
@@ -120,9 +125,13 @@ const int = (n: number): string => Math.round(n).toLocaleString("en-US");
 const usd = (n: number): string => `$${n.toFixed(2)}`;
 
 /**
- * The usage comment for one role: one row per attempt and a total. Records
- * of another role are ignored, so a script that ran two roles in one job
- * renders two comments.
+ * The usage table for one role: a heading, one row per attempt and a total.
+ * Records of another role are ignored, so a script that ran two roles in one
+ * job renders two tables.
+ *
+ * The `usageMarker` above is not glued on here. It belongs to a caller that
+ * posts this as a comment of its own, and the audit nests the table inside a
+ * comment that already carries a marker of its own.
  */
 export const formatUsageComment = (
   role: string,
@@ -130,7 +139,7 @@ export const formatUsageComment = (
   context: { readonly runUrl: string },
 ): string => {
   const rows = records.filter((r) => r.role === role);
-  const lines = [usageMarker(role), `## Factory usage: ${role}`, ""];
+  const lines = [`## Factory usage: ${role}`, ""];
   if (rows.length === 0) {
     lines.push(`No agent run was recorded for the ${role}. Run: ${context.runUrl}`);
     return lines.join("\n");

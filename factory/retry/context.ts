@@ -1,4 +1,5 @@
 import { gh } from "../agent-workflows/shared/common";
+import { errorMessage } from "../lib/errors";
 import type { TrustPolicy } from "../lib/trusted-authors";
 import { latestRetryContext, type RetryContext, retryPromptSection } from "./decide";
 
@@ -46,7 +47,7 @@ export const fetchRetryContext = (
     labels = issue.labels.map((l) => l.name);
   } catch (error) {
     console.log(
-      `Could not read the comments of #${issueNumber}, so no retry context: ${error instanceof Error ? error.message : String(error)}`,
+      `Could not read the comments of #${issueNumber}, so no retry context: ${errorMessage(error)}`,
     );
     return undefined;
   }

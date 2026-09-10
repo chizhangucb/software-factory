@@ -54,7 +54,7 @@ import {
   summariseFailures,
   unretryableReason,
 } from "./checks";
-import { ESCALATION_LABEL } from "../lib/labels.ts";
+import { BLOCKED_LABEL, ESCALATION_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
 import { escalationLabels, prCloseLabels } from "./escalation.ts";
 import {
   decide,
@@ -74,7 +74,7 @@ const REPO = required("GH_REPO");
 const FACTORY_PAT = required("FACTORY_PAT");
 const BRANCH = required("BRANCH");
 const RUN_URL = required("RUN_URL");
-const FAILURE_MODE = required("FAILURE_KIND");
+const FAILURE_KIND = required("FAILURE_KIND");
 const ISSUE_INPUT = process.env.ISSUE_NUMBER || undefined;
 const PR_INPUT = process.env.PR_NUMBER || undefined;
 const RUN_ID = process.env.GITHUB_RUN_ID ?? "";
@@ -85,9 +85,6 @@ const POLL_MS = 20_000;
 
 const LOG_TAIL_LINES = 120;
 const LOG_LIMITS = { head: 2_000, tail: 8_000 };
-
-const IMPLEMENT_LABEL = "agent:implement";
-const BLOCKED_LABEL = "agent:blocked";
 
 const readIf = (file: string): string | undefined =>
   fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined;
@@ -122,6 +119,23 @@ interface Target {
   readonly pr: string | undefined;
 }
 
+/**
+ * The one thing an action is taken on: a ticket or a PR, named the way the
+ * sweep names one (`Subject` in `dispatch/reconcile.ts`). The number is a
+ * string because that is how the workflow hands it over, and it is also the
+ * `gh` argument.
+ *
+ * A retry has two subjects at once, the one that records it and the one whose
+ * label starts the next run, so which is which has to be readable at every
+ * call site rather than positional.
+ */
+interface Subject {
+  readonly kind: "issue" | "pr";
+  readonly number: string;
+}
+
+const subject = (kind: Subject["kind"], number: string): Subject => ({ kind, number });
+
 /** The ticket and its open PR from whichever number the workflow knows. */
 const resolveTarget = (): Target => {
   if (PR_INPUT) {
@@ -139,8 +153,8 @@ const resolveTarget = (): Target => {
   return { issue, pr: pr ? String(pr.number) : undefined };
 };
 
-const labelsOf = (kind: "issue" | "pr", number: string): string[] =>
-  ghJson<string[]>([kind, "view", number, "--repo", REPO, "--json", "labels", "--jq", "[.labels[].name]"]);
+const labelsOf = (on: Subject): string[] =>
+  ghJson<string[]>([on.kind, "view", on.number, "--repo", REPO, "--json", "labels", "--jq", "[.labels[].name]"]);
 
 /** The newest run log the job wrote, tail only. */
 const runLogTail = (): string => {
@@ -323,55 +337,54 @@ const ensureRetryLabel = (label: string): void => {
   tryWrite(["label", "create", label, "--repo", REPO, "--color", "c5def5", "--description", "Factory: retries used on this ticket", "--force"]);
 };
 
-const commentOn = (kind: "issue" | "pr", number: string, body: string): void => {
-  const file = path.join(outputDir(), `retry-comment-${kind}-${number}.md`);
+const commentOn = (on: Subject, body: string): void => {
+  const file = path.join(outputDir(), `retry-comment-${on.kind}-${on.number}.md`);
   fs.mkdirSync(outputDir(), { recursive: true });
   fs.writeFileSync(file, body);
-  ghWrite([kind, "comment", number, "--repo", REPO, "--body-file", file]);
+  ghWrite([on.kind, "comment", on.number, "--repo", REPO, "--body-file", file]);
 };
 
 const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   const label = retryLabel(retryNumber);
   const comment = renderRetryComment({ retry: retryNumber, kind: failure.kind, runUrl: RUN_URL, output: failure.output });
-  const on: ["issue" | "pr", string] = target.issue ? ["issue", target.issue] : ["pr", target.pr as string];
-  commentOn(on[0], on[1], comment);
+  const on = target.issue ? subject("issue", target.issue) : subject("pr", target.pr as string);
+  commentOn(on, comment);
   ensureRetryLabel(label);
-  ghWrite([on[0], "edit", on[1], "--repo", REPO, "--add-label", label]);
+  ghWrite([on.kind, "edit", on.number, "--repo", REPO, "--add-label", label]);
   // The label that starts the retry goes last, once the context it reads is in place.
-  const trigger: ["issue" | "pr", string] = target.pr ? ["pr", target.pr] : ["issue", target.issue as string];
-  ghWrite([trigger[0], "edit", trigger[1], "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
+  const trigger = target.pr ? subject("pr", target.pr) : subject("issue", target.issue as string);
+  ghWrite([trigger.kind, "edit", trigger.number, "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
   console.log(
-    `Retry ${retryNumber} of ${MAX_RETRIES}: ${label} on ${on[0]} #${on[1]}, ${IMPLEMENT_LABEL} on ${trigger[0]} #${trigger[1]} (${failure.summary}).`,
+    `Retry ${retryNumber} of ${MAX_RETRIES}: ${label} on ${on.kind} #${on.number}, ${IMPLEMENT_LABEL} on ${trigger.kind} #${trigger.number} (${failure.summary}).`,
   );
 };
 
 const requeue = (target: Target, reason: string): void => {
-  const on: ["issue" | "pr", string] = target.pr ? ["pr", target.pr] : ["issue", target.issue as string];
-  const onPr = on[0] === "pr";
-  commentOn(on[0], on[1], renderRequeueComment({ reason, runUrl: RUN_URL, onPr }));
-  if (onPr) ghWrite(["pr", "edit", on[1], "--repo", REPO, "--add-label", BLOCKED_LABEL]);
+  const on = target.pr ? subject("pr", target.pr) : subject("issue", target.issue as string);
+  const onPr = on.kind === "pr";
+  commentOn(on, renderRequeueComment({ reason, runUrl: RUN_URL, onPr }));
+  if (onPr) ghWrite(["pr", "edit", on.number, "--repo", REPO, "--add-label", BLOCKED_LABEL]);
   console.log(
-    `Requeued ${on[0]} #${on[1]} without spending a retry: ${reason}` +
+    `Requeued ${on.kind} #${on.number} without spending a retry: ${reason}` +
       (onPr ? `; ${BLOCKED_LABEL} on, a human re-adds ${IMPLEMENT_LABEL}.` : "; the dispatcher re-dispatches it."),
   );
 };
 
 const escalate = (target: Target, reason: string, failure: Failure): void => {
   if (target.pr) {
-    const prLabels = prCloseLabels(labelsOf("pr", target.pr)).remove;
+    const prLabels = prCloseLabels(labelsOf(subject("pr", target.pr))).remove;
     if (prLabels.length > 0) tryWrite(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", prLabels.join(",")]);
     tryWrite([
       "pr", "close", target.pr, "--repo", REPO, "--comment",
       `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
     ]);
   }
-  const on: ["issue" | "pr", string] = target.issue ? ["issue", target.issue] : ["pr", target.pr as string];
-  const labels = escalationLabels(labelsOf(on[0], on[1]));
-  if (labels.remove.length > 0) tryWrite([on[0], "edit", on[1], "--repo", REPO, "--remove-label", labels.remove.join(",")]);
-  ghWrite([on[0], "edit", on[1], "--repo", REPO, "--add-label", labels.add]);
+  const on = target.issue ? subject("issue", target.issue) : subject("pr", target.pr as string);
+  const labels = escalationLabels(labelsOf(on));
+  if (labels.remove.length > 0) tryWrite([on.kind, "edit", on.number, "--repo", REPO, "--remove-label", labels.remove.join(",")]);
+  ghWrite([on.kind, "edit", on.number, "--repo", REPO, "--add-label", labels.add]);
   commentOn(
-    on[0],
-    on[1],
+    on,
     renderEscalationComment({
       issueNumber: target.issue ?? `PR ${target.pr}`,
       reason,
@@ -384,7 +397,7 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
       output: failure.output,
     }),
   );
-  console.log(`Escalated ${on[0]} #${on[1]}: ${labels.add} on, ${labels.remove.join(", ") || "no factory labels"} off${target.pr ? `, PR #${target.pr} closed` : ""}.`);
+  console.log(`Escalated ${on.kind} #${on.number}: ${labels.add} on, ${labels.remove.join(", ") || "no factory labels"} off${target.pr ? `, PR #${target.pr} closed` : ""}.`);
 };
 
 const main = async (): Promise<void> => {
@@ -392,7 +405,7 @@ const main = async (): Promise<void> => {
   console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr ?? "(none)"}, branch ${BRANCH}.`);
 
   let failure: Failure | undefined;
-  if (FAILURE_MODE === "implement") {
+  if (FAILURE_KIND === "implement") {
     const outcome = process.env.IMPLEMENTER_OUTCOME ?? "";
     if (!isImplementerFailure(outcome)) {
       console.log(
@@ -401,17 +414,17 @@ const main = async (): Promise<void> => {
       process.exit(1);
     }
     failure = implementFailure(outcome);
-  } else if (FAILURE_MODE === "checks") {
+  } else if (FAILURE_KIND === "checks") {
     failure = await checksFailure();
   } else {
-    throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_MODE}`);
+    throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_KIND}`);
   }
   if (!failure) {
     console.log("Every check on the head passed; nothing to retry.");
     return;
   }
 
-  const labels = target.issue ? labelsOf("issue", target.issue) : labelsOf("pr", target.pr as string);
+  const labels = labelsOf(target.issue ? subject("issue", target.issue) : subject("pr", target.pr as string));
   const used = retriesUsed(labels);
   const decision = decide({
     retriesUsed: used,

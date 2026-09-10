@@ -29,7 +29,9 @@ test("records accumulate in usage.json and the role's comment is re-rendered aft
   assert.equal(all.length, 2);
   assert.equal(readUsageRecords(dir).length, 2);
   const comment = fs.readFileSync(path.join(dir, usageCommentFile("reviewer")), "utf8");
+  // The marker is this writer's, glued on above the table the usage module returns.
   assert.equal(comment.split("\n")[0], "<!-- factory:usage:reviewer -->");
+  assert.equal(comment.split("\n")[1], "## Factory usage: reviewer");
   assert.match(comment, /review-3 \(attempt 1, failed\)/);
   assert.match(comment, /review-3 \(attempt 2\) \| claude-opus-5 \| 1s/);
   assert.match(comment, /\| total \|/);

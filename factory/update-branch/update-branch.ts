@@ -23,9 +23,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { errorMessage } from "../lib/errors.ts";
 import { GhError, gh } from "../lib/gh.ts";
+import { IMPLEMENT_LABEL } from "../lib/labels.ts";
 import {
-  IMPLEMENT_LABEL,
   type CommitStatus,
   type HeadCommit,
   type OpenPr,
@@ -186,7 +187,7 @@ for (const raw of raws) {
   try {
     prs.push(toOpenPr(raw));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     outcomes.push({ number: raw.number, action: "skip", carry: false, reason: "could not read the PR", oldHead: raw.headRefOid, error: message });
     console.error(`#${raw.number} (${raw.headRefName} @ ${raw.headRefOid.slice(0, 7)}): could not read the PR: ${message}`);
     failed++;
@@ -263,7 +264,7 @@ for (const plan of plans) {
         (outcome.verdictCarried ? `${VERDICT_CONTEXT} carried.` : `no passing ${VERDICT_CONTEXT} to carry.`),
     );
   } catch (error) {
-    outcome.error = error instanceof Error ? error.message : String(error);
+    outcome.error = errorMessage(error);
     console.error(`#${plan.number}: ${outcome.error}`);
     failed++;
   }

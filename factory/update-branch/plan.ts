@@ -14,15 +14,15 @@
  * (`updateRefusal`). The script spawns and writes; it decides nothing, so
  * nothing it decides goes untested.
  *
- * Imports use explicit `.ts` so the job can run on bare
+ * The one import is `lib/labels.ts`, which imports nothing itself and is in
+ * this job's cone. Nothing else may be imported: `GhFailure` below is written
+ * structurally rather than importing `lib/gh.ts`, so this stays the pure
+ * decision half. Imports use explicit `.ts` so the job can run on bare
  * `node --experimental-strip-types` without installing the engine.
  */
+import { HANDED_OFF_LABELS } from "../lib/labels.ts";
 
-export const BLOCKED_LABEL = "agent:blocked";
-/** Put on a conflicting PR so agent-implement-pr.yml merges the base into the branch and resolves. */
-export const IMPLEMENT_LABEL = "agent:implement";
-/** Labels that say an agent already holds the PR (implementer or reviewer, running or queued) or that it is parked. */
-export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, "agent:in-progress", "agent:review", BLOCKED_LABEL];
+/** A commit status context, not a label: the reviewer's verdict on a head. */
 export const VERDICT_CONTEXT = "factory/verdict";
 /**
  * Posted on a head the moment the factory's update-branch call is accepted.

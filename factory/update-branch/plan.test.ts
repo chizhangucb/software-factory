@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { GhError } from "../lib/gh.ts";
+import { BLOCKED_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
 import {
-  BLOCKED_LABEL,
-  IMPLEMENT_LABEL,
   type CommitStatus,
   type HeadCommit,
   type OpenPr,

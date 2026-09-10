@@ -7,6 +7,7 @@ import { BLOCKED_LABEL, IN_PROGRESS_LABEL } from "../lib/labels";
 import {
   CONFLICT_REASON,
   decide,
+  FAILURE_KINDS,
   REQUEUED_FILE,
   renderHandOffComment,
   isImplementerFailure,
@@ -20,7 +21,7 @@ import {
   retriesUsed,
   retryLabel,
   retryPromptSection,
-  FAILURE_KINDS,} from "./decide";
+} from "./decide";
 
 test("retriesUsed counts the highest factory:retry-<n> label, zero without one", () => {
   assert.equal(retriesUsed([]), 0);

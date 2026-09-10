@@ -7,6 +7,7 @@ import { BLOCKED_LABEL, IN_PROGRESS_LABEL } from "../lib/labels";
 import {
   CONFLICT_REASON,
   decide,
+  FAILURE_KINDS,
   REQUEUED_FILE,
   renderHandOffComment,
   isImplementerFailure,
@@ -35,7 +36,7 @@ test("retryLabel names the label the workflow adds", () => {
 });
 
 test("decide retries once on every failure kind, then escalates", () => {
-  for (const kind of ["implement", "gate", "ci", "verdict"] as const) {
+  for (const kind of ["implement", "merge-gate", "ci", "verdict"] as const) {
     assert.deepEqual(decide({ retriesUsed: 0, kind }), { action: "retry", retry: 1 });
     assert.deepEqual(decide({ retriesUsed: 1, kind }), {
       action: "escalate",
@@ -46,7 +47,7 @@ test("decide retries once on every failure kind, then escalates", () => {
 });
 
 test("decide does nothing on a ticket that is already escalated", () => {
-  assert.deepEqual(decide({ retriesUsed: 0, kind: "gate", escalated: true }), {
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "merge-gate", escalated: true }), {
     action: "none",
     reason: "already escalated: needs-human is on the ticket",
   });
@@ -92,8 +93,8 @@ test("decide requeues a pending head whose PR is mergeable or not yet decided; u
 });
 
 test("a failed check outranks a conflict: a conflicting PR with a real failure follows the failure", () => {
-  assert.deepEqual(decide({ retriesUsed: 0, kind: "gate", mergeable: "CONFLICTING" }), { action: "retry", retry: 1 });
-  assert.equal(decide({ retriesUsed: 1, kind: "gate", mergeable: "CONFLICTING" }).action, "escalate");
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "merge-gate", mergeable: "CONFLICTING" }), { action: "retry", retry: 1 });
+  assert.equal(decide({ retriesUsed: 1, kind: "merge-gate", mergeable: "CONFLICTING" }).action, "escalate");
   assert.equal(
     decide({ retriesUsed: 0, kind: "verdict", mergeable: "CONFLICTING", unretryable: "the ticket has no acceptance criteria" }).action,
     "escalate",
@@ -254,6 +255,17 @@ test("a retry comment round-trips through its marker", () => {
   assert.match(parsed.output, /- \[ \] the helper exists/);
 });
 
+test("every failure kind round-trips through a retry comment, run link included", () => {
+  // A hyphenated kind (merge-gate) must survive both the marker and the "Attempt N
+  // failed (kind)" line. A pattern that accepts only letters parses the marker and
+  // then silently drops the run link, leaving the implementer no run to read.
+  for (const kind of FAILURE_KINDS) {
+    const parsed = parseRetryComment(renderRetryComment({ retry: 1, kind, runUrl, output: "out" }));
+    assert.equal(parsed?.kind, kind, `kind ${kind} did not survive the marker`);
+    assert.equal(parsed?.runUrl, runUrl, `kind ${kind} lost its run link`);
+  }
+});
+
 test("parseRetryComment ignores comments without the marker", () => {
   assert.equal(parseRetryComment("just a comment"), undefined);
   assert.equal(parseRetryComment("<!-- factory:verdict -->\n## Verdict"), undefined);
@@ -268,13 +280,13 @@ test("a retry comment bounds long output and keeps its tail", () => {
 });
 
 test("latestRetryContext picks the newest marker comment while the retry label matches it", () => {
-  const first = renderRetryComment({ retry: 1, kind: "gate", runUrl, output: "old" });
+  const first = renderRetryComment({ retry: 1, kind: "merge-gate", runUrl, output: "old" });
   const second = renderRetryComment({ retry: 1, kind: "verdict", runUrl, output: "new" });
   const labels = ["ready-for-agent", "factory:retry-1"];
   assert.equal(latestRetryContext([], labels), undefined);
   assert.equal(latestRetryContext(["hello", "world"], labels), undefined);
   assert.equal(latestRetryContext([first, "chatter", second], labels)?.output.trim(), "new");
-  assert.equal(latestRetryContext([second, first], labels)?.kind, "gate");
+  assert.equal(latestRetryContext([second, first], labels)?.kind, "merge-gate");
 });
 
 test("latestRetryContext is empty once the retry label is gone or names another cycle", () => {
@@ -287,7 +299,7 @@ test("retryPromptSection is empty without a context and names the failure with i
   assert.equal(retryPromptSection(undefined), "");
   const section = retryPromptSection({
     retry: 1,
-    kind: "gate",
+    kind: "merge-gate",
     runUrl,
     output: "factory/red-green: no test failed on main",
   });

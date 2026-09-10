@@ -2,7 +2,7 @@
  * Retry and escalation (#16): what the factory does when a run fails.
  *
  * A run fails when the implementer run failed (no commits, an agent error),
- * or when the PR's gate (factory/red-green,
+ * or when the PR's merge gate (factory/red-green,
  * factory/test-integrity, the target's own CI) or factory/verdict came back
  * failing. The first failure earns one informed retry: the implementer runs
  * again on the same branch with the failing output in its prompt. A second
@@ -18,9 +18,9 @@
 import { ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { boundOutput } from "../lib/verdict";
 
-export type FailureKind = "implement" | "gate" | "ci" | "verdict";
+export type FailureKind = "implement" | "merge-gate" | "ci" | "verdict";
 
-export const FAILURE_KINDS: readonly FailureKind[] = ["implement", "gate", "ci", "verdict"];
+export const FAILURE_KINDS: readonly FailureKind[] = ["implement", "merge-gate", "ci", "verdict"];
 
 /** Retries after the first attempt. One: the spec's retry cap. */
 export const MAX_RETRIES = 1;
@@ -88,7 +88,7 @@ export type Decision =
 
 /** Why a conflicting PR whose checks never came goes to the implementer rather than to a human. */
 export const CONFLICT_REASON =
-  "the PR conflicts with its base, so GitHub started no gate on this head; the implementer resolves it";
+  "the PR conflicts with its base, so GitHub started no merge gate on this head; the implementer resolves it";
 
 /**
  * Retry or escalate. Every failure kind gets the same one retry; the kind
@@ -103,7 +103,7 @@ export const CONFLICT_REASON =
  * and something that already sweeps picks the subject up again, the
  * reconciler at its stuck deadline. But when that PR
  * conflicts with its base (#144) the checks never came because GitHub runs
- * no gate on a conflicting PR, so it is handed to the implementer instead.
+ * no merge gate on a conflicting PR, so it is handed to the implementer instead.
  * UNKNOWN mergeability is GitHub still deciding and is never acted on. A
  * real failure outranks the conflict, as a failed check outranks a pending
  * one. A failure a retry cannot fix (the ticket has no acceptance criteria)
@@ -149,8 +149,8 @@ export interface RetryContext {
   readonly output: string;
 }
 
-const MARKER = /^<!-- factory:retry retry=(\d+) kind=([a-z]+) -->\n?/;
-const RUN_LINE = /^Attempt \d+ failed \([a-z]+\)\. Run: (\S+)$/m;
+const MARKER = /^<!-- factory:retry retry=(\d+) kind=([a-z-]+) -->\n?/;
+const RUN_LINE = /^Attempt \d+ failed \([a-z-]+\)\. Run: (\S+)$/m;
 /** Fits a GitHub comment (64k) with room for the rest of the body. */
 const OUTPUT_LIMITS = { head: 6_000, tail: 10_000 };
 
@@ -218,7 +218,7 @@ export const latestRetryContext = (
 const KIND_GUIDANCE: Record<FailureKind, string> = {
   implement:
     "The output is the previous run's failure reason and the tail of its log. Find what stopped it and finish the ticket this time; do not repeat the same path.",
-  gate: "The output is a failing check's log. Make that check pass: a new test must fail on main and pass here, a deleted test must be one the ticket removes, and no test may be skipped or narrowed.",
+  "merge-gate": "The output is a failing check's log. Make that check pass: a new test must fail on main and pass here, a deleted test must be one the ticket removes, and no test may be skipped or narrowed.",
   ci: "The output is the target's own CI log. Make the CI pass without weakening it.",
   verdict:
     "The output is the reviewer's checklist. Every unticked criterion must be met, with evidence visible in the diff, before you finish.",
@@ -281,7 +281,7 @@ export const renderHandOffComment = (input: {
     "",
     `${input.reason}. No retry was spent. Run: ${input.runUrl}`,
     "",
-    `Labeled \`${IMPLEMENT_LABEL}\`. Its run merges \`${input.base}\` into the branch, resolves the conflicts, and pushes; the gate and the review then judge the new head and auto-merge lands it.`,
+    `Labeled \`${IMPLEMENT_LABEL}\`. Its run merges \`${input.base}\` into the branch, resolves the conflicts, and pushes; the merge gate and the review then judge the new head and auto-merge lands it.`,
   ].join("\n");
 
 export interface EscalationInput {

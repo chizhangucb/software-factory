@@ -189,7 +189,7 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Run target tests
-        # Evidence for the audit, never a gate: the job goes on whatever the exit status.
+        # Evidence for the audit, never a merge gate: the job goes on whatever the exit status.
         working-directory: target
         env:
           TEST_COMMAND: ${{ inputs.test_command }}

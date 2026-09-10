@@ -1,9 +1,9 @@
-# Reusable: the factory's two gate checks on a PR, posted as commit statuses
+# Reusable: the factory's two merge gate checks on a PR, posted as commit statuses
 # `factory/red-green` and `factory/test-integrity` so a target can require
 # them by name. Called from a target repo's thin factory workflow on
 # `pull_request`. No agent runs here; the decisions are pure functions in
-# factory/gate, the script only gathers the diff and the linked ticket body.
-name: factory gate
+# factory/merge-gate, the script only gathers the diff and the linked ticket body.
+name: factory merge gate
 
 on:
   workflow_call:
@@ -33,7 +33,7 @@ on:
         required: true
 
 jobs:
-  gate:
+  merge-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -87,12 +87,12 @@ jobs:
           npm ci
           echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
 
-      - name: Run gate checks
+      - name: Run merge gate checks
         working-directory: target
         env:
           TEST_COMMAND: ${{ inputs.test_command }}
           INSTALL_COMMAND: ${{ inputs.install_command }}
-        run: tsx ../factory/factory/gate/gate.ts
+        run: tsx ../factory/factory/merge-gate/merge-gate.ts
 
       - name: Post statuses
         if: always()
@@ -103,28 +103,28 @@ jobs:
               -f state="$2" -f context="$1" -f target_url="$RUN_URL" -f description="$(printf '%s' "$3" | cut -c1-140)" >/dev/null
             echo "$1: $2 ($3)"
           }
-          if [ ! -f "$OUTPUT_DIR/gate.json" ]; then
-            post factory/red-green error "gate did not run; see the workflow log"
-            post factory/test-integrity error "gate did not run; see the workflow log"
+          if [ ! -f "$OUTPUT_DIR/merge-gate.json" ]; then
+            post factory/red-green error "merge gate did not run; see the workflow log"
+            post factory/test-integrity error "merge gate did not run; see the workflow log"
             exit 0
           fi
           for key in redGreen:factory/red-green testIntegrity:factory/test-integrity; do
             field="${key%%:*}"; ctx="${key#*:}"
-            ok=$(jq -r ".$field.ok" "$OUTPUT_DIR/gate.json")
+            ok=$(jq -r ".$field.ok" "$OUTPUT_DIR/merge-gate.json")
             if [ "$ok" = "true" ]; then
-              post "$ctx" success "$(jq -r ".$field.plan.reason // \"clean\"" "$OUTPUT_DIR/gate.json")"
+              post "$ctx" success "$(jq -r ".$field.plan.reason // \"clean\"" "$OUTPUT_DIR/merge-gate.json")"
             else
-              post "$ctx" failure "$(jq -r ".$field.reasons[0]" "$OUTPUT_DIR/gate.json")"
+              post "$ctx" failure "$(jq -r ".$field.reasons[0]" "$OUTPUT_DIR/merge-gate.json")"
             fi
           done
 
-      - name: Upload gate output
+      - name: Upload merge gate output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: factory-gate-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
+          name: factory-merge-gate-pr-${{ github.event.pull_request.number }}-run-${{ github.run_attempt }}
           path: ${{ runner.temp }}/factory-out
           if-no-files-found: ignore
 
       - name: Fail the job when a check failed
-        run: jq -e '.redGreen.ok and .testIntegrity.ok' "$OUTPUT_DIR/gate.json" >/dev/null
+        run: jq -e '.redGreen.ok and .testIntegrity.ok' "$OUTPUT_DIR/merge-gate.json" >/dev/null

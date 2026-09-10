@@ -2,7 +2,7 @@
  * Vendored from sandcastle 0.12.0, `.sandcastle/agent-workflows/shared/diff-lines.ts`.
  * One forced difference (#47): `+++ /dev/null` (a deleted file) and `--- `
  * headers are handled explicitly, and a blank line no longer counts as context.
- * No story asked for it, but the gate maps findings onto changed lines (#13) and
+ * No story asked for it, but the merge gate maps findings onto changed lines (#13) and
  * without it a deleted file's hunk is attributed to the previous file and every
  * file gains a phantom trailing line, so reverting to his text would change
  * behaviour. Covered by `diff-lines.test.ts`, which has no upstream counterpart.

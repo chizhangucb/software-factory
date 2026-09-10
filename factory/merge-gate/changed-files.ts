@@ -1,6 +1,6 @@
 /**
  * Classifies the files a PR touches. The heuristics are generic on purpose:
- * the gate serves any target repo, so it only looks at paths, never at a
+ * the merge gate serves any target repo, so it only looks at paths, never at a
  * repo's test runner config.
  */
 
@@ -34,7 +34,7 @@ const extensionOf = (p: string): string => {
 };
 
 /**
- * A file the gate runs as a test: `*.test.*`, `*.spec.*`, Go and Python
+ * A file the merge gate runs as a test: `*.test.*`, `*.spec.*`, Go and Python
  * test names, or anything under `__tests__`. A helper or fixture under
  * `test/` is a source change: running it as a test proves nothing, and a
  * PR that only touches it still needs a real test.
@@ -77,7 +77,7 @@ export const isDocFile = (p: string): boolean => {
 /**
  * A file no test can exercise: a workflow, a manifest, a lockfile, a
  * dotfile. Red-green has nothing to prove about a PR that changes only
- * these, so calling them a source change was a lie the gate told (#57
+ * these, so calling them a source change was a lie the merge gate told (#57
  * proposal 12). Where it sits is half the rule: a dotfile counts
  * anywhere, a data or manifest extension only at the repo root or under
  * a dot directory. Nested deeper it is data the code reads and it stays

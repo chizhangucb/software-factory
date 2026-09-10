@@ -9,7 +9,7 @@ The factory lives in this repo. A target repo carries one workflow file that cal
 1. A maintainer labels a ticket `ready-for-agent`.
 2. The **dispatcher** picks it up once every blocker is closed and adds `agent:implement`.
 3. The **implementer** builds it on `agent/issue-N-<slug>` and opens a PR with `Closes #N` and auto-merge already enabled.
-4. The **gate** runs no agent. It posts `factory/red-green` and `factory/test-integrity` on the PR head, alongside the target's own CI.
+4. The **merge gate** runs no agent. It posts `factory/red-green` and `factory/test-integrity` on the PR head, alongside the target's own CI.
 5. The **reviewer** judges the head against the ticket's acceptance criteria and posts `factory/verdict`.
 6. **Auto-merge** squashes the PR once every required check is green. Nothing else touches the merge button.
 7. **update-branch** keeps auto-merge PRs current as main moves, and hands a real conflict back to the implementer.

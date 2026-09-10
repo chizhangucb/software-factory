@@ -4,7 +4,7 @@
  *
  * - `issueBody`, so the reviewer can parse acceptance criteria: story 5.
  * - the closing-keyword regex moved to `lib/linked-issue.ts`, one definition for
- *   the reviewer, the gate, the preflight and the retry handler (#13, #16).
+ *   the reviewer, the merge gate, the preflight and the retry handler (#13, #16).
  * - the linked issue read through `--json` and rendered by `lib/ticket-context.ts`:
  *   the text view carries no `author_association`, so nothing on it could be
  *   filtered, and gh 2.95 prints only the comments under `--comments` anyway, so

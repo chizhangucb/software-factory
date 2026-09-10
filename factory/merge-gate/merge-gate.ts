@@ -1,6 +1,6 @@
 /**
- * Runs the two factory gate checks on a PR and writes their verdicts to
- * OUTPUT_DIR/gate.json. The workflow turns that file into the
+ * Runs the two factory merge gate checks on a PR and writes their verdicts to
+ * OUTPUT_DIR/merge-gate.json. The workflow turns that file into the
  * `factory/red-green` and `factory/test-integrity` commit statuses.
  *
  * Runs in the target checkout at the PR head with `origin/<base>` fetched.
@@ -48,7 +48,7 @@ const install = (cwd: string): void => {
 
 /** Checks out the base tip, overlays the head's test files, runs just those. */
 const runOnBase = (testFiles: readonly string[]): TestResult => {
-  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-base-"));
+  const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "merge-gate-base-"));
   sh(`git worktree add --detach "${baseDir}" "origin/${baseRef}"`);
   try {
     for (const file of testFiles) {
@@ -88,7 +88,7 @@ const main = (): void => {
   }
   const redGreen = redGreenVerdict(plan, results);
 
-  writeJson("gate.json", {
+  writeJson("merge-gate.json", {
     prNumber,
     baseRef,
     mergeBase,

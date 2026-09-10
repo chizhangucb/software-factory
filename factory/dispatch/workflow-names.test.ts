@@ -27,6 +27,19 @@ const AGENT_WORKFLOWS: Record<string, RunRole> = {
 const OLD_NAMES = ["implement.yml", "review.yml", "implement-pr.yml", "audit.yml"];
 
 /**
+ * The reusable workflows that run no model, and the role the reconciler must read
+ * from each. `roleFromJobs` keys on the called job's own name, so a job renamed
+ * without its `JOB_ROLES` key reads as no role at all and the run drops out of the
+ * reconciler's view silently. #155 renamed the `gate` job to `merge-gate` and this
+ * is the wiring that had to move with it.
+ */
+const JOB_WORKFLOWS: Record<string, RunRole> = {
+  "dispatch.yml": "dispatch",
+  "merge-gate.yml": "merge-gate",
+  "update-branch.yml": "update-branch",
+};
+
+/**
  * The group each agent job must be serialised on: its subject, the issue number
  * on the ticket side and the PR number on the PR side (#149). The role is not
  * part of the key, so a review and an implement-pr run on one PR share a group
@@ -148,6 +161,18 @@ test("every agent job is serialised on its subject number, and no other group is
   // number, which is what a lane was, so nothing can queue behind an unrelated run.
   for (const other of blocks.filter((b) => !agentJobs.includes(b) && b !== counter)) {
     assert.doesNotMatch(other.group, /\$\{\{/, `${other.file}:${other.job} keys its group on an expression, not a fixed resource name`);
+  }
+});
+
+test("the reconciler reads a role from each model-free workflow's own job", () => {
+  for (const [file, role] of Object.entries(JOB_WORKFLOWS)) {
+    assert.ok(exists(file), `${file} is missing`);
+    const ids = jobIdsOf(read(file));
+    assert.equal(
+      roleFromJobs(ids.map((name) => ({ name: `caller / ${name}`, conclusion: null }))),
+      role,
+      `${file} jobs read as ${role}`,
+    );
   }
 });
 

@@ -1,7 +1,7 @@
 # Reusable: the v0 stand-in for a merge queue (ADR 0003, fallback amendment).
 # When main moves, or a verdict passes, every open PR with auto-merge enabled
 # and a stale head gets GitHub's update-branch call with FACTORY_PAT, so the
-# target's CI and the gate re-run on the new head and auto-merge lands it on
+# target's CI and the merge gate re-run on the new head and auto-merge lands it on
 # the latest main. No agent runs here. Called from a target repo's thin
 # factory workflow on `push` to main and on the `repository_dispatch` event
 # `factory-update-branch` that the review workflow sends on a passing verdict.

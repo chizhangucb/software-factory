@@ -5,10 +5,10 @@
  * factory/test-integrity, anything else posted there) and check runs (the
  * target's own Actions CI) are read together. Check runs that belong to the
  * factory's own caller workflow are not the target's CI: their failures are
- * ignored (the gate speaks through its statuses), but one still in progress
+ * ignored (the merge gate speaks through its statuses), but one still in progress
  * means the head is not judged yet, so it counts as pending. This very run
- * is skipped. The gate contexts are expected on every factory PR: until
- * they appear they are pending too, since the gate run may still be queued
+ * is skipped. The merge gate contexts are expected on every factory PR: until
+ * they appear they are pending too, since the merge gate run may still be queued
  * when the review starts.
  */
 import { NO_CRITERIA_DESCRIPTION } from "../lib/verdict";
@@ -44,19 +44,19 @@ export interface CheckState {
 }
 
 export const VERDICT_CONTEXT = "factory/verdict";
-export const GATE_CONTEXTS: readonly string[] = ["factory/red-green", "factory/test-integrity"];
+export const MERGE_GATE_CONTEXTS: readonly string[] = ["factory/red-green", "factory/test-integrity"];
 
 const FAILED_STATUS_STATES = new Set(["failure", "error"]);
 const FAILED_CONCLUSIONS = new Set(["failure", "timed_out"]);
 
-/** Gate first, then the target's CI, then the verdict: the log is the more useful output. */
-const KIND_ORDER: readonly FailureKind[] = ["gate", "ci", "verdict", "implement"];
+/** Merge gate first, then the target's CI, then the verdict: the log is the more useful output. */
+const KIND_ORDER: readonly FailureKind[] = ["merge-gate", "ci", "verdict", "implement"];
 
 export const runIdFromUrl = (url: string | null | undefined): string | undefined =>
   url?.match(/\/actions\/runs\/(\d+)(?:[/?#]|$)/)?.[1];
 
 const statusKind = (context: string): FailureKind =>
-  context === VERDICT_CONTEXT ? "verdict" : GATE_CONTEXTS.includes(context) ? "gate" : "ci";
+  context === VERDICT_CONTEXT ? "verdict" : MERGE_GATE_CONTEXTS.includes(context) ? "merge-gate" : "ci";
 
 export const evaluateChecks = (input: {
   readonly statuses: readonly CommitStatus[];
@@ -79,7 +79,7 @@ export const evaluateChecks = (input: {
     }
   }
 
-  for (const context of GATE_CONTEXTS) {
+  for (const context of MERGE_GATE_CONTEXTS) {
     if (!input.statuses.some((status) => status.context === context)) pending.push(`${context} (not posted yet)`);
   }
 
@@ -156,19 +156,19 @@ export const summariseFailures = (failures: readonly CheckFailure[]): string =>
     .map((f) => `${f.kind} ${f.name}${f.description ? ` (${f.description})` : ""}`)
     .join("; ");
 
-export interface GateArtifact {
+export interface MergeGateArtifact {
   readonly redGreen?: { readonly ok?: boolean; readonly reasons?: readonly string[]; readonly exitCodes?: { base: number; head: number } };
   readonly testIntegrity?: { readonly ok?: boolean; readonly reasons?: readonly string[] };
 }
 
 /**
- * The gate's failing output, from the artifact its run uploaded: gate.json
+ * The merge gate's failing output, from the artifact its run uploaded: merge-gate.json
  * carries each check's reasons, the red-green logs show the test runs on
- * main and on the head. The gate job itself fails on a one-line jq step, so
+ * main and on the head. The merge gate job itself fails on a one-line jq step, so
  * its failed-step log says nothing.
  */
-export const renderGateOutput = (
-  gate: GateArtifact,
+export const renderMergeGateOutput = (
+  mergeGate: MergeGateArtifact,
   logs: { readonly base?: string; readonly head?: string },
   tailLines = 40,
 ): string => {
@@ -177,15 +177,15 @@ export const renderGateOutput = (
   const check = (name: string, result: { ok?: boolean; reasons?: readonly string[] } | undefined): string[] =>
     result
       ? [`${name}: ${result.ok ? "pass" : "fail"}`, ...(result.reasons ?? []).map((r) => `- ${r}`)]
-      : [`${name}: (not in gate.json)`];
-  const lines = [...check("factory/red-green", gate.redGreen), ...check("factory/test-integrity", gate.testIntegrity)];
-  if (gate.redGreen?.exitCodes) {
+      : [`${name}: (not in merge-gate.json)`];
+  const lines = [...check("factory/red-green", mergeGate.redGreen), ...check("factory/test-integrity", mergeGate.testIntegrity)];
+  if (mergeGate.redGreen?.exitCodes) {
     lines.push(
       "",
-      `Changed tests on main (expected to fail), exit ${gate.redGreen.exitCodes.base}:`,
+      `Changed tests on main (expected to fail), exit ${mergeGate.redGreen.exitCodes.base}:`,
       tail(logs.base),
       "",
-      `Changed tests on the head (expected to pass), exit ${gate.redGreen.exitCodes.head}:`,
+      `Changed tests on the head (expected to pass), exit ${mergeGate.redGreen.exitCodes.head}:`,
       tail(logs.head),
     );
   }

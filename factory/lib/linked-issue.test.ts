@@ -34,7 +34,7 @@ test("a padded reference is a number to one reader and the body's own digits to 
   // `issuesClosedBy` returns the number, `linkedIssueNumber` returns what the
   // body wrote. This pins the split rather than blessing it. Both halves
   // answered this way before they shared a pattern, so sharing one changed
-  // nothing here, and `gate.ts` only passes the string to `gh`. But
+  // nothing here, and `merge-gate.ts` only passes the string to `gh`. But
   // `lib/preflight.ts` and `retry/retry.ts` compare it against a canonical
   // number, and "007" is not "7", so a PR body written that way would be
   // matched by the dispatcher and missed by those two. Nothing the factory

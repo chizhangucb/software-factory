@@ -124,7 +124,7 @@ jobs:
           node-version: ${{ inputs.node_version }}
 
       - name: Preflight existing PR
-        # The same closing-keyword test as the reviewer, the gate, and the retry handler
+        # The same closing-keyword test as the reviewer, the merge gate, and the retry handler
         # (factory/lib/linked-issue.ts). Builtins only: runs before the engine is installed.
         if: steps.shape.outputs.proceed == 'true'
         id: preflight

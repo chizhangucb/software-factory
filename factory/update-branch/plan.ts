@@ -4,9 +4,15 @@
  *
  * v0 stand-in for a merge queue (ADR 0003, fallback amendment): GitHub's
  * queue is unavailable on user-owned repos, so the factory requires
- * up-to-date branches and calls the update-branch API itself. Pure: PR
- * state in, an action per PR out. No LLM anywhere in this path; a conflict
- * the API cannot resolve is handed to the implementer (agent-implement-pr.yml).
+ * up-to-date branches and calls the update-branch API itself. No LLM
+ * anywhere in this path; a conflict the API cannot resolve is handed to the
+ * implementer (agent-implement-pr.yml).
+ *
+ * Every decision update-branch takes is here, and every one of them is pure:
+ * PR state in, an action per PR out, and the answer to the one call the
+ * script makes in, which of the two documented 422s it was out
+ * (`updateRefusal`). The script spawns and writes; it decides nothing, so
+ * nothing it decides goes untested.
  *
  * Imports use explicit `.ts` so the job can run on bare
  * `node --experimental-strip-types` without installing the engine.
@@ -150,6 +156,13 @@ const REFUSALS: readonly (readonly [string, UpdateRefusal])[] = [
  * none), and stderr is that answer, the HTTP status code and the message
  * GitHub sent. The message on the error is prose for a human reading a job
  * log, and no decision is taken from it (#120).
+ *
+ * The HTTP status is asked for as `gh` prints it, `(HTTP 422)`, rather than
+ * as a bare 422 that a PR number or a sha would also satisfy. If `gh` ever
+ * renders it differently a real refusal stops being recognised here: the call
+ * is rethrown, the run goes red, and the next run's scan reads the PR as
+ * CONFLICTING and hands it off through `planConflict` anyway. Loud and
+ * self-repairing, which is the direction to be wrong in.
  */
 export const updateRefusal = (failure: GhFailure): UpdateRefusal | undefined => {
   if (failure.status === null) return undefined;

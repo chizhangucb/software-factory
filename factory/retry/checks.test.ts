@@ -152,8 +152,8 @@ test("renderGateOutput lists each check's reasons and the tails of the red-green
 });
 
 test("renderGateOutput without a red-green run shows only the verdicts", () => {
-  const out = renderGateOutput({ testIntegrity: { ok: false, reasons: ["test/a.test.js was deleted"] } }, {});
-  assert.equal(out, "factory/red-green: (not in gate.json)\nfactory/test-integrity: fail\n- test/a.test.js was deleted");
+  const out = renderGateOutput({ testIntegrity: { ok: false, reasons: ["new skip/only/todo marker at test/a.test.js:3: test.skip(\"x\")"] } }, {});
+  assert.equal(out, "factory/red-green: (not in gate.json)\nfactory/test-integrity: fail\n- new skip/only/todo marker at test/a.test.js:3: test.skip(\"x\")");
 });
 
 test("a verdict that failed for want of acceptance criteria is not worth a retry", () => {

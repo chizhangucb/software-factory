@@ -5,7 +5,7 @@
  *
  * Runs in the target checkout at the PR head with `origin/<base>` fetched.
  * The decisions live in pure modules next to this file; this script only
- * gathers inputs (diff, linked ticket body) and runs tests.
+ * gathers inputs (diff, linked ticket number) and runs tests.
  */
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -15,7 +15,6 @@ import { spawnSync } from "node:child_process";
 import { gh, required, safeSh, sh, writeJson, writeText } from "../agent-workflows/shared/common";
 import { linkedIssueNumber } from "../lib/linked-issue";
 import { parseNameStatus, type ChangedFile } from "./changed-files";
-import { parseRemoves } from "./removes";
 import { redGreenPlan, redGreenVerdict, type RedGreenResults, type TestResult } from "./red-green";
 import { checkTestIntegrity } from "./test-integrity";
 
@@ -24,13 +23,7 @@ const baseRef = required("BASE_REF");
 const testCommand = process.env.TEST_COMMAND?.trim() || "node --test";
 const installCommand = process.env.INSTALL_COMMAND?.trim() ?? "npm ci";
 
-const linkedIssueBody = (): { issueNumber: string; body: string | null } => {
-  const prBody = gh(["pr", "view", prNumber, "--json", "body", "--jq", ".body"]);
-  const issueNumber = linkedIssueNumber(prBody);
-  if (!issueNumber) return { issueNumber: "", body: null };
-  const body = safeSh(`gh issue view ${issueNumber} --json body --jq .body`);
-  return { issueNumber, body };
-};
+const linkedIssue = (): string => linkedIssueNumber(gh(["pr", "view", prNumber, "--json", "body", "--jq", ".body"]));
 
 const run = (cwd: string, cmd: string, args: string[] = []): TestResult => {
   const proc = spawnSync("sh", ["-c", `${cmd} "$@"`, "sh", ...args], {
@@ -79,12 +72,11 @@ const main = (): void => {
   const diff = testPaths.length
     ? sh(`git diff "${mergeBase}" HEAD -- ${testPaths.map((p) => `"${p}"`).join(" ")}`)
     : "";
-  const issue = linkedIssueBody();
-  const removes = issue.body === null ? null : parseRemoves(issue.body);
+  const issueNumber = linkedIssue();
 
-  const integrity = checkTestIntegrity({ files, diff, removes });
+  const integrity = checkTestIntegrity({ files, diff });
 
-  const plan = redGreenPlan(files, removes);
+  const plan = redGreenPlan(files);
   let results: RedGreenResults | undefined;
   if (plan.run) {
     const base = runOnBase(plan.testFiles);
@@ -100,8 +92,7 @@ const main = (): void => {
     prNumber,
     baseRef,
     mergeBase,
-    issueNumber: issue.issueNumber,
-    removes,
+    issueNumber,
     files,
     redGreen: { ...redGreen, plan, exitCodes: results && { base: results.base.exitCode, head: results.head.exitCode } },
     testIntegrity: integrity,
@@ -118,9 +109,12 @@ const main = (): void => {
       "factory/test-integrity",
       integrity.ok,
       integrity.reasons,
-      issue.issueNumber
-        ? `ticket #${issue.issueNumber}, Removes: ${removes === null ? "no section, strict gate" : removes.join("; ") || "empty section"}`
-        : "no linked ticket (`Closes #N` missing from the PR body), strict gate",
+      [
+        issueNumber ? `ticket #${issueNumber}` : "no linked ticket (`Closes #N` missing from the PR body)",
+        integrity.deletedTests.length
+          ? `deleted test files, for the reviewer and the audit to judge against the ticket: ${integrity.deletedTests.join(", ")}`
+          : "no test file deleted",
+      ].join("; "),
     ),
   ].join("\n");
   console.log(summary);

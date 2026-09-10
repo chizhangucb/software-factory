@@ -1,9 +1,21 @@
-import { isTestFile, type ChangedFile } from "./changed-files";
-import { uncoveredDeletedTests } from "./removes";
+/**
+ * Fails a PR only for a silenced test: a new `skip`, `only` or `todo` marker
+ * on an added line of a test file. A deleted test file is reported, never
+ * refused. Whether a deletion was owed is a question about the ticket, and
+ * the reviewer and the audit read the ticket; this check is required in a
+ * target's ruleset, so a wrong refusal here has no judge after it, while a
+ * wrong acceptance meets both.
+ */
+import { deletedTestFiles, isTestFile, type ChangedFile } from "./changed-files";
 
 export interface Verdict {
   readonly ok: boolean;
   readonly reasons: string[];
+}
+
+export interface IntegrityVerdict extends Verdict {
+  /** Test files the diff removes, listed for the reviewer and the audit; never a reason to fail. */
+  readonly deletedTests: string[];
 }
 
 export interface Marker {
@@ -116,35 +128,12 @@ export const findNewMarkers = (diff: string): Marker[] => {
   return markers;
 };
 
-/** Test files the diff removes: deleted, or renamed to a non-test path. */
-export const deletedTestFiles = (files: readonly ChangedFile[]): string[] =>
-  files.flatMap((f) => {
-    if (f.status === "D" && f.kind === "test") return [f.path];
-    if (f.status === "R" && f.oldPath && isTestFile(f.oldPath) && !isTestFile(f.path)) return [f.oldPath];
-    return [];
-  });
-
 export interface IntegrityInput {
   readonly files: readonly ChangedFile[];
   readonly diff: string;
-  /** Subjects from the ticket's `## Removes` section, or null when it has none. */
-  readonly removes: readonly string[] | null;
 }
 
-export const checkTestIntegrity = ({ files, diff, removes }: IntegrityInput): Verdict => {
-  const reasons: string[] = [];
-  const deleted = deletedTestFiles(files);
-  if (removes === null) {
-    for (const p of deleted) {
-      reasons.push(`deleted test file ${p}; the linked ticket has no \`## Removes\` section`);
-    }
-  } else {
-    for (const p of uncoveredDeletedTests(deleted, removes)) {
-      reasons.push(`deleted test file ${p} is not covered by any Removes subject (${removes.join("; ") || "none listed"})`);
-    }
-  }
-  for (const m of findNewMarkers(diff)) {
-    reasons.push(`new skip/only/todo marker at ${m.path}:${m.line}: ${m.text}`);
-  }
-  return { ok: reasons.length === 0, reasons };
+export const checkTestIntegrity = ({ files, diff }: IntegrityInput): IntegrityVerdict => {
+  const reasons = findNewMarkers(diff).map((m) => `new skip/only/todo marker at ${m.path}:${m.line}: ${m.text}`);
+  return { ok: reasons.length === 0, reasons, deletedTests: deletedTestFiles(files) };
 };

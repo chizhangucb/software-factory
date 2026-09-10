@@ -76,12 +76,12 @@ The prompt forbids placeholders in plain words; the gate (#13) and the reviewer 
 
 ## Gate
 
-`gate.yml` runs no agent. It reads the PR diff and the linked ticket (`Closes #N` in the PR body) and posts two commit statuses on the PR head.
+`gate.yml` runs no agent. It reads the PR diff, notes the linked ticket's number (`Closes #N` in the PR body) for its summary, and posts two commit statuses on the PR head. Neither check reads the ticket's body: whether a deletion was owed is the reviewer's and the audit's judgment, and a wrong refusal on a required check has no judge after it.
 
 - `factory/red-green`: the PR's new or changed test files (`*.test.*`, `*.spec.*`, `_test.go`, `test_*.py`, anything under `__tests__/`) are copied onto a checkout of the base branch and run alone. They must fail there and pass on the head. A helper or fixture under `test/` is a source change, not a test.
 
-  It passes vacuously twice over: when the diff changes no source file, and when the ticket has a `## Removes` section and the diff changes no tests. Not source: a doc, a dotfile anywhere, and a data or manifest file (`.yml`, `.json`, `.toml`, `.lock`, and the rest of `CONFIG_EXTENSIONS`) at the repo root or under a dot directory. The same extension nested deeper is data the code reads, and stays source. Outside those two passes, a source change with no test change fails.
-- `factory/test-integrity`: fails on a deleted test file and on a new `skip`, `only` or `todo` marker in a test file. A ticket with a `## Removes` section may delete the tests of the subjects it lists, one per list item, matched by name (`- \`src/slugify.js\`` covers `test/slugify.test.js`), in any separator style, so `- The view-log module` covers `test/viewlog.test.mjs`. Whole names, though: `view` alone does not cover `viewlog`, and neither `the view log module` nor `the view.log module` does.
+  It passes vacuously twice over: when the diff changes no source file, and when the diff deletes a source or test file (a test renamed out of the test tree counts; a deleted doc or config file does not), while adding or changing no test, with a reason that says nothing was proved. Not source: a doc, a dotfile anywhere, and a data or manifest file (`.yml`, `.json`, `.toml`, `.lock`, and the rest of `CONFIG_EXTENSIONS`) at the repo root or under a dot directory. The same extension nested deeper is data the code reads, and stays source. Outside those two passes, a source change with no test change fails.
+- `factory/test-integrity`: fails on a new `skip`, `only` or `todo` marker in a test file. A deleted test file, or a test renamed out of the test tree, never fails it; the check lists each one in its summary and in `gate.json` as `deletedTests`, for the reviewer and the audit to judge against the ticket.
 
 ## Reviewer and verdict
 

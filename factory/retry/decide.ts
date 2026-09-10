@@ -188,7 +188,7 @@ export const latestRetryContext = (
 const KIND_GUIDANCE: Record<FailureKind, string> = {
   implement:
     "The output is the previous run's failure reason and the tail of its log. Find what stopped it and finish the ticket this time; do not repeat the same path.",
-  gate: "The output is a failing check's log. Make that check pass: a new test must fail on main and pass here, and no test may be deleted, skipped, or narrowed.",
+  gate: "The output is a failing check's log. Make that check pass: a new test must fail on main and pass here, a deleted test must be one the ticket removes, and no test may be skipped or narrowed.",
   ci: "The output is the target's own CI log. Make the CI pass without weakening it.",
   verdict:
     "The output is the reviewer's checklist. Every unticked criterion must be met, with evidence visible in the diff, before you finish.",

@@ -10,6 +10,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
+- **Removals**: a ticket whose work removes something says so plainly in its body, because the reviewer and the audit judge every deleted test against what the ticket says it removes.
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 

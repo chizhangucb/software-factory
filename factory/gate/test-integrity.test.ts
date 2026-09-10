@@ -19,38 +19,35 @@ test("a clean diff passes", () => {
   const verdict = checkTestIntegrity({
     files: parseNameStatus("A\ttest/truncate.test.js\nM\tsrc/truncate.js\n"),
     diff: diffOf("test/truncate.test.js", ['test("truncates", () => {});']),
-    removes: null,
   });
-  assert.deepEqual(verdict, { ok: true, reasons: [] });
+  assert.deepEqual(verdict, { ok: true, reasons: [], deletedTests: [] });
 });
 
-test("a deleted test file fails without a Removes section", () => {
+test("a deleted test file passes, whatever the ticket holds, and is listed as information", () => {
   const verdict = checkTestIntegrity({
     files: parseNameStatus("D\ttest/slugify.test.js\nD\tsrc/slugify.js\n"),
     diff: "",
-    removes: null,
   });
-  assert.equal(verdict.ok, false);
-  assert.match(verdict.reasons[0], /deleted test file test\/slugify\.test\.js/);
-  assert.match(verdict.reasons[0], /no `## Removes` section/);
+  assert.deepEqual(verdict, { ok: true, reasons: [], deletedTests: ["test/slugify.test.js"] });
 });
 
-test("a deleted test file passes when a Removes subject covers it, fails when none does", () => {
-  const files = parseNameStatus("D\ttest/slugify.test.js\nD\tsrc/slugify.js\n");
-  assert.equal(checkTestIntegrity({ files, diff: "", removes: ["`src/slugify.js`"] }).ok, true);
-  const strict = checkTestIntegrity({ files, diff: "", removes: ["the truncate helper"] });
-  assert.equal(strict.ok, false);
-  assert.match(strict.reasons[0], /not covered by any Removes subject/);
-});
-
-test("a test renamed out of the test tree counts as deleted", () => {
+test("a test renamed out of the test tree is listed as deleted, and still passes", () => {
   const verdict = checkTestIntegrity({
     files: parseNameStatus("R100\ttest/slugify.test.js\tsrc/slugify.old.js\n"),
     diff: "",
-    removes: null,
+  });
+  assert.equal(verdict.ok, true);
+  assert.deepEqual(verdict.deletedTests, ["test/slugify.test.js"]);
+});
+
+test("a deleted test file does not excuse a new marker", () => {
+  const verdict = checkTestIntegrity({
+    files: parseNameStatus("D\ttest/old.test.js\nM\ttest/a.test.js\n"),
+    diff: diffOf("test/a.test.js", ['test.skip("later", () => {});']),
   });
   assert.equal(verdict.ok, false);
-  assert.match(verdict.reasons[0], /deleted test file test\/slugify\.test\.js/);
+  assert.match(verdict.reasons[0], /new skip\/only\/todo marker at test\/a\.test\.js:2/);
+  assert.deepEqual(verdict.deletedTests, ["test/old.test.js"]);
 });
 
 test("new skip, only, and todo markers in test files fail, each reported with its line", () => {
@@ -186,7 +183,6 @@ test("markers outside test files and on unchanged lines are ignored", () => {
   const verdict = checkTestIntegrity({
     files: parseNameStatus("M\tsrc/options.js\nM\ttest/b.test.js\n"),
     diff,
-    removes: null,
   });
   assert.equal(verdict.ok, true);
 });

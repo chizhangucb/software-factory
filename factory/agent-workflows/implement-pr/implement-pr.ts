@@ -19,6 +19,11 @@
  * - trusted authors over the PR comments, the review threads, the linked issue
  *   with its comments, and the retry marker: story 27, ADR 0002 amendment.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
+ * - the implementer model resolved from the linked ticket's labels, which the PR
+ *   context above already carries, and the log line naming which subject they
+ *   came from: #10's rule is a label on the ticket, and reading the PR's own list
+ *   let a follow-up run on the same work pick a model the ticket never asked for
+ *   (#119). A PR that links no ticket runs on the configured default.
  * - `prompt.md` keeps his shape, his four outcomes for a thread and his
  *   prohibitions, plus: the CONFLICT and RETRY placeholders (#19); the
  *   no-credentials line (the agent gets no GitHub token, ADR 0002); his
@@ -47,7 +52,6 @@ import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 import { runWithRotation } from "../../lib/accounts";
 import {
   fail,
-  gh,
   required,
   writeJson,
   writeText,
@@ -97,11 +101,12 @@ try {
   const context = fetchPullRequestContext(PR_NUMBER, policy);
   console.log(describeDropped(context.dropped));
 
-  const labels = JSON.parse(
-    gh(["pr", "view", PR_NUMBER, "--json", "labels", "--jq", "[.labels[].name]"]),
-  ) as string[];
-  const { model, source } = resolveRoleModel("implementer", IMPLEMENTER_MODEL, labels);
-  console.log(`Implementer model: ${model} (from ${source}).`);
+  // #10's rule is a label on the ticket, so the labels come off the linked
+  // ticket the context above already read, never off this PR (#119). A PR that
+  // links no ticket has nothing to override the configured default with.
+  const { model, source } = resolveRoleModel("implementer", IMPLEMENTER_MODEL, context.issueLabels);
+  const labelSubject = context.issueNumber ? `ticket #${context.issueNumber}` : "no linked ticket";
+  console.log(`Implementer model: ${model} (from ${source}, labels from ${labelSubject}).`);
   // A retry (#16) carries the failing verdict or check log on the linked ticket.
   const retrySection = retrySectionForRun(context.issueNumber || undefined, policy);
   const conflicts = detectConflicts();

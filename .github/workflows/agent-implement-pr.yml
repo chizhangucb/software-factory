@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       implementer_model:
-        description: Default model for the implementer. A model:<name> label on the PR overrides it for that run.
+        description: Default model for the implementer. A model:<name> label on the PR's linked ticket overrides it for that run.
         type: string
         default: claude-opus-5
       per_account_slots:

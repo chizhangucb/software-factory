@@ -115,6 +115,15 @@ test("the caller subscribes to exactly the issue events its conditions answer", 
   assert.deepEqual([...new Set(ISSUE_EVENTS.map((event) => event.action))].sort(), subscribed);
 });
 
+test("pull_request_target stays on labeled alone, because its jobs read a label with no action clause", () => {
+  // `review` and `implement-pr` are guarded by `github.event.label.name` and
+  // nothing else, so the narrow type list is their whole guard. Widen it to
+  // `unlabeled` and taking `agent:review` off a PR would start a review run;
+  // widen it to `assigned` and the clause would read a label that is not there.
+  // Anything added here needs an action clause on both jobs first.
+  assert.deepEqual(typesOf(template, "pull_request_target"), ["labeled"]);
+});
+
 test("removing a blocking label or an assignee wakes the dispatcher and nothing else", () => {
   // Every job, not only the dispatcher: widening the trigger set delivers the
   // new events to all of them, and a job whose condition reads a label without

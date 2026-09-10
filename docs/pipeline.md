@@ -12,6 +12,7 @@ The reasoning behind README's six onboarding steps, plus the caveats a target on
 - **One `FACTORY_PAT` covers every target in v0** (#20). Per-target tokens buy nothing while the same machine and the same workflows hold them all; split when a target is owned by someone else.
 - **The label vocabulary `scripts/onboard.sh` creates**: `ready-for-agent`, `ready-for-human`, `needs-triage`, `agent:*`, `needs-human`, `factory:retry-1`.
 - **A called workflow cannot exceed its caller's permissions**, so a target onboarded before `statuses: write`, `checks: read` and `actions: read` were in `templates/factory.yml` needs them added by hand.
+- **The trigger set lives in the caller, so it drifts silently.** A target still subscribing to `closed` and `labeled` alone keeps working and just waits up to ten minutes for the heartbeat instead of dispatching the moment a human removes a blocker. Nothing in the factory can see the target's copy, so re-copy the `on:` block and the `dispatch` job's `if:` together.
 
 ## Caller inputs
 

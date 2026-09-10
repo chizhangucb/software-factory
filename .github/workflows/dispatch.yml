@@ -66,10 +66,13 @@ jobs:
     # GitHub keeps one running plus one pending run per group and cancels older
     # pending ones; safe for the dispatch step, every run is a full scan, so the
     # newest run sees everything the cancelled ones would have. It costs the
-    # reconcile step below, which issue-event runs skip: a pending sweep that a
-    # newer issue event displaces loses that interval's repairs. The deadlines
-    # are 15 to 30 minutes against a heartbeat every 10, so the next sweep still
-    # finds the stranding.
+    # reconcile step below, which issue-event runs skip: GitHub cancels the
+    # older pending run every time a newer one queues, so a pending sweep is
+    # displaced for as long as issue events keep arriving faster than a run
+    # takes, not for one interval. At the label churn one ticket makes, a few
+    # events over its whole life, that is an interval or two against deadlines
+    # of 15 to 30 minutes, so the next sweep still finds the stranding. A bulk
+    # label edit across many tickets is the case that could outlast them.
     concurrency:
       group: factory-dispatch
       cancel-in-progress: false

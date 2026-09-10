@@ -204,3 +204,39 @@ test("every workflow step that hands over the accounts file masks every token fi
   }
   assert.ok(writers > 0, `no workflow writes ${ACCOUNTS_FILE_VAR}; this check would pass vacuously`);
 });
+
+/**
+ * Every line the rotation loop logs. The `CLAUDE_ACCOUNT_<n>` label is
+ * identifying free text an operator chose, and these lines reach two
+ * published surfaces on a public target: the world-readable Actions log, and
+ * the escalation comment the retry handler posts, which attaches the failed
+ * run's step log. So no line may carry the label; the index names the account
+ * instead (#126). The first account is scripted to rate-limit, so the
+ * configured line, both attempt lines, the rate-limit line and the finished
+ * line are all exercised.
+ */
+test("runOnAccounts names accounts by index, never by the CLAUDE_ACCOUNT_<n> label", async () => {
+  const { createLog } = fakeLogs();
+  const lines: string[] = [];
+  const identifying: readonly AccountToken[] = [
+    { index: 1, label: "operator@example.com", token: "tok-1" },
+    { index: 2, label: "operator@example.com - second", token: "tok-2" },
+  ];
+  const outcome = await runOnAccounts({
+    name: "t",
+    accounts: identifying,
+    agentFor: (a) => a.token,
+    run: scripted({ "tok-1": fixture("rate-limit-session"), "tok-2": fixture("success") }),
+    createLog,
+    log: (line) => lines.push(line),
+  });
+  assert.equal(outcome.ok, true);
+  assert.ok(lines.length >= 4, `expected the loop to log; got ${lines.length} line(s)`);
+  for (const line of lines) {
+    assert.doesNotMatch(line, /operator@example\.com/, `a logged line carries the label: ${line}`);
+  }
+  assert.ok(
+    lines.some((line) => line.includes("account 1")),
+    `no line names account 1 by index: ${lines.join(" | ")}`,
+  );
+});

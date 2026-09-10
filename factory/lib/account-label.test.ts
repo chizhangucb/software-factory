@@ -1,23 +1,23 @@
 /**
  * The `CLAUDE_ACCOUNT_<n>` label names an account for the operator, and a
- * public target's Actions log is world-readable, so the factory prints the
- * account index and never the label (#126). The surfaces are the four agent
- * workflows' `Enumerate accounts` step and every line `runOnAccounts` logs:
- * the retry handler attaches a failed run's step log to the escalation
- * comment it posts on the target, so the job log is a published surface too.
+ * public target's Actions log is world-readable, so the workflow that
+ * enumerates the accounts prints the index and never the label (#126). The
+ * other half of this rule, every line the rotation loop logs, is tested in
+ * `accounts.test.ts` where the loop's own fixtures live.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { test } from "node:test";
-
-import { runOnAccounts } from "./accounts";
-import { type ResultEvent, type RunLog, runFailure } from "./run-log";
-import type { AccountToken } from "./rotation";
 
 const workflowsDir = new URL("../../.github/workflows/", import.meta.url);
 
-/** The four workflows that enumerate accounts before running a model. */
+/**
+ * The four workflows that enumerate accounts before running a model. Listed
+ * here rather than shared with `dispatch/workflow-names.test.ts`, which
+ * happens to name the same four: that test asserts what the dispatcher can
+ * reach, this one what the enumerate step prints, and neither expectation
+ * should move because the other did.
+ */
 const AGENT_WORKFLOWS = [
   "agent-implement.yml",
   "agent-implement-pr.yml",
@@ -25,81 +25,46 @@ const AGENT_WORKFLOWS = [
   "agent-audit.yml",
 ];
 
-const enumerateEcho = (workflow: string): string => {
-  const source = fs.readFileSync(new URL(workflow, workflowsDir), "utf8");
-  const line = source.split("\n").find((l) => l.includes("account(s) configured"));
-  assert.ok(line, `${workflow} has no "account(s) configured" line to check`);
-  return line;
+/**
+ * The whole `Enumerate accounts` step, from its `- name:` to the next step's.
+ * The step is checked entire rather than by its one known echo, so a label
+ * put back on a second line, or written as `$vars["CLAUDE_ACCOUNT_\($n)"]`
+ * rather than as `.label`, is caught too.
+ */
+const enumerateStep = (workflow: string): string[] => {
+  const lines = fs.readFileSync(new URL(workflow, workflowsDir), "utf8").split("\n");
+  const start = lines.findIndex((l) => /^\s*- name: Enumerate accounts\s*$/.test(l));
+  assert.ok(start >= 0, `${workflow} has no "Enumerate accounts" step`);
+  const indent = lines[start].indexOf("- name:");
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((l) => l.slice(indent).startsWith("- name:"));
+  return rest.slice(0, end === -1 ? rest.length : end);
 };
+
+/** The lines of the step that print. Only these reach the job log. */
+const printing = (step: string[]): string[] =>
+  step.filter((line) => /\b(echo|printf)\b/.test(line));
 
 test("the Enumerate accounts step logs the account index and not the label", () => {
   for (const workflow of AGENT_WORKFLOWS) {
-    const line = enumerateEcho(workflow);
-    assert.ok(line.includes(".index"), `${workflow} must log the account index: ${line}`);
+    const step = enumerateStep(workflow);
+    const printed = printing(step);
     assert.ok(
-      !line.includes(".label"),
-      `${workflow} logs the CLAUDE_ACCOUNT_<n> label, which a public target publishes: ${line}`,
+      printed.some((line) => line.includes("account(s) configured") && line.includes(".index")),
+      `${workflow} must log the account index: ${printed.join("\n")}`,
+    );
+    for (const line of printed) {
+      assert.doesNotMatch(
+        line,
+        /\.label|CLAUDE_ACCOUNT_/,
+        `${workflow} prints the CLAUDE_ACCOUNT_<n> label, which a public target publishes: ${line}`,
+      );
+    }
+    // The step still reads the variable: it belongs in the on-runner accounts
+    // file, which is where the label may live. Only printing it is the leak.
+    assert.ok(
+      step.some((line) => line.includes("CLAUDE_ACCOUNT_")),
+      `${workflow} no longer reads CLAUDE_ACCOUNT_<n> into the accounts file at all`,
     );
   }
-});
-
-const event = (name: string): ResultEvent =>
-  JSON.parse(
-    fs.readFileSync(
-      path.join(import.meta.dirname, "fixtures", "result-events", `${name}.json`),
-      "utf8",
-    ),
-  ) as ResultEvent;
-
-/** A run log that touches no disk; only the lines the loop logs are under test. */
-const silentLog = (): RunLog => {
-  const resultEvents: ResultEvent[] = [];
-  return {
-    logging: { type: "file", path: "/dev/null/x.log" },
-    logPath: "/dev/null/x.log",
-    resultEvents,
-    record: (event) => resultEvents.push(event),
-    wallMs: () => 0,
-    finish: () => runFailure(resultEvents),
-  };
-};
-
-/**
- * Every line the rotation loop logs. The label is identifying free text an
- * operator chose, so no line may carry it; the index names the account
- * instead. The first account is scripted to rate-limit, so the configured
- * line, both attempt lines, the rate-limit line and the finished line are all
- * exercised.
- */
-test("runOnAccounts names accounts by index, never by the CLAUDE_ACCOUNT_<n> label", async () => {
-  const label = "operator@example.com";
-  const lines: string[] = [];
-  const accounts: readonly AccountToken[] = [
-    { index: 1, label, token: "tok-1" },
-    { index: 2, label: `${label} - second`, token: "tok-2" },
-  ];
-  const outcome = await runOnAccounts({
-    name: "t",
-    accounts,
-    agentFor: (a) => a.token,
-    run: async (agent, log) => {
-      if (agent === "tok-1") {
-        log.record(event("rate-limit-session"));
-        throw new Error("rate limited");
-      }
-      log.record(event("success"));
-      return "done";
-    },
-    createLog: silentLog,
-    log: (line) => lines.push(line),
-  });
-  assert.equal(outcome.ok, true);
-  assert.ok(lines.length >= 4, `expected the loop to log; got ${lines.length} line(s)`);
-  for (const line of lines) {
-    assert.ok(!line.includes(label), `a logged line carries the account label: ${line}`);
-  }
-  assert.ok(
-    lines.some((line) => line.includes("account 1")),
-    `no line names account 1 by index: ${lines.join(" | ")}`,
-  );
 });

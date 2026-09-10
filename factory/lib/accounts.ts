@@ -121,7 +121,7 @@ export const runOnAccounts = async <A, T>(
   const limits: string[] = [];
   log(
     `[${name}] ${accounts.length} account(s) configured: ` +
-      accounts.map((a) => `${a.index}`).join(", "),
+      accounts.map((a) => a.index).join(", "),
   );
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

@@ -61,7 +61,7 @@ The opening paragraph said the audit runs on the strongest configured model. Not
 
 Ranking was considered and rejected on the parent spec: `agent-audit.yml` declares only `audit_model`, so ranking the three roles' models would need two more inputs; a table of aliases goes stale on every model release with a wrong-answer failure mode; and the ordering is not total in reality. No decision this file records changed, and the first-20 audit and its revert on a miss read as they did.
 
-### 2026-09-10: the gate checks only silenced tests; a deleted test is the reviewer's and the audit's to judge (#138)
+### 2026-09-09: the gate checks only silenced tests; a deleted test is the reviewer's and the audit's to judge (#138)
 
 The opening paragraph lists "no deleted, skipped, only, or todo tests" among the gate's checks. The deleted half is gone from the gate. `factory/test-integrity` fails only on a new `skip`, `only` or `todo` marker and lists deleted test files as information; `factory/red-green` reads the diff alone and passes vacuously, saying nothing was proved, when a diff deletes a source or test file and adds or changes no test; a deleted doc or config file removes nothing a test could have proved, so it excuses nothing. The reviewer prompt and the audit prompt each say the same one sentence: a deleted test is judged against what the ticket says it removes, wherever the ticket says it, and a deletion the ticket does not account for is a placeholder.
 

@@ -104,9 +104,10 @@ jobs:
       # at its own routing test command, copied from templates/routing-test-command.sh and
       # landed on the default branch. README step 1 has the whole of it.
       # test_command: ./scripts/factory-test-command.sh
-      # Optional: run once per checkout before the tests (default "npm ci", empty skips it),
-      # so whatever a second kind of test needs installed belongs here, not in test_command.
-      # install_command: npm ci && npx playwright install --with-deps chromium
+      # Optional: run once per checkout before the tests (default "npm ci", empty skips it).
+      # Whatever a second kind of test needs installed belongs here rather than in
+      # test_command, which runs once per changed test file.
+      # install_command: <this target's install, plus anything its second kind of test needs>
   audit:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged
     uses: chizhangucb/software-factory/.github/workflows/agent-audit.yml@main

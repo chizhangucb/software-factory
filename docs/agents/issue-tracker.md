@@ -9,7 +9,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`. Do it the moment the PR merges, before starting anything the ticket blocks — nothing here auto-closes on merge. PR bodies never carry a closing keyword (`closes #N`, `resolves #N`) — even prose about one fires it: the factory's own dispatcher scans open PR bodies for the same words (`issuesClosedByPrs` in `factory/dispatch/select.ts`) and skips dispatching a ticket it thinks is already covered (#122). A `blocked_by` edge clears only on the blocker's close, so a late close shows a dependent as blocked when it isn't.
+- **Close**: `gh issue close <number> --comment "..."`. Close the moment a PR merges, before starting anything the ticket blocks — nothing here auto-closes on merge, and `blocked_by` only clears on that close. Never put a closing keyword (`closes #N`, `resolves #N`, or a mention of one) in a PR body: the factory's own dispatcher reads it too and skips dispatching a ticket it thinks is already covered.
 - **Removals**: a ticket whose work removes something says so plainly in its body, because the reviewer and the audit judge every deleted test against what the ticket says it removes.
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.

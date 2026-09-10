@@ -21,7 +21,6 @@ export interface AuditPlanInput {
   readonly merged: boolean;
   readonly headRef: string;
   readonly body: string;
-  readonly limit?: number;
 }
 
 export interface AuditPlan {
@@ -32,7 +31,6 @@ export interface AuditPlan {
 }
 
 export const planAudit = (input: AuditPlanInput): AuditPlan => {
-  const limit = input.limit ?? AUDIT_LIMIT;
   const audited =
     Number.isFinite(input.audited) && input.audited > 0 ? Math.floor(input.audited) : 0;
   if (!input.merged) {
@@ -45,16 +43,16 @@ export const planAudit = (input: AuditPlanInput): AuditPlan => {
       reason: `not a factory PR (branch ${input.headRef}, no factory marker or verdict section in the body)`,
     };
   }
-  if (audited >= limit) {
+  if (audited >= AUDIT_LIMIT) {
     return {
       audit: false,
       next: audited,
-      reason: `audit limit reached: ${audited} merged factory PRs already audited, the first-${limit} audit is over`,
+      reason: `audit limit reached: ${audited} merged factory PRs already audited, the first-${AUDIT_LIMIT} audit is over`,
     };
   }
   return {
     audit: true,
     next: audited + 1,
-    reason: `merged factory PR ${audited + 1} of the first ${limit}`,
+    reason: `merged factory PR ${audited + 1} of the first ${AUDIT_LIMIT}`,
   };
 };

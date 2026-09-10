@@ -41,13 +41,8 @@ test("a PR closed without merging, or not made by the factory, is neither audite
   });
 });
 
-test("the limit is an input; a bad counter reads as zero", () => {
+test("the limit is the constant, not a caller's; a bad counter reads as zero", () => {
   assert.equal(AUDIT_LIMIT, 20);
-  assert.deepEqual(planAudit({ audited: 2, merged: true, headRef: "agent/issue-1-a", body: "", limit: 3 }), {
-    audit: true,
-    next: 3,
-    reason: "merged factory PR 3 of the first 3",
-  });
   assert.equal(planAudit({ audited: Number.NaN, merged: true, headRef: "agent/issue-1-a", body: "" }).next, 1);
   assert.equal(planAudit({ audited: -4, merged: true, headRef: "agent/issue-1-a", body: "" }).next, 1);
 });

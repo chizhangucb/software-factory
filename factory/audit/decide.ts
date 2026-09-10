@@ -3,12 +3,11 @@
  * from the environment, writes the plan to GITHUB_OUTPUT. Builtins only;
  * runs on `node --experimental-strip-types` with no install.
  *
- * The limit goes out as an output too (#121). `AUDIT_LIMIT` in plan.ts is the
- * one place 20 is written, and no workflow file carries the number, so the two
- * steps that print "of the first N" read it from this job: the audit runner
- * through its `AUDIT_LIMIT` env, and the bash step that reports a failed run,
- * which cannot import a TypeScript constant. Nothing passes a limit in, so the
- * constant is what `planAudit` applies and what is published here.
+ * The limit the plan applied goes out as an output too (#121). `AUDIT_LIMIT` in
+ * plan.ts is the one place the number is written, so no workflow file carries
+ * it and the two steps that print "of the first N" both read this output: the
+ * failed-run reporter is bash and can import nothing, and the audit runner
+ * takes the same output rather than a second source that could disagree.
  */
 import * as fs from "node:fs";
 import { AUDIT_LIMIT, planAudit } from "./plan.ts";

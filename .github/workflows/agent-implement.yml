@@ -10,10 +10,6 @@ on:
         description: Default model for the implementer. A model:<name> label on the issue overrides it for that run.
         type: string
         default: claude-opus-5
-      per_account_slots:
-        description: Runs in flight per account. Implemented as this many named concurrency slots; raise it here, no code change.
-        type: number
-        default: 5
       trusted_author_associations:
         description: >-
           Comma-separated GitHub author_association values whose words the factory acts on
@@ -40,37 +36,17 @@ on:
       # Account tokens are CLAUDE_CODE_OAUTH_TOKEN_<n>, discovered from the inherited secrets.
 
 jobs:
-  slot:
-    # Per-account concurrency cap (#17): N named slots, account-slot-0 .. account-slot-(N-1), shared by
-    # implement, review, and implement-pr in the target repo. A run takes slot (number mod N), so
-    # every run on one issue or PR lands in the same slot and stays serialized. Runs fill accounts
-    # in configured order and rotate only on a rate limit, so N slots caps runs in flight on the
-    # account in use. GitHub's concurrency key has no arithmetic, hence this job.
-    # Trade-off: a concurrency group holds one running and one pending run; a third run arriving
-    # for the same slot cancels the older pending one before it transitions any label. The
-    # dispatcher's schedule fallback (#15) re-labels tickets left that way.
-    runs-on: ubuntu-latest
-    outputs:
-      index: ${{ steps.pick.outputs.index }}
-    steps:
-      - id: pick
-        env:
-          NUMBER: ${{ github.event.issue.number }}
-          SLOTS: ${{ inputs.per_account_slots }}
-        run: |
-          case "$SLOTS" in
-            ''|*[!0-9]*|0) echo "per_account_slots must be a positive integer, got '$SLOTS'; using 5." >&2; SLOTS=5 ;;
-          esac
-          index=$(( NUMBER % SLOTS ))
-          echo "index=$index" >> "$GITHUB_OUTPUT"
-          echo "Concurrency group account-slot-$index (number $NUMBER, $SLOTS slots per account)."
-
   implement:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: slot
     concurrency:
-      group: account-slot-${{ needs.slot.outputs.index }}
+      # Keyed on the ticket, so two implement runs on one ticket never overlap and
+      # never push the same branch at once (#149). Unrelated subjects never share a
+      # key, so no run waits behind a run it has nothing to do with. Not cancelled
+      # in progress: the older run is doing real work. GitHub holds one running and
+      # one pending run per group, so a third event on this ticket cancels the older
+      # pending run before it moves a label; the reconciler's stuck path re-adds it.
+      group: factory-issue-${{ github.event.issue.number }}
       cancel-in-progress: false
     outputs:
       # Everything the `retry` job needs from this one. That job runs on its own

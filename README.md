@@ -21,6 +21,8 @@ A failing implementer run or check in steps 3 to 5 earns one informed retry, the
 
 1. **Copy the caller.** `templates/factory.yml` goes to `.github/workflows/factory.yml` in the target. That file is the only factory file the target carries. Every job passes `factory_ref`, and it must equal the ref in that job's `uses:`, both `main` in the template. Change one without the other and they drift.
 
+   A target with two kinds of test needs one more thing here: a **routing test command**, so the merge gate runs each kind with the command that kind needs. Copy `templates/routing-test-command.sh` next to the caller, edit its one mapping, and name it in the merge-gate job's `test_command`. Without it both kinds get the default, the second kind dies on import, and the merge gate passes those files over with nothing proved. A target with one kind of test needs nothing.
+
 2. **Add the secrets.**
    - `FACTORY_PAT`, a fine-grained PAT, so pushes trigger the target's CI. It needs contents, issues, pull requests and workflows write.
    - One `CLAUDE_CODE_OAUTH_TOKEN_<n>` per subscription account, from `claude setup-token`. Adding an account later is adding one more secret. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account for you. The factory never publishes it: not in the job log, the usage comment, an escalation comment, an attached log or an uploaded artifact, all of which are world-readable on a public target. Every one of those names the account by its `<n>` instead. The label appears only in `usage.json` on the runner.

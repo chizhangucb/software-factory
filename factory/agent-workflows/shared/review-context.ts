@@ -89,7 +89,7 @@ export interface PullRequestContext {
   /** The linked issue's body alone, for parsing its acceptance criteria. */
   readonly issueBody: string;
   /**
-   * The linked issue's label names, empty when the PR links no ticket. The
+   * The linked ticket's label names, empty when the PR links none. The
    * implementer model is resolved from these, so a `model:` label on the PR
    * alone moves nothing (#10, #119).
    */

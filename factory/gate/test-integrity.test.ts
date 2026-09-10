@@ -103,7 +103,11 @@ test("a brace before the options object does not hide a silenced test", () => {
   const hidden = [
     'test("a {brace} title", { skip: true }, fn);',
     "it(`renders ${name}`, { skip: true }, fn);",
+    // chronicle's repo-shape.test.mjs names its tests exactly this way, so a
+    // skip added there was invisible to a required gate.
+    'test(`no tracked file names "${word}"`, { skip: true }, () => {});',
     'test.each([{ a: 1 }])("x", { skip: true }, fn);',
+    'it.each([{ n: 1 }])("case %s", { skip: true }, () => {});',
     'const o = { skip: true }; test("x", o, fn);',
   ];
   assert.deepEqual(

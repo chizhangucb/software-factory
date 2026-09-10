@@ -1,17 +1,18 @@
 /**
  * The ticket a PR body says it closes, by the keywords GitHub honours
- * (`Closes #N`, `Fixed: #N`, ...). One regex for the reviewer, the gate, the
- * retry handler and the dispatcher's selection, so they all agree on which
- * ticket a PR belongs to.
+ * (`Closes #N`, `Fixed: #N`, ...). One regex for every reader that has to
+ * agree on which ticket a PR belongs to: the reviewer's context, the gate,
+ * the implement workflow's preflight, the retry handler, and the dispatcher's
+ * selection and reconciler.
  *
  * The pattern stays private and callers read the decision instead:
  * `linkedIssueNumber` for the one ticket a PR belongs to, `issuesClosedBy`
  * for every ticket a body claims, which is what the dispatcher needs to know
  * an open PR already covers a ticket.
  *
- * Imports use explicit `.ts` and this module imports nothing, so the dispatch
- * job can run it on bare `node --experimental-strip-types` without
- * installing the engine.
+ * This module imports nothing, and callers may import it with or without the
+ * `.ts` extension, so the strip-types jobs (dispatch) and the tsx jobs (gate,
+ * retry, review) both get it.
  */
 
 /**

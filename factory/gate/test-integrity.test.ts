@@ -82,7 +82,7 @@ test("new skip, only, and todo markers in test files fail, each reported with it
 });
 
 test("a test file's own helper option is not a marker", () => {
-  // The case that blocked chronicle#298: `sweep` is the test file's own helper,
+  // The case chronicle#298 was refused for: `sweep` is the file's own helper,
   // `function sweep(report, { skip = () => false } = {})`, and its options bag
   // names paths to exempt from a scan. The enclosing test still runs and asserts.
   const markers = findNewMarkers(
@@ -94,6 +94,36 @@ test("a test file's own helper option is not a marker", () => {
     ]),
   );
   assert.deepEqual(markers, []);
+});
+
+test("a brace before the options object does not hide a silenced test", () => {
+  // A positional "runner before the `{`" rule is defeated by any earlier brace,
+  // and the shapes that produce one are routine rather than adversarial: a
+  // template-literal title, a `.each` table, a hoisted options object.
+  const hidden = [
+    'test("a {brace} title", { skip: true }, fn);',
+    "it(`renders ${name}`, { skip: true }, fn);",
+    'test.each([{ a: 1 }])("x", { skip: true }, fn);',
+    'const o = { skip: true }; test("x", o, fn);',
+  ];
+  assert.deepEqual(
+    findNewMarkers(diffOf("test/a.test.js", hidden)).map((m) => m.text),
+    hidden,
+  );
+});
+
+test("a test path in a string is not a runner call", () => {
+  // chronicle's own main carries this line. A bare `\\btest\\b` anywhere on the
+  // line matches `'test/removed-routes.test.mjs'`, so the runner has to be a
+  // call, not a mention.
+  assert.deepEqual(
+    findNewMarkers(
+      diffOf("test/repo-shape.test.mjs", [
+        "    { skip: (rel) => rel === 'test/removed-routes.test.mjs' },",
+      ]),
+    ),
+    [],
+  );
 });
 
 test("an options object on any runner call is still a marker, and skip: false still passes", () => {

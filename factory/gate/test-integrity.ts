@@ -13,41 +13,64 @@ export interface Marker {
 }
 
 /**
- * Markers that silence or narrow a test, across the runners the factory is
- * likely to meet. Scanned only on added lines of test files, so a source
- * file's own `skip` option never trips the gate.
- *
- * The options-object pattern requires a runner call on the same line, because
- * `{ skip: ... }` is an ordinary object literal and a test file's own helper
- * may take one: chronicle#298 was refused for `sweep(report, { skip: pred })`,
- * where `sweep` is that file's own scanner and no test was skipped (#134).
- * What this deliberately stops catching is an options object passed to a
- * project's own wrapper around a runner. That is the safe direction: this
- * check is required in a target's ruleset, so a false positive blocks correct
- * work permanently and no retry can clear it, while a skip smuggled through an
- * unusual wrapper still has to get past red-green and the reviewer.
- * A same-line requirement is no narrower than the scan already was: the diff
- * is read line by line, so an object literal split across lines never had its
- * `{` on the `skip:` line and was never matched.
- *
- * The value class is `[^,}\s]` rather than `[^,}]` so `(?!false\b)` cannot be
- * defeated by backtracking. With whitespace allowed as the value character,
- * `{ skip: false }` still matched: `\s*` gave back the space, the lookahead
- * landed on that space instead of on `false`, and the space itself satisfied
- * the value. Excluding whitespace forces `\s*` to consume it all, so the
- * lookahead sees the value it is there to inspect (#134).
+ * Markers that silence or narrow a test by their call shape, across the
+ * runners the factory is likely to meet. Scanned only on added lines of test
+ * files, so a source file's own `skip` option never trips the gate.
  */
 const MARKER_PATTERNS: readonly RegExp[] = [
   /\b(?:test|it|describe|suite|context|bench)\s*\.\s*(?:skip|only|todo)\s*\(/,
   /\b(?:xit|xtest|xdescribe|xcontext|fit|fdescribe|ftest)\s*\(/,
   /\bt\s*\.\s*(?:skip|todo)\s*\(/,
-  /\b(?:test|it|describe|suite|context|bench)\s*(?:\.\s*\w+\s*)?\([^{]*\{[^}]*\b(?:skip|only|todo)\s*:\s*(?!false\b)[^,}\s]/,
   /@pytest\.mark\.skip|\bpytest\.skip\s*\(|@unittest\.skip|\bt\.Skip(?:Now)?\s*\(|@Ignore\b|@Disabled\b|\bskip\s+['"]|\bxit\s+['"]|\bpending\s*\(/,
 ];
 const COMMENT_LINE = /^\s*(?:\/\/|#|\*|\/\*)/;
 
+/**
+ * An options object silencing a test: a `skip`, `only` or `todo` key whose
+ * value is not `false`. The value class excludes whitespace so `(?!false\b)`
+ * cannot be defeated by backtracking, which is how `{ skip: false }` used to
+ * be reported (#134).
+ */
+const SILENCING_OPTION = /\{[^}]*\b(?:skip|only|todo)\s*:\s*(?!false\b)[^,}\s]/;
+
+/**
+ * A runner *invoked* on this line, chained segments included, so `test(`,
+ * `test.each([...])(` and `t.test(` all count.
+ *
+ * It has to be a call rather than a mention: chronicle's own test suite has
+ * the line `{ skip: (rel) => rel === 'test/removed-routes.test.mjs' }`, where
+ * a bare `\btest\b` matches inside the path string.
+ *
+ * It also has to be tested separately from SILENCING_OPTION rather than
+ * spliced in front of it. Requiring the runner positionally before the `{`
+ * is defeated by any earlier brace, and the shapes that produce one are
+ * routine: a template-literal title, a `.each([{...}])` table, a hoisted
+ * options object.
+ */
+const RUNNER_CALL = /\b(?:test|it|describe|suite|context|bench)\s*(?:\.\s*\w+\s*)*\(/;
+
+/**
+ * An options object is a marker only alongside a runner call, because
+ * `{ skip: ... }` is an ordinary object literal and a test file's own helper
+ * may take one. chronicle#298 was refused for `sweep(report, { skip: pred })`,
+ * where `sweep` is that file's own scanner and no test was silenced (#134).
+ *
+ * The cost is a silencing option on a line that names no runner: a project's
+ * own wrapper, or a table row in a Go test. That direction is the safe one,
+ * because this check is required in a target's ruleset, so a false positive
+ * refuses correct work permanently and no retry can clear it, while a skip
+ * that gets through here still has to pass red-green and the reviewer. Go's
+ * common form, `t.Skip()`, is a call and stays caught above.
+ *
+ * Known gap, older than #134 and not narrowed by it: SILENCING_OPTION's
+ * `[^}]*` stops at the first `}`, so a key behind a nested object on the same
+ * line (`test("x", { meta: { k: 1 }, skip: true })`) is missed. Closing it
+ * wants balanced-brace matching rather than a wider character class.
+ */
 export const isMarkerLine = (text: string): boolean =>
-  !COMMENT_LINE.test(text) && MARKER_PATTERNS.some((re) => re.test(text));
+  !COMMENT_LINE.test(text) &&
+  (MARKER_PATTERNS.some((re) => re.test(text)) ||
+    (SILENCING_OPTION.test(text) && RUNNER_CALL.test(text)));
 
 /** Added lines in test files that introduce a skip, only, or todo marker. */
 export const findNewMarkers = (diff: string): Marker[] => {

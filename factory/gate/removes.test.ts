@@ -33,7 +33,7 @@ test("parseRemoves accepts any heading level and trailing text, case-insensitive
   assert.deepEqual(parseRemoves("### removes (v0)\n- a\n- b\n#### Not this\n- c"), ["a", "b"]);
 });
 
-test("a subject covers a deleted test when they share a name token", () => {
+test("a subject covers a deleted test when they share a name", () => {
   assert.equal(subjectCovers("`src/slugify.js` and its tests", "test/slugify.test.js"), true);
   assert.equal(subjectCovers("the truncate helper", "tests/unit/truncate/index.spec.ts"), true);
   assert.equal(subjectCovers("slugify", "src/__tests__/slugify.js"), true);
@@ -68,9 +68,11 @@ test("every separator style of one name covers every other, both directions", ()
   }
 });
 
-// Every test below is the false-positive side of the trade-off: matches the fix
-// deliberately still refuses. All of them hold on the merge-base too, which is
-// what makes them the evidence that the fix did not loosen the gate.
+// Every subjectCovers test below is the false-positive side of the trade-off:
+// matches the fix deliberately still refuses. All of them hold on the merge-base
+// too, which is what makes them the evidence that the fix did not loosen the
+// gate. The uncoveredDeletedTests tests at the end of the file are not part of
+// this block, and the chronicle#297 one there fails on the merge-base.
 
 test("no part of a concatenated name covers it, and it covers no part", () => {
   assert.equal(subjectCovers("the view module", "test/viewlog.test.mjs"), false);

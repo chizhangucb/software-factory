@@ -52,7 +52,8 @@ const PIECE_BREAK = /[^a-z0-9]+/;
  * The names a string offers: each word's pieces, plus the whole word with its
  * separators stripped whenever it has more than one piece. The stripped form
  * is what lets prose that hyphenates match a filename that concatenates, so
- * `view-log`, `view_log` and `viewLog` all offer the name `viewlog`.
+ * `view-log` and `view_log` both offer the name `viewlog`; `viewLog` already
+ * is that name once lowercased, and is never split into pieces.
  *
  * Pieces are offered too, which is what makes coverage one-sided: a subject
  * naming `view` covers `test/view-log.test.mjs`, whose pieces include `view`,
@@ -65,7 +66,8 @@ const names = (s: string): Set<string> => {
   for (const word of s.toLowerCase().split(WORD_BREAK)) {
     const pieces = word.split(PIECE_BREAK).filter((piece) => piece !== "");
     for (const piece of pieces) if (worthMatching(piece)) out.add(piece);
-    if (pieces.length > 1 && worthMatching(pieces.join(""))) out.add(pieces.join(""));
+    const stripped = pieces.join("");
+    if (pieces.length > 1 && worthMatching(stripped)) out.add(stripped);
   }
   return out;
 };

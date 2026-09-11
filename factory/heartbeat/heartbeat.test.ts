@@ -82,6 +82,7 @@ const states: { state: string; open: OpenSubject[]; outcome: "woken" | "skipped"
   // pull request whoever produced it, so this target is swept.
   { state: "an open pull request from another producer", open: [pullRequest()], outcome: "woken" },
   { state: "a held ready ticket", open: [ticket(READY_LABEL, HOLD_LABEL)], outcome: "skipped" },
+  { state: "a held ticket in a factory state label", open: [ticket(IMPLEMENT_LABEL, HOLD_LABEL)], outcome: "skipped" },
   { state: "a parked ticket", open: [ticket(ESCALATION_LABEL)], outcome: "skipped" },
   { state: "a parked pull request", open: [pullRequest(BLOCKED_LABEL)], outcome: "skipped" },
 ];

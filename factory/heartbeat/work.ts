@@ -10,7 +10,9 @@
  * - any open pull request, whoever produced it, because the reconciler asks for
  *   a verdict on an unjudged one and updates a judged one that has fallen
  *   behind.
- * Never a parked subject: nothing sweeps one until a human acts.
+ * Never a parked subject, and never a held ticket: nothing sweeps either until a
+ * human acts. A held pull request is still work, since a hold withholds the
+ * reviewer and never the merge path (#210).
  *
  * Every label set is imported from the module that owns it, so a change to any
  * of them reaches the heartbeat with it. Nothing here spells a label
@@ -65,8 +67,14 @@ export const fromGitHub = (raw: readonly unknown[]): OpenSubject[] =>
 const waiting = ({ pullRequest, labels }: OpenSubject): boolean => {
   const has = (label: string) => labels.includes(label);
   if (PARKED_LABELS.some(has)) return false;
+  // Before the hold, because a hold withholds the reviewer and never the merge
+  // path (#210): the reconciler still re-arms auto-merge on a held PR and still
+  // brings it up to date, so a held PR is work.
   if (pullRequest) return true;
-  if (has(READY_LABEL) && !HOLD_LABELS.some(has)) return true;
+  // A held ticket is not, whatever state label it carries: the dispatcher skips
+  // it as held and the reconciler leaves it alone rather than re-stamping it.
+  if (HOLD_LABELS.some(has)) return false;
+  if (has(READY_LABEL)) return true;
   return FACTORY_STATE_LABELS.some(has);
 };
 

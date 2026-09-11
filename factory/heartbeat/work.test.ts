@@ -66,6 +66,22 @@ test("a ticket in a factory state label is work, unless the factory has parked i
   }
 });
 
+test("a hold takes a ticket back off whatever state label it carries", () => {
+  // The reconciler leaves a held ticket alone at every deadline and the
+  // dispatcher skips it as held, so a target whose only open subject is one has
+  // nothing waiting. Reading the hold against the ready label alone woke it
+  // every interval for a ticket no sweep repairs.
+  for (const state of FACTORY_STATE_LABELS) {
+    for (const held of HOLD_LABELS) assert.equal(needsSweep([ticket(state, held)]), false, `${held} beside ${state}`);
+  }
+});
+
+test("a hold on a pull request leaves it work, since it never withholds the merge path", () => {
+  // #210: the reconciler still re-arms auto-merge on a held PR and still brings
+  // a stale one up to date, so skipping it would strand the merge.
+  for (const held of HOLD_LABELS) assert.equal(needsSweep([pullRequest(held)]), true, `${held} on a PR`);
+});
+
 test("any open pull request is work, whoever produced it, unless it is parked", () => {
   // No factory label on it at all: the reconciler asks for a verdict on an
   // unjudged PR from any producer, so a target whose only open work is

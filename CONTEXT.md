@@ -62,11 +62,15 @@ _Avoid_: retry (the attempt that is counted), hand-off (the implementer's, for a
 A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`. Either maker makes one only on a **Factory-authored PR**, update-branch since #180 and the retry handler since #183; the same conflict on any other PR gets the comment and `agent:blocked`, since the branch is its author's and no agent may rewrite it.
 _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to the reconciler), escalation (the human queue).
 
+**Stand-down**:
+The retry handler's answer to a failed attempt on a **hold** (#185): a label from the hold set on the ticket or its open PR, so no agent is started, no retry is spent and nothing is escalated. A comment names the label and the subject it was found on, and the subject is left where a **requeue** leaves one, so taking the hold off resumes it through the sweep that owns it. Read before every other answer but an escalation already made, the retry cap included.
+_Avoid_: requeue (not the ticket's failure, and nobody holding it), escalation (the factory giving up, where here a person has taken the wheel), parked (the factory's own pair).
+
 **Tell-author**:
 The hand-off's counterpart on a PR the factory did not author (#180): the same comment naming the conflict, then `agent:blocked` instead of `agent:implement`, because merging the base in and pushing someone else's branch is not the factory's to do. The label is what makes it stick, holding the PR through the next push to `main` here and, on a PR the reviewer has judged, parking it at the reconciler too, and the author taking it off is what hands the PR back. Updates are untouched either way.
 
 The retry handler tells an author for a second reason (#183): a check that failed on such a PR, where labelling `agent:implement` would put an implementer on the branch just as a conflict would. Same comment shape, same label, and the retry is still recorded on the ticket and still counted, because the attempt was made and failed. So a tell-author spends no retry when a conflict caused it and spends the ticket's one when a failing check did; what it never does either way is put an agent on the branch.
-_Avoid_: escalation (the factory is not giving up: a fresh verdict follows the author's fix), hand-back (the PR was never the factory's to hand anywhere), stood down (this is the word).
+_Avoid_: escalation (the factory is not giving up: a fresh verdict follows the author's fix), hand-back (the PR was never the factory's to hand anywhere), stood down (the dispatcher's word, for leaving alone a ticket an open PR claims, and the retry handler's, for a **Stand-down** on a hold).
 
 **Blocked**:
 A ticket or PR the factory has stopped on because something a person has to deal with is in the way: the `agent:blocked` label. A note rather than a transition, so the label takes nothing off and spends no retry. Who that person is and what they do depends on what stopped: a failed step is cleared by re-adding that step's label, a **tell-author** conflict by resolving it and taking the label off. Distinct from an **escalation**, which is the factory done trying rather than waiting.
@@ -77,7 +81,7 @@ A ticket or PR the factory has stopped on and no sweep repairs: the `agent:block
 _Avoid_: held (a hold is a person choosing the timing), stalled, abandoned.
 
 **Hold**:
-A human's instruction to leave a ready ticket alone: the `hold` label, which holds a ticket back whatever else it carries. Removing it releases the ticket on the next sweep. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `HOLD_LABELS` in `factory/lib/labels.ts` is the set the dispatcher reads, and `docs/agents/hold.md` is what a triager reads.
+A human's instruction to leave a ready ticket alone: the `hold` label, which holds a ticket back whatever else it carries, and the work in flight on it, a PR included. Removing it releases the ticket: on the dispatcher's next sweep, or for work still carrying a state label, the reconciler's first sweep past its stuck deadline. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `HOLD_LABELS` in `factory/lib/labels.ts` is the set the dispatcher, the retry handler and the reconciler read, and `docs/agents/hold.md` is what a triager reads.
 _Avoid_: blocked, on hold as a state the factory sets (the factory never adds or removes it); paused, which since #171 names the whole target's breaker rather than one ticket's timing (**Pause**).
 
 **Ready for human**:

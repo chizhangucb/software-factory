@@ -770,3 +770,91 @@ test("the warning only says discovery came back empty when discovery actually ra
   const discovered = onboardWith([], { history: postedOnEvery(3, []) });
   assert.match(discovered.output, /Discovery read 3 recent commits/, "and says how many it read when it did");
 });
+
+/**
+ * The instruction onboarding prints (#181), as the template holds it. Read off the template
+ * rather than pinned here, because what these tests prove is that the script prints the
+ * template rather than a copy of its own; the bytes themselves are pinned to the ticket's in
+ * `judged-path-instruction.test.ts`, and a change to them goes red there.
+ */
+const JUDGED_PATH_TEMPLATE = "templates/agents-md-judged-path.md";
+const JUDGED_PATH_INSTRUCTION = fs.readFileSync(new URL(`../../${JUDGED_PATH_TEMPLATE}`, import.meta.url), "utf8").trimEnd();
+
+/** The line index of every exact copy of the instruction in a run's output. */
+const instructionLines = (output: string): number[] =>
+  output.split("\n").flatMap((line, i) => (line === JUDGED_PATH_INSTRUCTION ? [i] : []));
+
+test("a run ends by printing the instruction, a whole line that pastes as it stands", () => {
+  // Line equality, not a substring: a maintainer copies this line into the target's AGENTS.md,
+  // so a prefix in front of it would be a prefix in the target's file.
+  const { output } = onboardWith(["check"]);
+  assert.equal(instructionLines(output).length, 1, "the instruction, exactly once and exactly as agreed");
+});
+
+test("the instruction sits beside the required checks, and the warning still has the last word", () => {
+  const { output } = onboardWith([]);
+  const lines = output.split("\n");
+  const required = lines.findIndex((line) => line.startsWith("required on main:"));
+  const [instruction] = instructionLines(output);
+  assert.ok(required >= 0 && instruction !== undefined);
+  assert.ok(instruction > required, "after the ruleset is written, since it is what a PR needs to meet it");
+  assert.ok(Math.max(...warningLines(output)) > instruction, "the warning is the more urgent of the two");
+});
+
+test("the instruction is printed in the script's banner idiom, as a note rather than a warning", () => {
+  // A target missing the line fails closed: a producer nobody told gets a PR that
+  // sits blocked, which is where it was before. Nothing is at risk, so it is a NOTE, and the
+  // WARNING stays reserved for a ruleset that lets a broken build merge.
+  const { output } = onboardWith(["check"]);
+  const lines = output.split("\n");
+  const [instruction] = instructionLines(output);
+  const open = lines.slice(0, instruction).lastIndexOf("#".repeat(60));
+  const close = lines.indexOf("#".repeat(60), instruction!);
+  assert.ok(open >= 0 && close > instruction!, "fenced by the same banner the other notes use");
+  assert.match(lines[open + 1]!, /^## NOTE: /);
+  assert.ok(
+    lines.slice(open + 1, close).every((line, i) => open + 1 + i === instruction || line.startsWith("## ")),
+    "every other line of the banner is the script's own `## ` prose",
+  );
+  assert.match(lines.slice(open, close).join("\n"), new RegExp(JUDGED_PATH_TEMPLATE), "and it names the file to copy");
+});
+
+test("the instruction goes to stderr with the rest of the advice", () => {
+  const box = sandbox();
+  try {
+    const result = spawnSync(onboard, [target, "check"], { encoding: "utf8", env: box.env });
+    assert.equal(result.status, 0, `onboard.sh failed: ${result.stderr}`);
+    assert.equal(instructionLines(result.stderr).length, 1);
+    assert.equal(instructionLines(result.stdout).length, 0, "stdout is the record of what the run did");
+  } finally {
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  }
+});
+
+test("a target with no caller is not told the factory judges its PRs, since nothing there would", () => {
+  // No caller means no reviewer to answer `agent:review` and no factory check in the ruleset,
+  // so the line's last sentence would be false there. The factory's own repo is one such.
+  const { output, code } = onboardWith(["check"], { hasCaller: false });
+  assert.equal(code, 0);
+  assert.doesNotMatch(output, /Opening a pull request yourself/);
+});
+
+test("a template the script cannot read never takes the warning down with it", () => {
+  // The ruleset is written by the time the note prints, and the warning still has to print
+  // after it, so under set -e an unreadable template must cost the note alone. Run from a copy
+  // of the script with no templates/ beside it, which is that failure without touching the tree.
+  const box = sandbox();
+  const lone = path.join(box.dir, "scripts", "onboard.sh");
+  fs.mkdirSync(path.dirname(lone));
+  fs.copyFileSync(onboard, lone);
+  try {
+    const result = spawnSync("/bin/sh", ["-c", 'exec "$0" "$@" 2>&1', lone, target], { encoding: "utf8", env: box.env });
+    assert.equal(result.status, 0, `onboard.sh failed: ${result.stdout}`);
+    const lines = result.stdout.split("\n");
+    const unreadable = lines.findIndex((line) => /could not read/.test(line));
+    assert.ok(unreadable >= 0, "the note says it could not read the template");
+    assert.ok(Math.max(...warningLines(result.stdout)) > unreadable, "and the warning still prints after it");
+  } finally {
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  }
+});

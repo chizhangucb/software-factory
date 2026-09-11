@@ -47,7 +47,7 @@ import {
   type Snapshot,
   type TicketState,
   type VerdictState,
-  PARKED_LABELS,
+  leftAlone,
   leftAloneFromListing,
   marksFromTimeline,
   prFromGitHub,
@@ -115,7 +115,6 @@ const deadlines: Deadlines = {
 };
 
 const now = new Date();
-const parked = (labels: readonly string[]): boolean => PARKED_LABELS.some((l) => labels.includes(l));
 
 /* Snapshot: issues and PRs with their label times and sweep marks. */
 
@@ -123,7 +122,7 @@ const timeline = (number: number): any[] => paginate(`repos/${repo}/issues/${num
 
 const withLabelState = <T extends TicketState | PrState>(subject: T, stateLabels: readonly string[]): T => {
   const state = stateLabels.find((l) => subject.labels.includes(l));
-  if (!state || parked(subject.labels)) return subject;
+  if (!state || leftAlone(subject.labels)) return subject;
   const events = timeline(subject.number);
   return { ...subject, stateSince: stateSinceFromTimeline(events, state), marks: marksFromTimeline(events) };
 };
@@ -194,7 +193,7 @@ const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
 };
 
 const withMergeState = (pr: PrState, createdAt: string): PrState => {
-  if (pr.labels.some((l) => l.startsWith("agent:")) || parked(pr.labels)) return pr;
+  if (pr.labels.some((l) => l.startsWith("agent:")) || leftAlone(pr.labels)) return pr;
   if (!pr.factory) return withUnjudgedState(pr, createdAt);
   // No auto-merge: the reconciler re-arms it against the same deadline (#83), and no
   // verdict can change that, so the verdict is not worth a read here.
@@ -221,7 +220,7 @@ const readPrs = (): PrState[] => {
 
 const lookbackMinutes = Math.max(deadlines.stuckMinutes, deadlines.verdictMinutes, deadlines.updateMinutes) + 30;
 /** Only the runs that could cover a labeled subject need their jobs read. */
-const labeled = (labels: readonly string[]): boolean => labels.some((l) => l.startsWith("agent:")) && !parked(labels);
+const labeled = (labels: readonly string[]): boolean => labels.some((l) => l.startsWith("agent:")) && !leftAlone(labels);
 
 const readRuns = (issues: readonly TicketState[], prs: readonly PrState[]): Run[] => {
   const since = new Date(now.getTime() - lookbackMinutes * 60_000).toISOString();

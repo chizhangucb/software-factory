@@ -3,11 +3,14 @@ import * as fs from "node:fs";
 import { test } from "node:test";
 
 import { RATE_LIMITED_FILE } from "../lib/accounts";
-import { BLOCKED_LABEL, IN_PROGRESS_LABEL } from "../lib/labels";
+import { whySkipped } from "../dispatch/select.ts";
+import { BLOCKED_LABEL, HOLD_LABELS, IN_PROGRESS_LABEL } from "../lib/labels";
+import { trustPolicy } from "../lib/trusted-authors.ts";
 import {
   CONFLICT_REASON,
   decide,
   FAILURE_KINDS,
+  findHold,
   REQUEUED_FILE,
   authorConflictReason,
   renderTellAuthorComment,
@@ -21,9 +24,12 @@ import {
   renderLeftOpenPrComment,
   renderRequeueComment,
   renderRetryComment,
+  renderStandDownComment,
   retriesUsed,
   retryLabel,
   retryPromptSection,
+  ticketOrPr,
+  ticketOrPrFromPr,
 } from "./decide";
 
 test("retriesUsed counts the highest factory:retry-<n> label, zero without one", () => {
@@ -54,6 +60,88 @@ test("decide does nothing on a ticket that is already escalated", () => {
     action: "none",
     reason: "already escalated: needs-human is on the ticket",
   });
+});
+
+/** A hold on the ticket, as `findHold` reports one: the label and the subject it was found on. */
+const heldTicket = { label: "hold", on: { kind: "issue" as const, number: "7" } };
+
+test("decide stands down on a held subject instead of starting an agent, and spends nothing", () => {
+  // #185: the retry would re-add `agent:implement`, which starts an agent on a
+  // subject a person said to leave alone. Standing down is not a retry.
+  const decision = decide({ retriesUsed: 0, kind: "implement", held: heldTicket });
+  assert.equal(decision.action, "stand-down");
+  assert.deepEqual("hold" in decision && decision.hold, heldTicket);
+  assert.match("reason" in decision ? decision.reason : "", /`hold` is on ticket #7/);
+});
+
+test("a held subject whose retry is spent stands down rather than escalating", () => {
+  // Escalation takes every `agent:*` label and `ready-for-agent` off and puts
+  // `needs-human` on: the factory reclaiming a subject a person has just
+  // taken, and a state removing `hold` could never resume from. So the hold
+  // is read before anything that escalates.
+  for (const kind of FAILURE_KINDS) {
+    assert.equal(decide({ retriesUsed: 1, kind, held: heldTicket }).action, "stand-down", `${kind}, retry spent`);
+  }
+  assert.equal(
+    decide({ retriesUsed: 0, kind: "verdict", unretryable: "the ticket has no acceptance criteria", held: heldTicket }).action,
+    "stand-down",
+  );
+  // A conflict hand-off puts `agent:implement` on the PR, an agent starting like any other.
+  const requeue = "check still pending after 15 minutes; not the ticket's failure";
+  assert.equal(decide({ retriesUsed: 0, kind: "ci", requeue, mergeable: "CONFLICTING", held: heldTicket }).action, "stand-down");
+  assert.equal(decide({ retriesUsed: 0, kind: "ci", requeue, held: heldTicket }).action, "stand-down");
+  // Already escalated still wins: nothing to do, and no second comment.
+  assert.equal(decide({ retriesUsed: 1, kind: "verdict", escalated: true, held: heldTicket }).action, "none");
+});
+
+test("findHold reads the whole hold set, on the ticket first and then on its open PR", () => {
+  // The same set the dispatcher reads, from the same module (#185's first
+  // criterion), so no label holds a ticket back at one seam and not another.
+  const ticket = (labels: string[]) => ({ kind: "issue" as const, number: "7", labels });
+  const pr = (labels: string[]) => ({ kind: "pr" as const, number: "12", labels });
+  for (const label of HOLD_LABELS) {
+    assert.deepEqual(findHold([ticket(["ready-for-agent", label])]), { label, on: { kind: "issue", number: "7" } });
+    // A hold on the PR alone still stops the retry: the retry's label goes on the PR.
+    assert.deepEqual(findHold([ticket(["ready-for-agent"]), pr([label])]), { label, on: { kind: "pr", number: "12" } });
+  }
+  assert.deepEqual(findHold([ticket(["hold"]), pr(["hold"])])?.on, { kind: "issue", number: "7" }, "the ticket is named first");
+  assert.equal(findHold([ticket(["ready-for-agent", "agent:in-progress", "factory:retry-1"]), pr(["agent:review"])]), undefined);
+  assert.equal(findHold([]), undefined);
+});
+
+test("the stand-down comment names the label and the subject, and what resumes it", () => {
+  const base = { summary: "implement: the run was killed", runUrl: "u" };
+  const onTicket = renderStandDownComment({ ...base, hold: heldTicket, pr: undefined });
+  assert.match(onTicket, /`hold` is on ticket #7/);
+  assert.match(onTicket, /the run was killed/);
+  assert.match(onTicket, /No retry was spent/);
+  assert.match(onTicket, /Run: u/);
+  // A ticket is left with no factory label, which is the dispatcher's to pick up once the hold is off.
+  assert.match(onTicket, /take `hold` off/i);
+  assert.match(onTicket, /dispatcher/);
+  // Not an escalation and not a note for a human: the person already has it.
+  assert.doesNotMatch(onTicket, /needs-human|agent:blocked/);
+
+  const onPr = renderStandDownComment({ ...base, hold: { label: "needs-triage", on: { kind: "pr", number: "12" } }, pr: "12" });
+  assert.match(onPr, /`needs-triage` is on PR #12/);
+  // A PR is left where a requeue leaves one (#148), for the reconciler's stuck path.
+  assert.match(onPr, /`agent:in-progress`/);
+  assert.match(onPr, /reconciler/);
+  assert.match(onPr, /stuck deadline/);
+  assert.doesNotMatch(onPr, /needs-human|agent:blocked/);
+});
+
+test("a cancel with no hold gets exactly one bounded replacement, as before #185", () => {
+  // #51's case, a `timeout-minutes` kill, reads as `cancelled` at the gate and
+  // is indistinguishable there from a person's `gh run cancel`. Unheld, it
+  // still spends the one retry, and a second cancel escalates.
+  assert.equal(isImplementerFailure("cancelled"), true);
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "implement" }), { action: "retry", retry: 1 });
+  assert.deepEqual(decide({ retriesUsed: 1, kind: "implement" }), {
+    action: "escalate",
+    reason: "the retry failed too (2 attempts, 1 retry allowed)",
+  });
+  assert.deepEqual(decide({ retriesUsed: 0, kind: "implement", held: undefined }), { action: "retry", retry: 1 });
 });
 
 test("decide requeues a run rate limited on every account without spending the retry", () => {
@@ -148,6 +236,70 @@ test("the retry handler leaves a requeued PR in agent:in-progress, and agent:blo
   assert.ok(!code.includes(BLOCKED_LABEL), `the retry handler still adds ${BLOCKED_LABEL}`);
   assert.ok(code.includes("IN_PROGRESS_LABEL"), "a requeued PR is not kept in agent:in-progress");
   assert.ok(code.includes("REQUEUED_FILE"), `the handler writes no ${REQUEUED_FILE} for the workflow to read`);
+});
+
+/**
+ * One top-level `const` of the handler, comments gone, up to the line that
+ * closes it. The handler runs `main()` on import, so what it does with a hold
+ * (#185) is read from its source, as the requeue test above reads it.
+ */
+const handlerFunction = (name: string): string => {
+  const code = withoutComments(fs.readFileSync(new URL("./retry.ts", import.meta.url), "utf8"));
+  const start = code.indexOf(`\nconst ${name} = `);
+  assert.ok(start >= 0, `retry.ts has no top-level ${name}`);
+  return code.slice(start, code.indexOf("\n};", start));
+};
+
+test("the retry handler asks the hold set before it decides, on the ticket and on its open PR", () => {
+  const main = handlerFunction("main");
+  assert.match(main, /findHold\(/, "the handler never looks for a hold");
+  assert.match(main, /decide\(\{[^}]*\bheld\b[^}]*\}\)/, "decide is never told about the hold it found");
+  // The PR's own labels are read too: the label a retry adds goes on the PR whenever one is open.
+  assert.match(main, /labelsOf\(pr\)/, "a hold on the open PR is never read");
+  assert.match(main, /"stand-down"\) standDown\(/, "a stand-down decision is not acted on as one");
+});
+
+test("standing down writes no retry label, starts nothing, escalates nothing, and leaves a PR for the reconciler", () => {
+  const standDown = handlerFunction("standDown");
+  // Criteria 2 and 3 of #185: no `factory:retry-N`, no `needs-human`, no `agent:*` taken off.
+  for (const write of ["retryLabel", "ensureRetryLabel", "IMPLEMENT_LABEL", "ESCALATION_LABEL", "escalationLabels", "--remove-label", "labelPr"]) {
+    assert.ok(!standDown.includes(write), `standing down still reaches ${write}`);
+  }
+  assert.match(standDown, /renderStandDownComment\(/, "standing down says nothing about which label stopped it");
+  // A PR is left where a requeue leaves one (#148): `agent:in-progress`, for the reconciler.
+  assert.match(standDown, /keepInProgress\(/, "a stood-down PR is left with no `agent:*` label, which nothing sweeps");
+});
+
+/** One step of a workflow by name, its comment lines dropped, split the way `reviewStep` below splits them. */
+const workflowStep = (file: string, name: string, from = 0): string => {
+  const yaml = fs.readFileSync(new URL(`../../.github/workflows/${file}`, import.meta.url), "utf8").slice(from);
+  const step = yaml.split(/\n(?= {6}- )/).find((s) => s.includes(`- name: ${name}`));
+  assert.ok(step, `${file} has no step named ${name}`);
+  return step.split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
+};
+
+test("a stood-down ticket resumes through the dispatcher once the hold comes off", () => {
+  // What a ticket carries by the time the handler runs on it: the implement job
+  // took `agent:implement` off as it started, and the retry job takes
+  // `agent:in-progress` off a step before the handler. Standing down adds
+  // neither back, so nothing is left for the reconciler's stuck path, which
+  // reads only those two on a ticket; the dispatcher is what resumes it.
+  const file = "agent-implement.yml";
+  const yaml = fs.readFileSync(new URL(`../../.github/workflows/${file}`, import.meta.url), "utf8");
+  const retryJob = yaml.indexOf("\n  retry:");
+  assert.match(workflowStep(file, "Transition labels"), /--remove-label "agent:implement"/);
+  assert.match(workflowStep(file, "Remove in-progress", retryJob), /--remove-label "agent:in-progress"/);
+  assert.ok(
+    yaml.indexOf("- name: Remove in-progress", retryJob) < yaml.indexOf("- name: Retry or escalate", retryJob),
+    "the retry job no longer drops agent:in-progress before the handler runs",
+  );
+
+  const policy = trustPolicy("OWNER");
+  const stoodDown = { number: 7, labels: ["ready-for-agent", "hold"], assigned: false, openBlockers: 0, hasOpenPr: false, authorAssociation: "OWNER" as const };
+  assert.equal(whySkipped(stoodDown, policy), "held: hold", "the dispatcher starts nothing while it is held");
+  assert.equal(whySkipped({ ...stoodDown, labels: ["ready-for-agent"] }, policy), undefined, "and resumes it once the hold is off");
+  // A retry already spent before the hold stays spent, and does not stop the resume either.
+  assert.equal(whySkipped({ ...stoodDown, labels: ["ready-for-agent", "factory:retry-1"] }, policy), undefined);
 });
 
 /**
@@ -491,4 +643,27 @@ test("a killed attempt that wrote no reason file says it was killed", () => {
   assert.match(missingFailureReason("cancelled"), /timeout/);
   // Nothing killed it, so the reason really is missing and the log is where to look.
   assert.match(missingFailureReason("failure"), /no reason file/);
+});
+
+test("a run with neither a ticket nor an open PR has nothing to act on", () => {
+  assert.equal(ticketOrPr(undefined, undefined), undefined);
+  assert.equal(ticketOrPr("", undefined), undefined);
+  assert.deepEqual(ticketOrPr("7", undefined), { issue: "7", pr: undefined });
+  assert.deepEqual(ticketOrPr(undefined, { number: "12" }), { issue: undefined, pr: { number: "12" } });
+  assert.deepEqual(ticketOrPr("7", { number: "12" }), { issue: "7", pr: { number: "12" } });
+});
+
+test("a PR input no longer open, whose body links no ticket, fails naming both facts", () => {
+  // #133: the handler used to carry on and hand `gh` an undefined number.
+  const pr = { number: "12" };
+  const unresolved = (result: object): string => ("unresolved" in result ? String(result.unresolved) : "");
+  assert.match(
+    unresolved(ticketOrPrFromPr({ number: "12", state: "CLOSED", ticket: "", pr })),
+    /PR #12 is closed, not open, and its body links no ticket/,
+  );
+  assert.match(unresolved(ticketOrPrFromPr({ number: "12", state: "MERGED", ticket: undefined, pr })), /PR #12 is merged/);
+  // A closed PR with a ticket falls back to the ticket; an open one counts either way.
+  assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "CLOSED", ticket: "7", pr }), { issue: "7", pr: undefined });
+  assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "OPEN", ticket: "", pr }), { issue: undefined, pr });
+  assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "OPEN", ticket: "7", pr }), { issue: "7", pr });
 });

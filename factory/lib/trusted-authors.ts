@@ -71,7 +71,11 @@ export const CHANNELS = [
   "review-thread",
   /** A comment on a ticket. Anyone can write one on a public target. */
   "ticket-comment",
-  /** Whoever opened the ticket the dispatcher is about to run. */
+  /**
+   * Whoever opened a ticket: the one the dispatcher is about to run, and the
+   * one a PR's closing keyword links, whose body is the reviewer's and the
+   * audit's acceptance criteria (#179).
+   */
   "ticket-author",
   /** Whoever wrote the parent spec a ticket hangs off. */
   "parent-spec",

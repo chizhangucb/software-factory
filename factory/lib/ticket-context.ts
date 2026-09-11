@@ -99,8 +99,11 @@ export interface IssueView {
  * Comments from untrusted authors are dropped, not hidden: on a public target
  * anyone can comment on the owner's ticket, and this text is what the
  * implementer follows. The count of what was dropped stays in, so the agent
- * knows the thread is not the whole thread. The ticket body itself is the
- * dispatcher's business (only a trusted author's ticket is ever dispatched).
+ * knows the thread is not the whole thread. The ticket body itself is judged
+ * before it gets here: the dispatcher on the implement path, and
+ * `pullRequestContext` on the `ticket-author` channel for the reviewer,
+ * implement-pr and the audit, which reach a ticket the dispatcher never vetted
+ * (#179). So this function renders the body it is handed, whatever that is.
  */
 /** The ticket as the agent reads it, with the count of what the policy took out. */
 export interface RenderedIssue {

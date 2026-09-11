@@ -18,6 +18,11 @@
  *   unit test prove it over fixtures with no network (story 27, ADR 0002
  *   amendment).
  * - an optional `diff`, so the audit can pass the merged commit's: story 18.
+ * - the ticket's author read beside the ticket, and its body and title put
+ *   through the policy on the `ticket-author` channel: that body is the
+ *   reviewer's acceptance criteria and the audit's, the dispatcher's own author
+ *   check is on neither path, and gh's `--json` view has no `authorAssociation`
+ *   to filter on, so the association comes from a second REST read (#179).
  * - the ticket read asks for `labels` as well, and `issueLabels` carries them on
  *   the context: #10's rule is that a `model:` label on the ticket moves the
  *   implementer, and implement-pr read that list off the PR (#119). The subject
@@ -27,7 +32,7 @@ import { gh, safeSh, sh } from "./common";
 import { parseDiffLines } from "./diff-lines";
 import { linkedIssueNumber } from "../../lib/linked-issue";
 import { renderIssue, type IssueView } from "../../lib/ticket-context";
-import type { TrustPolicy } from "../../lib/trusted-authors";
+import type { Author, TrustPolicy } from "../../lib/trusted-authors";
 
 export interface ReviewThreadComment {
   readonly commentId: string;
@@ -73,12 +78,17 @@ export interface PullRequestReviewThread {
   };
 }
 
-/** How much of each channel the trust policy dropped. */
-export interface DroppedComments {
+/**
+ * How much of each channel the trust policy dropped. Comments are counted per
+ * channel; the ticket's body is one thing or nothing, so `issueBody` is 1 or 0
+ * and it counts the title with it, which goes the same way (#179).
+ */
+export interface DroppedUntrusted {
   readonly prComments: number;
   readonly reviewSummaries: number;
   readonly reviewThreadComments: number;
   readonly issueComments: number;
+  readonly issueBody: number;
 }
 
 export interface PullRequestContext {
@@ -100,10 +110,27 @@ export interface PullRequestContext {
   readonly diffLines: Map<string, Set<number>>;
   readonly validReplyIds: Set<string>;
   /** What the trust policy kept out of all of the above (story 27). */
-  readonly dropped: DroppedComments;
+  readonly dropped: DroppedUntrusted;
 }
 
-/** The four reads `fetchPullRequestContext` makes, before any judgement. */
+/**
+ * The linked ticket as the reads see it: the ticket, and who opened it.
+ *
+ * The author is its own field because it comes from its own read. gh's
+ * `issue view --json` offers `author` but no `authorAssociation`, and the
+ * association is what the policy judges, so the ticket read alone could not
+ * filter the body even in principle (#179). Required rather than optional, for
+ * the reason the `Author` fields themselves are: a read that could omit it
+ * would hand the policy less than it has and pass a stranger's body in silence.
+ */
+export interface LinkedIssueRead {
+  /** The ticket, as `gh issue view --json` returns it. */
+  readonly view: IssueView;
+  /** Whoever opened it, judged on the `ticket-author` channel. */
+  readonly author: Author;
+}
+
+/** The five reads `fetchPullRequestContext` makes, before any judgement. */
 export interface PullRequestReads {
   readonly pr: {
     readonly title: string;
@@ -111,7 +138,7 @@ export interface PullRequestReads {
     readonly comments: readonly PullRequestComment[];
   };
   /** The linked ticket, or undefined when the PR body links none. */
-  readonly issue: IssueView | undefined;
+  readonly issue: LinkedIssueRead | undefined;
   readonly reviews: readonly PullRequestReview[];
   readonly threads: readonly PullRequestReviewThread[];
   readonly diff: string;
@@ -144,17 +171,38 @@ query($owner:String!,$repo:String!,$number:Int!) {
 }`;
 
 
-/** One line per run naming what the policy took out, so a cut thread is visible in the job log (#52). */
-export const describeDropped = (dropped: DroppedComments): string => {
+/**
+ * One line per run naming what the policy took out, so a cut thread is visible
+ * in the job log (#52). The body gets its own sentence rather than a fifth
+ * count: it is not a comment, and a run that loses it loses its criteria, which
+ * is the thing a reader of the log is trying to explain (#179).
+ */
+export const describeDropped = (dropped: DroppedUntrusted): string => {
   const total =
     dropped.prComments +
     dropped.reviewSummaries +
     dropped.reviewThreadComments +
     dropped.issueComments;
-  return total === 0
-    ? "Untrusted comments dropped: none."
-    : `Untrusted comments dropped: ${total} (PR comments ${dropped.prComments}, review summaries ${dropped.reviewSummaries}, review threads ${dropped.reviewThreadComments}, ticket comments ${dropped.issueComments}).`;
+  const comments =
+    total === 0
+      ? "Untrusted comments dropped: none."
+      : `Untrusted comments dropped: ${total} (PR comments ${dropped.prComments}, review summaries ${dropped.reviewSummaries}, review threads ${dropped.reviewThreadComments}, ticket comments ${dropped.issueComments}).`;
+  return dropped.issueBody === 0
+    ? comments
+    : `${comments} The linked ticket's own body and title were dropped: an untrusted author opened it, so this run reads no acceptance criteria from it.`;
 };
+
+/** What stands where an untrusted ticket's title was, so the ticket still reads as a ticket. */
+const UNTRUSTED_TICKET_TITLE = "(title not included: untrusted author)";
+
+/**
+ * What stands where an untrusted ticket's body was. A dropped comment leaves a
+ * note saying the thread was cut; this is the same note for the body, in the
+ * policy's own words, so an agent reads a missing checklist as refused rather
+ * than as a ticket that never had one (#179).
+ */
+const untrustedTicketNote = (policy: TrustPolicy): string =>
+  `This ticket was opened by an untrusted author, so neither its title nor its body is included: the factory acts only on ${policy.associations.join(", ")}. There are no acceptance criteria to judge here. If this ticket is genuine, a maintainer must restate it in a place the factory reads.`;
 
 /**
  * The context an agent gets, from the reads, under one trust policy. Pure, so
@@ -169,10 +217,25 @@ export const pullRequestContext = (
   policy: TrustPolicy,
 ): PullRequestContext => {
   const issueNumber = linkedIssueNumber(reads.pr.body);
+  // The ticket's body is the reviewer's ACCEPTANCE_CRITERIA and the audit's, so
+  // it goes through the policy like every other channel here (#179).
+  const ticketAuthorTrusted = reads.issue
+    ? policy.trusts("ticket-author", reads.issue.author)
+    : true;
+  // The title goes with the body: a title is the same untrusted channel as a
+  // body, which is how an untrusted parent spec is already handled (#52).
+  const view =
+    reads.issue && !ticketAuthorTrusted
+      ? {
+          ...reads.issue.view,
+          title: UNTRUSTED_TICKET_TITLE,
+          body: untrustedTicketNote(policy),
+        }
+      : reads.issue?.view;
   // One application of the policy to the ticket, not two: the rendered text and
   // the count come back together, so they cannot drift apart.
-  const issue = reads.issue
-    ? renderIssue(reads.issue, policy)
+  const issue = view
+    ? renderIssue(view, policy)
     : { text: "(no linked issue found)", droppedComments: 0 };
 
   // Each read names its channel and reports what it has. Whether the factory's
@@ -214,11 +277,12 @@ export const pullRequestContext = (
     }),
   );
 
-  const dropped: DroppedComments = {
+  const dropped: DroppedUntrusted = {
     prComments: prComments.dropped,
     reviewSummaries: reviewSummaries.dropped,
     reviewThreadComments: threadComments.dropped,
     issueComments: issue.droppedComments,
+    issueBody: ticketAuthorTrusted ? 0 : 1,
   };
   const droppedInAll =
     dropped.prComments +
@@ -262,15 +326,51 @@ export const pullRequestContext = (
     prTitle: reads.pr.title,
     prBody: reads.pr.body ?? "",
     issueNumber,
-    issueTitle: reads.issue?.title ?? "",
-    issueBody: reads.issue?.body ?? "",
-    issueLabels: (reads.issue?.labels ?? []).map((label) => label.name),
+    // The placeholder rather than "": implement-pr renders an empty title as
+    // "(no linked issue)", and there is a linked ticket, it is just not one the
+    // factory reads (#179).
+    issueTitle: view?.title ?? "",
+    // Empty, not the note above: an untrusted ticket must reach the same
+    // outcome as a ticket with no acceptance criteria, which `review.ts` and
+    // `audit.ts` already turn into a mechanical fail (#179).
+    issueBody: ticketAuthorTrusted ? (reads.issue?.view.body ?? "") : "",
+    issueLabels: (reads.issue?.view.labels ?? []).map((label) => label.name),
     linkedIssue: issue.text,
     diff: reads.diff,
     prCommentsJson: JSON.stringify(payload, null, 2),
     diffLines: parseDiffLines(reads.diff),
     validReplyIds: new Set(reviewThreads.map((comment) => comment.commentId)),
     dropped,
+  };
+};
+
+/**
+ * The linked ticket and whoever opened it, with the job's gh token.
+ *
+ * Two reads, because they carry different things and both are needed. gh's
+ * `--json` view gives the title, the criteria, the comments with the
+ * association the policy filters on, and the labels, which decide the
+ * implementer's model (#119); it has no `authorAssociation` field for the
+ * ticket itself, so it cannot say whose ticket this is. REST does, on
+ * `author_association`, and that is the field the `ticket-author` channel is
+ * judged on everywhere else (`dispatch/select.ts`).
+ *
+ * Both throw on an API error, since a missing body must never read as "no
+ * criteria", and a missing author must never read as a trusted one.
+ */
+const readLinkedIssue = (issueNumber: string): LinkedIssueRead => {
+  const view = JSON.parse(
+    gh(["issue", "view", issueNumber, "--json", "number,title,body,comments,labels"]),
+  ) as IssueView;
+  const rest = JSON.parse(
+    gh(["api", `repos/{owner}/{repo}/issues/${issueNumber}`]),
+  ) as {
+    author_association?: string | null;
+    user?: { login?: string | null } | null;
+  };
+  return {
+    view,
+    author: { association: rest.author_association, login: rest.user?.login },
   };
 };
 
@@ -291,15 +391,7 @@ export const fetchPullRequestContext = (
   };
 
   const issueNumber = linkedIssueNumber(prView.body);
-  // One JSON read for the ticket: its title, its criteria, its comments with
-  // the association the policy filters on, and its labels, which decide the
-  // implementer's model (#119). Throws on an API error, since a missing body
-  // must never read as "no criteria".
-  const issue = issueNumber
-    ? (JSON.parse(
-        gh(["issue", "view", issueNumber, "--json", "number,title,body,comments,labels"]),
-      ) as IssueView)
-    : undefined;
+  const issue = issueNumber ? readLinkedIssue(issueNumber) : undefined;
 
   const reviews = JSON.parse(
     gh(["api", `repos/{owner}/{repo}/pulls/${prNumber}/reviews`]),

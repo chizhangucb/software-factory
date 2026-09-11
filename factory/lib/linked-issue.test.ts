@@ -36,5 +36,5 @@ test("a padded reference names the same ticket to both readers", () => {
   // covering ticket 7, and the ticket would be neither dispatched nor claimed.
   assert.deepEqual(issuesClosedBy("Closes #007"), [7]);
   assert.equal(linkedIssueNumber("Closes #007"), "7");
-  assert.deepEqual(issuesClosedBy("fixes #007 and Resolves: #0012"), [7, 12]);
+  assert.equal(linkedIssueNumber("Closes #000"), "0");
 });

@@ -30,7 +30,7 @@ const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/gi;
  * the ones comparing strings miss a PR the ones comparing numbers count (#132).
  */
 const closingReferences = (prBody: string | null | undefined): string[] =>
-  [...(prBody ?? "").matchAll(CLOSES)].map((match) => String(Number(match[1]!)));
+  [...(prBody ?? "").matchAll(CLOSES)].map((match) => match[1]!.replace(/^0+(?=\d)/, ""));
 
 /** The ticket a PR belongs to: the first it claims to close, or "" for none. */
 export const linkedIssueNumber = (prBody: string | null | undefined): string =>

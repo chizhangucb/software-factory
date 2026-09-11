@@ -24,6 +24,7 @@ import {
   retriesUsed,
   retryLabel,
   retryPromptSection,
+  targetOf,
 } from "./decide";
 
 test("retriesUsed counts the highest factory:retry-<n> label, zero without one", () => {
@@ -491,4 +492,14 @@ test("a killed attempt that wrote no reason file says it was killed", () => {
   assert.match(missingFailureReason("cancelled"), /timeout/);
   // Nothing killed it, so the reason really is missing and the log is where to look.
   assert.match(missingFailureReason("failure"), /no reason file/);
+});
+
+test("a run with neither a ticket nor an open PR has no subject", () => {
+  // A PR input naming a PR that is no longer open, whose body links no ticket
+  // (#133): the handler used to carry on and hand `gh` an undefined number.
+  assert.equal(targetOf(undefined, undefined), undefined);
+  assert.equal(targetOf("", undefined), undefined);
+  assert.deepEqual(targetOf("7", undefined), { issue: "7", pr: undefined });
+  assert.deepEqual(targetOf(undefined, { number: "12" }), { issue: undefined, pr: { number: "12" } });
+  assert.deepEqual(targetOf("7", { number: "12" }), { issue: "7", pr: { number: "12" } });
 });

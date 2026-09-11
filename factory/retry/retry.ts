@@ -108,6 +108,8 @@ import {
   REQUEUED_FILE,
   retriesUsed,
   retryLabel,
+  type Target as RetryTarget,
+  targetOf,
 } from "./decide";
 
 const REPO = required("GH_REPO");
@@ -166,11 +168,7 @@ interface OpenPr {
   readonly facts: FactoryPrFacts;
 }
 
-interface Target {
-  readonly issue: string | undefined;
-  /** An open PR for the branch, when there is one. */
-  readonly pr: OpenPr | undefined;
-}
+type Target = RetryTarget<OpenPr>;
 
 /**
  * The one thing an action is taken on: a ticket or a PR, named the way the
@@ -194,7 +192,7 @@ interface Subject {
  * the PR and what a human reads; the PR only when no ticket was found.
  */
 const recordOn = (target: Target): Subject =>
-  target.issue ? { kind: "issue", number: target.issue } : { kind: "pr", number: (target.pr as OpenPr).number };
+  target.issue === undefined ? { kind: "pr", number: target.pr.number } : { kind: "issue", number: target.issue };
 
 /**
  * What a label has to go on to move the factory: the open PR when there is
@@ -203,7 +201,11 @@ const recordOn = (target: Target): Subject =>
  * a retry uses both at once.
  */
 const actOn = (target: Target): Subject =>
-  target.pr ? { kind: "pr", number: target.pr.number } : { kind: "issue", number: target.issue as string };
+  target.issue === undefined
+    ? { kind: "pr", number: target.pr.number }
+    : target.pr
+      ? { kind: "pr", number: target.pr.number }
+      : { kind: "issue", number: target.issue };
 
 /**
  * The ticket and its open PR from whichever number the workflow knows.
@@ -221,8 +223,10 @@ const resolveTarget = (): Target => {
     const pr = ghJson<{ state: string; body: string | null; headRefName: string }>([
       "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body,headRefName",
     ]);
-    const issue = ISSUE_INPUT ?? linkedIssueNumber(pr.body) ?? undefined;
-    return { issue: issue || undefined, pr: pr.state === "OPEN" ? openPr(PR_INPUT, pr) : undefined };
+    const target = targetOf(ISSUE_INPUT ?? linkedIssueNumber(pr.body), pr.state === "OPEN" ? openPr(PR_INPUT, pr) : undefined);
+    // Neither to record on nor to act on: stop before any write names an undefined number (#133).
+    if (!target) throw new Error(`PR #${PR_INPUT} is ${pr.state.toLowerCase()}, not open, and its body links no ticket: nothing to retry or escalate on.`);
+    return target;
   }
   const issue = required("ISSUE_NUMBER");
   // Every open PR, as the dispatcher lists them, and not a body search: GitHub's
@@ -653,7 +657,7 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
       // The PR's own number when no ticket was found, which is the reachable
       // case for a PR the factory did not author: it closes no ticket. The
       // comment renders it as `#N`, which on that PR's thread links to itself.
-      issueNumber: target.issue ?? (target.pr as OpenPr).number,
+      issueNumber: recordOn(target).number,
       reason,
       summary: failure.summary,
       runUrl: RUN_URL,
@@ -718,11 +722,12 @@ const main = async (): Promise<void> => {
   if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
     if (!mergeability) {
       console.log(`PR #${target.pr.number} closed or merged as the handler waited; it is no longer the subject.`);
-      target = { ...target, pr: undefined };
-      if (!target.issue) {
+      const ticketOnly = targetOf<OpenPr>(target.issue, undefined);
+      if (!ticketOnly) {
         console.log("No ticket to fall back to; nothing to requeue.");
         return;
       }
+      target = ticketOnly;
     }
   }
   const labels = labelsOf(recordOn(target));

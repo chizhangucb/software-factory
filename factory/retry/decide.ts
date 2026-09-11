@@ -76,6 +76,19 @@ export const RATE_LIMITED_REASON = "rate limited on every account; not the ticke
 export const REQUEUED_FILE = "requeued.txt";
 
 /** A PR's mergeability as GitHub reports it (`gh pr view --json mergeable`); UNKNOWN while it is still computing. */
+/**
+ * What a run is about: the ticket, its open PR, or both, never neither. A run
+ * with neither has nothing to record on or act on, so it has no target at all
+ * rather than one whose numbers are undefined (#133).
+ */
+export type Target<Pr> =
+  | { readonly issue: string; readonly pr: Pr | undefined }
+  | { readonly issue: undefined; readonly pr: Pr };
+
+/** The target, or undefined when neither a ticket nor an open PR was found. */
+export const targetOf = <Pr>(issue: string | undefined, pr: Pr | undefined): Target<Pr> | undefined =>
+  issue ? { issue, pr } : pr ? { issue: undefined, pr } : undefined;
+
 export type Mergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 
 export type Decision =

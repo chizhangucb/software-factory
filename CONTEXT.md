@@ -65,6 +65,10 @@ _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to
 The hand-off's counterpart on a PR the factory did not author (#180): the same comment naming the conflict, then `agent:blocked` instead of `agent:implement`, because merging the base in and pushing someone else's branch is not the factory's to do. The label is what makes it stick, holding the PR through the next push to `main` here and, on a PR the reviewer has judged, parking it at the reconciler too, and the author taking it off is what hands the PR back. Updates are untouched either way.
 _Avoid_: escalation (nothing is given up on and no retry was spent), hand-back (the PR was never the factory's to hand anywhere).
 
+**Hold**:
+A human's instruction to leave a ready ticket alone: the `hold` label, which holds a ticket back whatever else it carries. Removing it releases the ticket on the next sweep. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `HOLD_LABELS` in `factory/lib/labels.ts` is the set the dispatcher reads, and `docs/agents/hold.md` is what a triager reads.
+_Avoid_: blocked, paused, on hold as a state the factory sets (the factory never adds or removes it).
+
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.
 
@@ -112,7 +116,7 @@ The `factory-sweep` dispatch sent to a target on an interval from outside GitHub
 _Avoid_: cron (GitHub's word for the `schedule` trigger), the sweep (what the heartbeat triggers, not the heartbeat itself).
 
 **Trusted author**:
-Whoever the factory will take instructions from, by GitHub's `author_association`. A ticket body is what the implementer executes, and a PR comment is what the reviewer and implement-pr read, so on a public target the dispatcher runs only tickets written by a trusted author, and every agent reads only trusted authors' comments, review threads and linked-ticket comments, with a count in place of what was dropped. Default: the repo owner alone.
+Whoever the factory will take instructions from, by GitHub's `author_association`. A ticket body is what the implementer executes, and a PR comment is what the reviewer and implement-pr read, so on a public target the dispatcher runs only tickets written by a trusted author, and every agent reads only trusted authors' comments, review threads and linked-ticket comments, with a count in place of what was dropped. A PR's linked ticket is judged the same way, title and body together: the reviewer, implement-pr and the audit reach a ticket by the PR's closing keyword rather than through the dispatcher, so an untrusted author's ticket gives them no acceptance criteria and a note in place of its body (#179). Default: the repo owner alone.
 _Avoid_: allowlist, whitelist.
 
 **Trust policy**:

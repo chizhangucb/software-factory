@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { HOLD_LABEL, HOLD_LABELS } from "../lib/labels.ts";
 import { trustPolicy } from "../lib/trusted-authors.ts";
 import {
   type DispatchIssue,
@@ -52,12 +53,26 @@ test("a ticket without ready-for-agent is not a dispatch candidate", () => {
   assert.equal(whySkipped(ticket(1, { labels: ["bug"] }), OWNER_ONLY), "no ready-for-agent");
 });
 
-test("ready-for-human and needs-triage are refused even with ready-for-agent", () => {
-  const human = ticket(1, { labels: ["ready-for-agent", "ready-for-human"] });
-  const triage = ticket(2, { labels: ["needs-triage", "ready-for-agent"] });
-  assert.deepEqual(numbers([human, triage]), []);
-  assert.equal(whySkipped(human, OWNER_ONLY), "refused: ready-for-human");
-  assert.equal(whySkipped(triage, OWNER_ONLY), "refused: needs-triage");
+test("every hold label holds a ticket back, however ready it says it is", () => {
+  // The hold set is the label vocabulary's, not the dispatcher's own: #169 put
+  // it in `lib/labels.ts` so a reader of the vocabulary sees what stops a
+  // dispatch without reading `select.ts`. Reading it from there is also what
+  // fails this test if a second copy ever grows back here.
+  for (const label of HOLD_LABELS) {
+    const held = ticket(1, { labels: ["ready-for-agent", label] });
+    assert.deepEqual(numbers([held]), []);
+    assert.equal(whySkipped(held, OWNER_ONLY), `held: ${label}`);
+  }
+});
+
+test("the hold is the only thing stopping a ticket that is otherwise ready to go", () => {
+  // One ticket, one label apart, so what the hold does is the only difference
+  // between the two answers. That is the case the label exists for: a ticket
+  // with nothing wrong with it that a human is holding anyway.
+  const ready = ticket(7, { labels: ["ready-for-agent"] });
+  const held = { ...ready, labels: [...ready.labels, HOLD_LABEL] };
+  assert.equal(whySkipped(ready, OWNER_ONLY), undefined);
+  assert.equal(whySkipped(held, OWNER_ONLY), `held: ${HOLD_LABEL}`);
 });
 
 test("an assigned ticket is left to its assignee", () => {

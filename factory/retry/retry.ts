@@ -10,7 +10,10 @@
  *   nobody else's. Any other open PR is a tell-author instead, `agent:blocked`
  *   and a comment, which is what update-branch does with the same PR (#180).
  *   The retry is still recorded and still counted either way; what changes is
- *   who fixes it.
+ *   who fixes it. A run handed only its ticket counts a PR as open only when
+ *   it is on the run's own branch (#204), so a person's PR linking the same
+ *   ticket is neither labeled nor told: the retry goes to the ticket as though
+ *   no PR were open.
  * - escalate: agent:* and ready-for-agent off the ticket, needs-human on, the
  *   open PR's agent:* labels off, the branch kept, a comment on the ticket
  *   linking the run and its log. The PR is closed only when the factory
@@ -125,6 +128,7 @@ import {
   type TicketOrPr,
   ticketOrPr,
   ticketOrPrFromPr,
+  ticketOrPrFromTicket,
   type Unresolved,
 } from "./decide";
 
@@ -209,7 +213,11 @@ const actOn = (target: Target): Subject =>
       : { kind: "issue", number: target.issue };
 
 /**
- * The ticket and its open PR from whichever number the workflow knows.
+ * The ticket and its open PR from whichever number the workflow knows. A PR
+ * number names the PR outright. A ticket alone is searched from, and there the
+ * open PR is only this run's, the one on BRANCH that links the ticket (#204):
+ * any other PR linking it belongs to whoever opened it, so it is never the
+ * subject of this run's failure, nor the PR a hold is looked for on (#185).
  * `headRefName` comes back on both reads, because the facts escalation judges
  * the PR on have to be the ones from the read that found it (#174): asking
  * GitHub again later is one more call that can fail, on a step whose failure
@@ -240,8 +248,10 @@ const resolveTarget = (): Target | Unresolved => {
     "pr", "list", "--repo", REPO, "--state", "open", "--limit", "200",
     "--json", "number,body,headRefName",
   ]);
-  const pr = open.find((p) => linkedIssueNumber(p.body) === issue);
-  return { issue, pr: pr ? openPr(String(pr.number), pr) : undefined };
+  // Only this run's PR, the one on BRANCH, and not the first that links the
+  // ticket: a person's PR saying `Closes #7` is theirs, and this run's failure
+  // is not theirs to be told about (#204).
+  return ticketOrPrFromTicket({ ticket: issue, branch: BRANCH, open: open.map((p) => openPr(String(p.number), p)) });
 };
 
 /**

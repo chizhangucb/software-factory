@@ -15,7 +15,9 @@
  * implementer run reads back. Pure functions here; `retry.ts` does the API
  * calls.
  */
+import type { FactoryPrFacts } from "../lib/factory-pr.ts";
 import { BLOCKED_LABEL, ESCALATION_LABEL, HOLD_LABELS, IMPLEMENT_LABEL, IN_PROGRESS_LABEL, READY_LABEL } from "../lib/labels.ts";
+import { linkedIssueNumber } from "../lib/linked-issue";
 import { boundOutput } from "../lib/verdict";
 import type { PrFixAction } from "./escalation.ts";
 
@@ -114,6 +116,32 @@ export const ticketOrPrFromPr = <Pr>(input: {
   ticketOrPr(input.ticket, input.state === "OPEN" ? input.pr : undefined) ?? {
     unresolved: `PR #${input.number} is ${input.state.toLowerCase()}, not open, and its body links no ticket: nothing to retry or escalate on.`,
   };
+
+/**
+ * A run handed only its ticket: the ticket, and the one open PR that is this
+ * run's, which is a PR that links the ticket *and* sits on the run's own
+ * branch (#204). Linking the ticket is not enough. Anyone can open a PR saying
+ * `Closes #7` while the factory's run on #7 is in flight, and one picked on
+ * the link alone became the subject of the factory's own failure: a PR the
+ * factory did not author gets a tell-author (#183), so its author was handed
+ * `agent:blocked` and a comment for an attempt they never made. A PR on any
+ * other branch is not this run's, so the run resolves as though none were
+ * open and everything after it lands on the ticket alone.
+ *
+ * The branch is the one the workflow handed over, `agent-implement.yml` being
+ * the only caller on this path. A run handed a PR number never comes here: that
+ * PR is named rather than searched for, and `ticketOrPrFromPr` takes it on
+ * whatever branch it is.
+ */
+export const ticketOrPrFromTicket = <Pr extends { readonly facts: FactoryPrFacts }>(input: {
+  readonly ticket: string;
+  readonly branch: string;
+  /** Every open PR, as the handler lists them. */
+  readonly open: readonly Pr[];
+}): TicketOrPr<Pr> => ({
+  issue: input.ticket,
+  pr: input.open.find(({ facts }) => facts.headRef === input.branch && linkedIssueNumber(facts.body) === input.ticket),
+});
 
 /** A PR's mergeability as GitHub reports it (`gh pr view --json mergeable`); UNKNOWN while it is still computing. */
 export type Mergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";

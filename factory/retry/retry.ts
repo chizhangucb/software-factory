@@ -39,7 +39,6 @@
  *   a definite conflict (#145), rather than at the deadline. A mergeability
  *   GitHub has not decided yet (UNKNOWN) is never acted on: it keeps waiting,
  *   and at the deadline it stays a requeue.
- *
  * - stand-down (#185): a label from the hold set (`HOLD_LABELS`, the one the
  *   dispatcher reads) is on the ticket or on its open PR. A person has said to
  *   leave the subject alone, so it outranks every action above that would
@@ -107,6 +106,7 @@ import {
   type FailureKind,
   findHold,
   type Hold,
+  type Subject,
   isImplementerFailure,
   MAX_RETRIES,
   type Mergeability,
@@ -185,22 +185,6 @@ interface OpenPr {
 }
 
 type Target = TicketOrPr<OpenPr>;
-
-/**
- * The one thing an action is taken on: a ticket or a PR, named the way the
- * sweep names one (`Subject` in `dispatch/reconcile.ts`). Not imported from
- * there: that module is the dispatch job's, and it numbers its subjects with
- * a number, while every number here is the string the workflow handed over,
- * which is also the `gh` argument.
- *
- * A retry has two subjects at once, the one that records it and the one whose
- * label starts the next run, so which is which has to be readable at every
- * call site rather than positional.
- */
-interface Subject {
-  readonly kind: "issue" | "pr";
-  readonly number: string;
-}
 
 /**
  * Where the record of this run goes: a comment, the retry label, the
@@ -639,13 +623,13 @@ const requeue = (target: Target, reason: string): void => {
  * The comment goes where the hold was found, the thread whoever added it is
  * reading, and names the label and the subject.
  */
-const standDown = (target: Target, hold: Hold, failure: Failure): void => {
+const standDown = (target: Target, { hold, reason }: { readonly hold: Hold; readonly reason: string }, failure: Failure): void => {
   const resume = actOn(target);
   const pr = resume.kind === "pr" ? resume.number : undefined;
   commentOn(hold.on, renderStandDownComment({ hold, summary: failure.summary, runUrl: RUN_URL, pr }));
-  if (pr) keepInProgress(pr, `${hold.label} is on ${hold.on.kind} #${hold.on.number}`);
+  if (pr) keepInProgress(pr, reason);
   console.log(
-    `Stood down: ${hold.label} is on ${hold.on.kind} #${hold.on.number}. No retry spent, nothing labeled` +
+    `Stood down: ${reason}. No retry spent, nothing labeled` +
       (pr ? `; PR #${pr} left in ${IN_PROGRESS_LABEL} for the reconciler once the hold is off.` : "; the dispatcher picks the ticket up once the hold is off."),
   );
 };
@@ -805,7 +789,7 @@ const main = async (): Promise<void> => {
   });
   console.log(`${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);
 
-  if (decision.action === "stand-down") standDown(target, decision.hold, failure);
+  if (decision.action === "stand-down") standDown(target, decision, failure);
   else if (decision.action === "retry") retry(target, decision.retry, failure);
   else if (decision.action === "escalate") escalate(target, decision.reason, failure);
   else if (decision.action === "requeue") requeue(target, decision.reason);

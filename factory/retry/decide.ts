@@ -119,13 +119,30 @@ export const ticketOrPrFromPr = <Pr>(input: {
 export type Mergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 
 /**
+ * The one thing an action is taken on: a ticket or a PR, named the way the
+ * sweep names one (`Subject` in `dispatch/reconcile.ts`). Not imported from
+ * there: that module is the dispatch job's, and it numbers its subjects with
+ * a number, while every number here is the string the workflow handed over,
+ * which is also the `gh` argument.
+ *
+ * A retry has two subjects at once, the one that records it and the one whose
+ * label starts the next run, so which is which has to be readable at every
+ * call site rather than positional. Here rather than in `retry.ts` because a
+ * hold is found on one of the two (#185), and `Hold` has to name which.
+ */
+export interface Subject {
+  readonly kind: "issue" | "pr";
+  readonly number: string;
+}
+
+/**
  * A label from the hold set on the run's subject, and which subject it was
  * found on (#185): a person has said to leave this alone, and the retry
  * handler says back which label stopped it and where.
  */
 export interface Hold {
   readonly label: string;
-  readonly on: { readonly kind: "issue" | "pr"; readonly number: string };
+  readonly on: Subject;
 }
 
 /**
@@ -139,7 +156,7 @@ export interface Hold {
  * hold on exactly what the retry would start.
  */
 export const findHold = (
-  subjects: readonly (Hold["on"] & { readonly labels: readonly string[] })[],
+  subjects: readonly (Subject & { readonly labels: readonly string[] })[],
 ): Hold | undefined => {
   for (const { kind, number, labels } of subjects) {
     const label = HOLD_LABELS.find((held) => labels.includes(held));
@@ -149,7 +166,7 @@ export const findHold = (
 };
 
 /** A subject the way a comment names it: `ticket #7`, `PR #12`. */
-const subjectName = (on: Hold["on"]): string => `${on.kind === "issue" ? "ticket" : "PR"} #${on.number}`;
+const subjectName = (on: Subject): string => `${on.kind === "issue" ? "ticket" : "PR"} #${on.number}`;
 
 export type Decision =
   /** A person holds the subject: no agent starts, nothing is spent, nothing is escalated. */

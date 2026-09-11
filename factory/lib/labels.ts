@@ -32,11 +32,13 @@ export const ESCALATION_LABEL = "needs-human";
  * dispatcher does not dispatch it, the retry handler stands down rather than
  * retry it, and the reconciler leaves it and its PR alone rather than re-add a
  * start label (#185). Before #185 only the first of the three read it, so the
- * promise was the dispatcher's alone. One seam still does not:
- * update-branch's conflict hand-off (`planConflict`) puts `agent:implement` on
- * a conflicting factory-authored PR carrying no `agent:*` label, held or not.
- * A PR the retry handler stood down on keeps `agent:in-progress` and is
- * skipped there already, so the gap is a held PR between stages. Unprefixed
+ * promise was the dispatcher's alone. Two hand-offs still do not read it. An
+ * agent workflow that succeeds labels its PR `agent:review`, so a run already
+ * going when the hold lands still gets its review. And update-branch's
+ * conflict hand-off (`planConflict`) puts `agent:implement` on a conflicting,
+ * armed, factory-authored PR carrying no `agent:*` label, held or not; a PR
+ * the retry handler stood down on keeps `agent:in-progress` and is skipped
+ * there already, so that gap is a held PR between stages. Unprefixed
  * because it is a human's instruction rather than factory state, so it belongs
  * next to `ready-for-agent` rather than in `agent:*`.
  *

@@ -303,7 +303,10 @@ export const leftAlone = (labels: readonly string[]): boolean =>
  * stands down on a held ticket's PR by keeping it in `agent:in-progress`, and
  * a reconciler that read the PR alone would re-add `agent:review` at the next
  * deadline; the reviewer's failure would be stood down on again, and the
- * second such miss escalates to `needs-human`, which a hold must never reach.
+ * second such miss escalates to `needs-human`, so the hold itself would be
+ * what escalated the ticket. Once the hold is off, the resume is a re-dispatch
+ * like any other and counts as the stranding's first miss, as a requeue's does
+ * (#148): a second lost event after it escalates for its own reasons.
  */
 const heldBy = (labels: readonly string[], ticket: TicketState | undefined): string | undefined => {
   const own = holdIn(labels);
@@ -333,8 +336,8 @@ const decideTicket = (t: TicketState, snap: Snapshot, deadlines: Deadlines): Dec
   const has = (l: string) => t.labels.includes(l);
   if (!has("agent:implement") && !has("agent:in-progress")) return undefined;
   const subject: Subject = { kind: "issue", number: t.number };
-  const leftBe = leftAloneDecision(subject, t.labels, deadlines.stuckMinutes, heldBy(t.labels, undefined));
-  if (leftBe) return leftBe;
+  const untouched = leftAloneDecision(subject, t.labels, deadlines.stuckMinutes, heldBy(t.labels, undefined));
+  if (untouched) return untouched;
   const state = has("agent:in-progress") ? "agent:in-progress" : "agent:implement";
   const runs = runsFor({ kind: "issue", title: t.title }, snap.runs).filter((r) => r.role === undefined || r.role === "implement");
   return decideStuck(
@@ -354,8 +357,8 @@ const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines, held: s
   const state = PR_STATES.find((s) => p.labels.includes(s.label));
   if (!state) return undefined;
   const subject: Subject = { kind: "pr", number: p.number };
-  const leftBe = leftAloneDecision(subject, p.labels, deadlines.stuckMinutes, held);
-  if (leftBe) return leftBe;
+  const untouched = leftAloneDecision(subject, p.labels, deadlines.stuckMinutes, held);
+  if (untouched) return untouched;
   const runs = runsFor({ kind: "pr", headRef: p.headRef }, snap.runs).filter((r) => r.role === undefined || state.roles.includes(r.role));
   return decideStuck(
     { subject, state: state.label, since: p.stateSince, marks: p.marks, runs, expected: state.expected, labels: p.labels, add: state.add, ticket: p.closes },

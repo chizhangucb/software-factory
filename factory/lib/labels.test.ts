@@ -13,7 +13,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { test } from "node:test";
 
-import { HOLD_LABEL, HOLD_LABELS } from "./labels.ts";
+import { DISPATCH_LABEL, FACTORY_STATE_LABELS } from "../dispatch/select.ts";
+import { HOLD_LABEL, HOLD_LABELS, READY_LABEL } from "./labels.ts";
 
 /**
  * The pages that have to name the hold set. Every other page in `docs/` is
@@ -21,7 +22,7 @@ import { HOLD_LABEL, HOLD_LABELS } from "./labels.ts";
  * the whole guard, so a new page that names the set wrongly fails here rather
  * than waiting for someone to add it to a list.
  */
-const HOLD_SET_SITES = ["docs/pipeline.md", "docs/agents/hold.md"];
+const HOLD_SET_SITES = ["docs/adr/0005-four-labels-that-end-in-a-human.md", "docs/pipeline.md", "docs/agents/hold.md"];
 
 /**
  * The form a page names the set in: the words "hold set" then the labels in
@@ -83,4 +84,41 @@ test("the hold label is unprefixed, so it reads as a human's instruction rather 
   assert.equal(HOLD_LABEL, "hold");
   assert.equal(HOLD_LABELS[0], HOLD_LABEL, "the label to reach for leads the set");
   assert.ok(!HOLD_LABELS.some((label) => label.startsWith("agent:")));
+});
+
+/**
+ * The nine labels GitHub creates on every new repository, whether anyone asks
+ * for them or not. Their meanings are GitHub's and are published to everyone
+ * who has ever used the site: `help wanted` means an outside contributor is
+ * welcome here, which is recruiting rather than routing. A repo the factory
+ * onboards carries all nine before `scripts/onboard.sh` writes one label of
+ * the factory's own.
+ */
+const GITHUB_DEFAULT_LABELS = [
+  "bug",
+  "documentation",
+  "duplicate",
+  "enhancement",
+  "good first issue",
+  "help wanted",
+  "invalid",
+  "question",
+  "wontfix",
+];
+
+test("every label the dispatcher decides on is one this repo defines, never one GitHub ships", () => {
+  // ADR 0005. The dispatcher decides on exact strings, so a default in any of
+  // these lists would give a public meaning the factory does not control a
+  // private effect on a target's queue: anyone using `help wanted` in its
+  // ordinary sense would silently stop the factory, which is #169 with a wider
+  // blast radius. `wontfix` is how close this runs: a GitHub default and one of
+  // the five triage roles in `docs/agents/triage-labels.md`, and the dispatcher
+  // reads it nowhere. The accident is a decision now, and nothing undoes it
+  // quietly.
+  for (const label of [READY_LABEL, ...HOLD_LABELS, DISPATCH_LABEL, ...FACTORY_STATE_LABELS]) {
+    assert.ok(
+      !GITHUB_DEFAULT_LABELS.includes(label),
+      `${label} is one of GitHub's default labels, so a target carries it whether or not anyone means it as an instruction`,
+    );
+  }
 });

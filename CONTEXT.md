@@ -50,8 +50,8 @@ A changed test file whose process died before any test reported a result, which 
 _Avoid_: skipped, skip (the placeholder's word), ignored (it is named in the status, never passed over in silence).
 
 **Escalation**:
-A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read.
-_Avoid_: failure, blocked (the tracker's dependency word).
+A ticket or PR the factory gives up on: `needs-human` on it, its `agent:*` labels off and `ready-for-agent` with them, branch kept, log attached. The retry cap is the usual way there and not the only one, since the reconciler escalates a stranding it has missed twice and the audit opens a `needs-human` issue of its own on a miss. The only queue a human must read.
+_Avoid_: failure, blocked (bare *blocked* is the tracker's dependency word, and `agent:blocked` is the other state: see **Blocked**).
 
 **Requeue**:
 A run handed back to the queue because what stopped it was not the ticket's failure: every account rate limited, or a check still pending when the wait for it runs out. A comment naming the cause, no retry spent, and no label for a human. One meaning on both sides (#148): a ticket is left with no factory label for the dispatcher, a PR in `agent:in-progress` for the reconciler, which re-adds the start label at its stuck deadline.
@@ -61,9 +61,21 @@ _Avoid_: retry (the attempt that is counted), hand-off (the implementer's, for a
 A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`.
 _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to the reconciler), escalation (the human queue).
 
+**Blocked**:
+A ticket or PR the factory has stopped on because the last run failed in a way a person has to look at: the `agent:blocked` label, added to whatever the subject already carries. A note rather than a transition, so nothing comes off and no retry is spent, and a person clears it by re-adding the label of the step that failed, whose run takes `agent:blocked` off itself. Distinct from an **escalation**, which is the factory done trying.
+_Avoid_: blocked on its own (the tracker's dependency word, so prose writes `agent:blocked`), stuck (the reconciler's word for a subject with no live run), failed.
+
+**Parked**:
+A ticket or PR no factory sweep picks up again until a person acts: `agent:blocked` or `needs-human`, which is `PARKED_LABELS` in `factory/dispatch/reconcile.ts`. The reconciler repairs a stranded subject and leaves a parked one alone, so parking is how the factory stops touching something without closing it.
+_Avoid_: held (a **hold** is a person choosing the timing, not the factory stopping), stalled, abandoned.
+
 **Hold**:
 A human's instruction to leave a ready ticket alone: the `hold` label, which holds a ticket back whatever else it carries. Removing it releases the ticket on the next sweep. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `HOLD_LABELS` in `factory/lib/labels.ts` is the set the dispatcher reads, and `docs/agents/hold.md` is what a triager reads.
 _Avoid_: blocked, paused, on hold as a state the factory sets (the factory never adds or removes it).
+
+**Ready for human**:
+A ticket a person is to implement rather than the factory: the `ready-for-human` label, one of the five triage roles `docs/agents/triage-labels.md` maps. The factory never writes it, and the dispatcher reads it only as a backstop among the labels that hold a ticket back, since a ticket genuinely somebody's to write by hand does not also carry `ready-for-agent`.
+_Avoid_: human ticket, manual, hold (a **hold** says not yet, this says not the factory).
 
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.

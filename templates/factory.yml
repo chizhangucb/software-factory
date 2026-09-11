@@ -51,10 +51,15 @@ jobs:
   # went to fourteen runs in flight in two minutes (#170).
   # What still reaches the sweep, on purpose: a human dropping ready-for-human,
   # needs-triage or needs-human, a human dropping an assignee, and the factory's own
-  # escalation dropping ready-for-agent. That last one labels nothing, because the same
-  # escalation puts needs-human on and the dispatcher refuses a ticket carrying it.
-  # A ticket whose run was killed is not re-dispatched by any of this; the reconciler
-  # picks it up at its stuck deadline (stuck_minutes, default 15) on the next heartbeat.
+  # escalation dropping ready-for-agent. That last one labels nothing, because the label
+  # whose removal woke the sweep is the first one the dispatcher checks for: it is
+  # already off the ticket, so the sweep refuses it without waiting on any other write.
+  # A ticket whose run was cancelled is no longer re-dispatched by the sweep at all. Two
+  # bounded paths still bring it back, at most once each: the retry handler, which reads a
+  # cancelled job as the implementer's own failure (#51) and spends the one retry, and the
+  # reconciler, at its stuck deadline (stuck_minutes, default 15) on the next heartbeat.
+  # Either way a second cancel parks the ticket on needs-human. Making a deliberate cancel
+  # stay cancelled outright is #185, in the retry handler rather than here.
   dispatch:
     if: >-
       github.event_name == 'schedule' ||

@@ -25,6 +25,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { test } from "node:test";
 
+import { AGENT_LABEL_PREFIX, FACTORY_LABEL_PREFIX } from "../lib/labels.ts";
+
 const template = fs.readFileSync(new URL("../../templates/factory.yml", import.meta.url), "utf8");
 
 /** Every job in the caller, by id, with its `if:` folded to one line. A job without one is absent. */
@@ -45,15 +47,17 @@ const typesOf = (yaml: string, event: string): string[] => {
 /** A webhook payload as a condition sees it: whatever GitHub sends, and nothing else. */
 type Context = { event_name: string; event?: Record<string, unknown> };
 
+/** GitHub's `startsWith`, including its coercion: null reads as the empty string, not "null". */
+const startsWith = (value: unknown, prefix: unknown): boolean =>
+  String(value ?? "").startsWith(String(prefix ?? ""));
+
 /**
- * The GitHub expression functions a caller condition may call, each answering
- * as GitHub's does. A bare identifier that is neither `read` nor a name in
- * here fails the test below rather than reaching `new Function` as a
- * ReferenceError, so the evaluator still refuses what it cannot answer.
+ * What a caller condition may call, beyond reading a `github.*` path. An
+ * identifier outside this set fails the test below rather than reaching
+ * `new Function` as a ReferenceError, so the evaluator still refuses loudly
+ * what it cannot answer. Add a name here and pass it below, together.
  */
-const FUNCTIONS: Record<string, (...args: unknown[]) => unknown> = {
-  startsWith: (value, prefix) => String(value).startsWith(String(prefix)),
-};
+const CALLABLE = ["read", "startsWith"] as const;
 
 /**
  * Answer a condition as GitHub would, except that reading through an absent
@@ -74,21 +78,19 @@ const evaluate = (expression: string, context: Context): boolean => {
   const js = expression
     .replace(/github\.([a-z_]+(?:\.[a-z_]+)*)/gi, (_, path: string) => `read(${JSON.stringify(path)})`)
     .replace(/'([^']*)'/g, (_, literal: string) => JSON.stringify(literal));
-  const bare = js.replace(/"[^"]*"/g, '""');
-  assert.doesNotMatch(bare, /[^\s\w".,()!=&|]/, `the condition uses syntax this test cannot evaluate: ${expression}`);
-  for (const name of bare.match(/[A-Za-z_]\w*/g) ?? []) {
+  const withoutLiterals = js.replace(/"[^"]*"/g, '""');
+  assert.doesNotMatch(
+    withoutLiterals,
+    /[^\s\w".,()!=&|]/,
+    `the condition uses syntax this test cannot evaluate: ${expression}`,
+  );
+  for (const name of withoutLiterals.match(/[A-Za-z_]\w*/g) ?? []) {
     assert.ok(
-      name === "read" || Object.hasOwn(FUNCTIONS, name),
+      (CALLABLE as readonly string[]).includes(name),
       `the condition calls ${name}, which this test cannot evaluate: ${expression}`,
     );
   }
-  const functions = Object.entries(FUNCTIONS);
-  return Boolean(
-    new Function("read", ...functions.map(([name]) => name), `return (${js});`)(
-      read,
-      ...functions.map(([, fn]) => fn),
-    ),
-  );
+  return Boolean(new Function("read", "startsWith", `return (${js});`)(read, startsWith));
 };
 
 const issueEvent = (action: string, label?: string): Context => ({
@@ -131,6 +133,8 @@ const ISSUE_EVENTS: { action: string; label?: string; wakes: string[] }[] = [
   { action: "unlabeled", label: "ready-for-agent", wakes: ["dispatch"] },
   { action: "unlabeled", label: "agent:implement", wakes: [] },
   { action: "unlabeled", label: "agent:in-progress", wakes: [] },
+  { action: "unlabeled", label: "agent:review", wakes: [] },
+  { action: "unlabeled", label: "agent:blocked", wakes: [] },
   { action: "unlabeled", label: "factory:retry-1", wakes: [] },
   { action: "unassigned", wakes: ["dispatch"] },
   { action: "closed", wakes: ["dispatch"] },
@@ -177,23 +181,42 @@ test("removing a blocking label or an assignee wakes the dispatcher and nothing 
   }
 });
 
-test("a label the factory removed wakes no sweep, and a label a human removed still does", () => {
-  // #170 in one assertion, on the trigger decision itself. A cancelled run
+test("a removal in the factory's own namespaces wakes no sweep, any other removal still does", () => {
+  // #170, stated over the table rather than over the caller: the test above
+  // ties each row to what the caller's real condition answers, and this one
+  // ties the same rows to the rule the caller is supposed to be following.
+  // Together they say the condition implements the rule. A cancelled run
   // leaves its agent:* label for a cleanup step, and that removal fires
-  // `unlabeled` because the factory writes with a PAT. A dispatcher that
-  // answered it would re-stamp agent:implement and the cancel would have
-  // bought nothing: twelve cancels on one target became fourteen runs in
-  // flight inside two minutes.
-  const dispatch = conditions.get("dispatch")!;
-  for (const label of ["agent:implement", "agent:in-progress", "agent:review", "agent:blocked", "factory:retry-1"]) {
-    assert.equal(evaluate(dispatch, issueEvent("unlabeled", label)), false, `removing ${label} wakes no sweep`);
+  // `unlabeled` because the factory writes with a PAT; a dispatcher that
+  // answered it re-stamped agent:implement and the cancel bought nothing.
+  const removals = ISSUE_EVENTS.filter((event) => event.action === "unlabeled");
+  const factoryOwned = (label: string) =>
+    label.startsWith(AGENT_LABEL_PREFIX) || label.startsWith(FACTORY_LABEL_PREFIX);
+  const covered = { factory: 0, human: 0 };
+  for (const { label, wakes } of removals) {
+    if (factoryOwned(label!)) {
+      covered.factory += 1;
+      assert.deepEqual(wakes, [], `removing ${label} is the factory's own write and wakes nothing`);
+    } else {
+      covered.human += 1;
+      // Why the trigger earns its place at all: a human letting go of a
+      // ticket reaches the factory now, not on the next heartbeat.
+      assert.deepEqual(wakes, ["dispatch"], `removing ${label} wakes the sweep`);
+    }
   }
-  // The other half, which is why the trigger earns its place at all: a human
-  // letting go of a ticket reaches the factory now, not on the next heartbeat.
-  for (const label of ["ready-for-human", "needs-triage", "needs-human"]) {
-    assert.equal(evaluate(dispatch, issueEvent("unlabeled", label)), true, `removing ${label} wakes the sweep`);
-  }
-  assert.equal(evaluate(dispatch, issueEvent("unassigned")), true, "dropping the assignee wakes the sweep");
+  assert.ok(covered.factory > 0 && covered.human > 0, "the table covers both kinds of removal");
+});
+
+test("the caller's namespace clauses name the prefixes the factory actually writes", () => {
+  // The caller is YAML in someone else's repo, so it cannot import the
+  // vocabulary and has to spell the prefixes out. This is the tie back:
+  // renaming a namespace in lib/labels.ts without renaming it in the
+  // template fails here instead of quietly restarting the loop. Same shape
+  // as TRIGGER_SET_SITES below, which pins the prose to the caller.
+  const named = [...conditions.get("dispatch")!.matchAll(/startsWith\(github\.event\.label\.name, '([^']*)'\)/g)]
+    .map(([, prefix]) => prefix)
+    .sort();
+  assert.deepEqual(named, [AGENT_LABEL_PREFIX, FACTORY_LABEL_PREFIX].sort());
 });
 
 test("the prose that names the dispatcher's issue triggers names the caller's set", () => {

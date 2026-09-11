@@ -26,7 +26,7 @@ import { ESCALATION_LABEL, HANDED_OFF_LABELS, HOLD_LABEL, HOLD_LABELS, READY_LAB
  * the whole guard, so a new page that names the set wrongly fails here rather
  * than waiting for someone to add it to a list.
  */
-const HOLD_SET_SITES = ["docs/adr/0005-four-labels-that-end-in-a-human.md", "docs/pipeline.md", "docs/agents/hold.md"];
+const HOLD_SET_SITES = ["docs/adr/0005-four-labels-that-end-in-a-human.md", "docs/pipeline.md"];
 
 /**
  * The form a page names the set in: the words "hold set" then the labels in

@@ -160,18 +160,27 @@ const waitForNewHead = async (number: number, oldHead: string): Promise<string |
   return undefined;
 };
 
-/** No API call resolves a conflict: label the PR for agent-implement-pr.yml, which merges the base on the branch and resolves. */
-const handOff = (number: number): void => {
-  const body = [
-    "update-branch could not bring this PR up to date with `" + base + "`: the merge conflicts.",
-    "",
-    "Handing it to the implementer: labeled `" + IMPLEMENT_LABEL + "`. Its run merges `" + base +
-      "` into the branch, resolves the conflicts, and pushes; the review then judges the new head and auto-merge lands it.",
-    runUrl ? `\nRun: ${runUrl}` : "",
-  ].join("\n");
+/** What every conflict comment opens with; both decisions below are answers to the same sentence. */
+const CONFLICT_CAUSE = `update-branch could not bring this PR up to date with \`${base}\`: the merge conflicts.`;
+
+/**
+ * Say what the job decided on the PR's own thread, then put the label on that
+ * records the decision. Both conflict decisions write the same pair, and the
+ * label is what the next run reads (`planConflict`), so neither may be written
+ * without the other.
+ */
+const commentAndLabel = (number: number, paragraphs: readonly string[], label: string): void => {
+  const body = [CONFLICT_CAUSE, ...paragraphs.flatMap((p) => ["", p]), runUrl ? `\nRun: ${runUrl}` : ""].join("\n");
   gh(["pr", "comment", String(number), "--repo", repo, "--body", body]);
-  gh(["pr", "edit", String(number), "--repo", repo, "--add-label", IMPLEMENT_LABEL]);
+  gh(["pr", "edit", String(number), "--repo", repo, "--add-label", label]);
 };
+
+/** No API call resolves a conflict: label the PR for agent-implement-pr.yml, which merges the base on the branch and resolves. */
+const handOff = (number: number): void =>
+  commentAndLabel(number, [
+    `Handing it to the implementer: labeled \`${IMPLEMENT_LABEL}\`. Its run merges \`${base}\` into the branch, resolves the ` +
+      "conflicts, and pushes; the review then judges the new head and auto-merge lands it.",
+  ], IMPLEMENT_LABEL);
 
 /**
  * The factory did not open this PR, so the conflict goes back to whoever did:
@@ -186,24 +195,20 @@ const handOff = (number: number): void => {
  * reviewer had already judged would be enrolled again with the conflict in
  * place (`PARKED_LABELS` in `factory/dispatch/reconcile.ts`).
  *
- * Auto-merge is left exactly as it is. The update half of this job never asks
- * who opened a PR, so once the resolution is pushed the branch is kept up to
- * date as before, and the PR still merges on the reviewer's verdict.
+ * Auto-merge is left exactly as it is, and so is the update half of this job,
+ * which never reads a label and never asks who opened a PR. So the branch is
+ * brought up to date again the moment the conflict is gone, label or no label.
+ * What the label holds back is the review and the reconciler, which is why the
+ * comment asks for it to come off rather than claiming the updates stop.
  */
-const tellAuthor = (number: number): void => {
-  const body = [
-    "update-branch could not bring this PR up to date with `" + base + "`: the merge conflicts.",
-    "",
-    "The factory did not open this PR, so it will not rewrite the branch. Merging `" + base +
-      "` in and resolving is yours. Labeled `" + BLOCKED_LABEL + "` so no factory run picks the PR up meanwhile.",
-    "",
-    "Push the resolution, then remove `" + BLOCKED_LABEL + "`: the factory brings the branch up to date on the next push to `" +
-      base + "` and the review judges the new head. Auto-merge, if it is armed, is untouched.",
-    runUrl ? `\nRun: ${runUrl}` : "",
-  ].join("\n");
-  gh(["pr", "comment", String(number), "--repo", repo, "--body", body]);
-  gh(["pr", "edit", String(number), "--repo", repo, "--add-label", BLOCKED_LABEL]);
-};
+const tellAuthor = (number: number): void =>
+  commentAndLabel(number, [
+    `The factory did not open this PR, so it will not rewrite the branch: merging \`${base}\` in and resolving is yours. ` +
+      `Labeled \`${BLOCKED_LABEL}\`, which is this factory's "a human must look".`,
+    `Push the resolution and the factory goes back to bringing the branch up to date on its own, since that part never asks ` +
+      `who opened a PR. Then remove \`${BLOCKED_LABEL}\` to put the PR back in front of the reviewer; auto-merge, if it is ` +
+      "armed, is untouched throughout.",
+  ], BLOCKED_LABEL);
 
 /**
  * Carry out a conflict decision, whether the plan took it from a CONFLICTING
@@ -211,7 +216,7 @@ const tellAuthor = (number: number): void => {
  * One place, so the two routes to the same decision cannot act on it two ways;
  * the `reason` differs between them because the refusal is the caller's fact.
  */
-const actOnConflict = (number: number, action: ConflictPlan["action"], reason: string): void => {
+const actOnConflict = ({ number, action, reason }: ConflictPlan): void => {
   if (action === "hand-off") {
     handOff(number);
     console.log(`#${number}: ${reason}; commented and labeled ${IMPLEMENT_LABEL}.`);
@@ -273,7 +278,7 @@ for (const plan of plans) {
     }
     if (plan.action === "skip") continue;
     if (plan.action === "hand-off" || plan.action === "tell-author") {
-      actOnConflict(plan.number, plan.action, plan.reason);
+      actOnConflict({ ...plan, action: plan.action });
       continue;
     }
     const result = requestUpdate(plan.number, pr.head.sha);
@@ -287,7 +292,7 @@ for (const plan of plans) {
       // Action and reason only: the plan's `carry` was already acted on above.
       outcome.action = conflict.action;
       outcome.reason = reason;
-      actOnConflict(conflict.number, conflict.action, reason);
+      actOnConflict({ ...conflict, reason });
       continue;
     }
     if (result === "head moved") {

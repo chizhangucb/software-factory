@@ -61,6 +61,10 @@ _Avoid_: retry (the attempt that is counted), hand-off (the implementer's, for a
 A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`. update-branch makes one only on a **Factory-authored PR** (#180); the same conflict on any other PR gets the comment and `agent:blocked`, since the branch is its author's and no agent may rewrite it. The retry handler's own conflict path is #183.
 _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to the reconciler), escalation (the human queue).
 
+**Tell-author**:
+The hand-off's counterpart on a PR the factory did not author (#180): the same comment naming the conflict, then `agent:blocked` instead of `agent:implement`, because merging the base in and pushing someone else's branch is not the factory's to do. The label is what makes it stick, holding the PR through the next push to `main` here and parking it at the reconciler, and the author taking it off is what hands the PR back. Updates are untouched either way.
+_Avoid_: escalation (nothing is given up on and no retry was spent), hand-back (the PR was never the factory's to hand anywhere).
+
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.
 

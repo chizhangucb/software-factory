@@ -33,13 +33,15 @@ const pr = (number: number, overrides: Partial<OpenPr> = {}): OpenPr => ({
   ...overrides,
 });
 
+/** A PR somebody else opened: no `agent/` branch, no body marker, nothing the factory writes. */
+const NOT_OURS = { headRef: "fix/their-branch", body: "Fixes the thing I hit last week." };
+
 /** A conflicting PR the factory opened, by the branch namespace it owns. */
 const authored = (labels: readonly string[] = []): ConflictSubject =>
   ({ number: 7, labels, headRef: "agent/issue-7-thing", body: "Closes #7" });
 
-/** A conflicting PR somebody else opened: no `agent/` branch, no body marker. */
-const theirs = (labels: readonly string[] = []): ConflictSubject =>
-  ({ number: 7, labels, headRef: "fix/their-branch", body: "Fixes the thing I hit last week." });
+/** The same conflicting PR, opened by somebody else. */
+const theirs = (labels: readonly string[] = []): ConflictSubject => ({ number: 7, labels, ...NOT_OURS });
 
 const actions = (prs: readonly OpenPr[]): string[] =>
   planUpdates(prs).map((plan) => `${plan.number}:${plan.action}${plan.carry ? "+carry" : ""}`);
@@ -164,23 +166,21 @@ test("anything else GitHub answers with is not a refusal, and the caller keeps t
   assert.equal(updateRefusal({ status: null, stderr: "" }), undefined);
 });
 
-const notOurs = { headRef: "fix/their-branch", body: "Fixes the thing I hit last week." };
-
 test("a stale PR the factory did not author is still brought up to date: the update half does not narrow", () => {
   // ADR 0003's amendment: the update call is deterministic and applies to any PR with
   // auto-merge armed, whoever opened it. Arming auto-merge on a hand-authored PR is the
   // normal thing to do under a strict ruleset, and that enrolment is the point.
-  assert.deepEqual(actions([pr(7, notOurs)]), ["7:update"]);
-  assert.equal(planUpdate(pr(7, notOurs)).reason, "2 behind main");
-  assert.deepEqual(actions([pr(7, { ...notOurs, behindBy: 0 })]), ["7:skip"]);
+  assert.deepEqual(actions([pr(7, NOT_OURS)]), ["7:update"]);
+  assert.equal(planUpdate(pr(7, NOT_OURS)).reason, "2 behind main");
+  assert.deepEqual(actions([pr(7, { ...NOT_OURS, behindBy: 0 })]), ["7:skip"]);
   // And the verdict carry is the same deterministic path, still open to it.
-  const stalled = pr(7, { ...notOurs, head: updateMerge, verdict: { state: "success", sha: "h1" } });
+  const stalled = pr(7, { ...NOT_OURS, head: updateMerge, verdict: { state: "success", sha: "h1" } });
   assert.deepEqual(actions([stalled]), ["7:update+carry"]);
 });
 
 test("the plan hands a conflicting PR back to its author through the same decision", () => {
-  assert.deepEqual(actions([pr(7, { ...notOurs, mergeable: "CONFLICTING" })]), ["7:tell-author"]);
-  assert.equal(planUpdate(pr(7, { ...notOurs, mergeable: "CONFLICTING" })).carry, false);
+  assert.deepEqual(actions([pr(7, { ...NOT_OURS, mergeable: "CONFLICTING" })]), ["7:tell-author"]);
+  assert.equal(planUpdate(pr(7, { ...NOT_OURS, mergeable: "CONFLICTING" })).carry, false);
 });
 
 test("the plan takes the conflict decision before it looks at any verdict", () => {

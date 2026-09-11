@@ -237,6 +237,13 @@ export type ConflictSubject = FactoryPrFacts & {
  * carrying it is skipped by the first branch whoever opened it, which is
  * today's behaviour for a factory PR and is unchanged here.
  *
+ * The held check running first is also what decides the one case where the two
+ * rules pull apart: a PR on the **judged path** is carrying `agent:review`
+ * while the reviewer runs, so its author is told nothing that run. Silence is
+ * the right answer there. The label says an agent already holds the PR, the
+ * reviewer's own run ends with the label off, and the conflict is still there
+ * on the next push to main, which is when the author hears about it.
+ *
  * The one copy of this decision, and it does not depend on who found the
  * conflict. The plan reaches it through `planUpdate` before any call is made,
  * and `update-branch.ts` reaches it again when GitHub refuses the call it

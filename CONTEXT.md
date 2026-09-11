@@ -90,7 +90,7 @@ A PR the factory itself opened, rather than one it later worked on: a branch und
 _Avoid_: hand-authored, human PR (both name what a PR is not, and an outside agent's is neither).
 
 **Judged path**:
-How a PR the factory did not author reaches a merge on the reviewer's verdict rather than on an admin bypass: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. Open to any producer, since every other required check already runs on any PR. A PR closing no ticket has no acceptance criteria to judge, and the bypass stays its only route.
+How a PR the factory did not author reaches a merge on the reviewer's verdict rather than on an admin bypass: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. Open to any producer whose branch is in the target itself, since every other required check already runs on any such PR; a fork PR is refused. A PR closing no ticket has no acceptance criteria to judge, and the bypass stays its only route. Named, not yet in use: ADR 0003's 2026-09-10 amendment forbids telling any producer to take it until #174, #180 and #183 land, since the factory still writes to a PR it did not author.
 _Avoid_: human merge path (ADR 0003 refuses one and still does; what this replaces is the *unjudged* merge, not the absent human).
 _Except_ where ADR 0003 names the option it rejected: "no human merge path" is that file's own phrase for the rejection, and its amendment titles keep it.
 

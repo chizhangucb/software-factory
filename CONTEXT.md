@@ -86,12 +86,13 @@ A PR the factory opened or worked on: a branch under `agent/`, the marker the im
 _Avoid_: agent PR, bot PR.
 
 **Factory-authored PR**:
-A PR the factory itself opened, rather than one it later worked on: a branch under `agent/`, or the marker the implement workflow writes in the body. Narrower than a **Factory PR** and answering a different question. Factory PR decides what the factory *reads and judges*; this decides what it may *do to* a branch, so escalation closes one and never another, and a conflict goes to the implementer only on one.
+A PR the factory itself opened, rather than one it later worked on: a branch under `agent/`, or the marker the implement workflow writes in the body. Narrower than a **Factory PR** and answering a different question. Factory PR decides what the factory *reads and judges*; this decides what it may *do to* a branch. Escalation may close one and never another, and a conflict is the implementer's to resolve only on one.
 _Avoid_: hand-authored, human PR (both name what a PR is not, and an outside agent's is neither).
 
 **Judged path**:
-How a PR the factory did not author reaches a merge on the reviewer's verdict rather than on an admin bypass: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. Open to any producer, since the three other required checks already run on any PR. A PR closing no ticket has none, and the bypass stays its only route.
-_Avoid_: human merge path (ADR 0003 rejects that and still does; what this replaces is the *unjudged* merge, not the absent human).
+How a PR the factory did not author reaches a merge on the reviewer's verdict rather than on an admin bypass: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. Open to any producer, since every other required check already runs on any PR. A PR closing no ticket has no acceptance criteria to judge, and the bypass stays its only route.
+_Avoid_: human merge path (ADR 0003 refuses one and still does; what this replaces is the *unjudged* merge, not the absent human).
+_Except_ where ADR 0003 names the option it rejected: "no human merge path" is that file's own phrase for the rejection, and its amendment titles keep it.
 
 **Audit**:
 A re-review of a merged PR against its ticket, read-only, run by an agent on the model the maintainer configured, which should be the strongest the subscription serves. Every merged factory PR for the first 20; a sampled cadence after that (deferred). A miss reverts. Reported in the digest.

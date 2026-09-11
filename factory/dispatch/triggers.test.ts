@@ -269,11 +269,18 @@ test("the paused job says the reason out loud, and never runs it", () => {
   // not run: a substituted reason would come back as somebody's uid.
   const blocks = [...template.matchAll(/\n {8}run: \|\n((?: {10}.*\n|\n)*)/g)];
   assert.equal(blocks.length, 1, "the caller has one run: step, the pause announcement; every other job is a uses:");
+  // The regex above only finds a `run: |` block, so count every `run:` key too: a one-line
+  // `run: echo ...` added elsewhere would otherwise slip past the assertion above and leave
+  // the claim it makes, one shell step in the whole caller, quietly false.
+  assert.equal((template.match(/^ +run:/gm) ?? []).length, 1, "the caller has exactly one run: key, in any form");
   assert.match(template, /REASON: \$\{\{ vars\.FACTORY_PAUSED \}\}/, "the step reads the reason from the pause variable");
 
   const reason = "runaway sweep `whoami` $(id), see #171";
   const summary = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "factory-paused-")), "summary.md");
-  const result = spawnSync("/bin/bash", ["-c", blocks[0]![1]!.replace(/^ {10}/gm, "")], {
+  // Actions runs a `run:` step under `bash --noprofile --norc -eo pipefail {0}`, so run it
+  // the same way: under a plain `bash -c` a failing command would leave the status at 0 and
+  // this test would pass a script the real step fails on.
+  const result = spawnSync("/bin/bash", ["-e", "-o", "pipefail", "-c", blocks[0]![1]!.replace(/^ {10}/gm, "")], {
     encoding: "utf8",
     env: { PATH: process.env.PATH!, REASON: reason, GITHUB_REPOSITORY: "owner/repo", GITHUB_STEP_SUMMARY: summary },
   });
@@ -300,7 +307,9 @@ test("the caller's own pause comment names every job the pause decides about", (
   assert.ok(block, "the paused job carries the comment that explains the pause");
   for (const job of conditions.keys()) {
     if (job === "paused") continue;
-    assert.match(block[1]!, new RegExp(`\\b${job}\\b`), `the pause comment says whether ${job} runs while paused`);
+    // `-` is a word boundary, so `\bimplement\b` would be satisfied by `implement-pr` alone.
+    // Fence on `[\w-]` instead, so each job has to be named in its own right.
+    assert.match(block[1]!, new RegExp(`(?<![\\w-])${job}(?![\\w-])`), `the pause comment says whether ${job} runs while paused`);
   }
 });
 

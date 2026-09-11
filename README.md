@@ -53,7 +53,7 @@ gh variable delete FACTORY_PAUSED --repo owner/repo   # resume
 - **Paused**: dispatch (and the reconciler with it), the implementer, the reviewer, implement-pr, update-branch. Everything that starts work or moves it along.
 - **Still running**: `merge-gate` and `audit`. A PR opened while paused still gets `factory/red-green` and `factory/test-integrity`, so a pause never quietly takes the merge gate off a human's PR. `audit` still runs a model on merged factory PRs and still opens a revert PR on a miss, which is wanted.
 - **Visible**: the variable sits in Settings, Secrets and variables, Actions, with the reason as its value, and every factory run while it is set carries a `paused` job saying the same thing.
-- **No event is queued**, because a gated job runs and skips rather than waiting, so nothing fires retroactively when you lift it.
+- **No event is queued**, because a gated job is skipped rather than held, so nothing fires retroactively when you lift it.
 
 In an incident, **pause first, then cancel**. A pause does not stop a run already in flight, and cancelling one before the pause is on buys a replacement within a minute or two: the retry handler reads a cancel as the implementer's own failure and re-labels the ticket. With the pause on, that re-label lands and starts nothing.
 

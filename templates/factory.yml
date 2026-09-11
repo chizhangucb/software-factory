@@ -65,12 +65,13 @@ jobs:
   # That is wanted. A bad merge that landed just before the pause is what you most want
   # caught while everything else is stopped.
   #
-  # Nothing is queued while paused: a gated job still runs, evaluates its `if:` to false and
-  # skips, so a resume starts nothing retroactively. The factory picks up from the repo's
-  # state on the next heartbeat, the same state any sweep reads, so fix what caused the pause
-  # before lifting it. A pause does not cancel a run already in flight, and it is what makes
-  # `gh run cancel` stick: the retry handler's re-label lands on a gated implement job and
-  # starts nothing. Pause first, cancel second. docs/pipeline.md has the rest.
+  # Nothing is queued while paused: a gated job's `if:` evaluates to false and the job is
+  # skipped before a runner is assigned, so a resume starts nothing retroactively. The factory
+  # picks up from the repo's state on the next heartbeat, the same state any sweep reads, so
+  # fix what caused the pause before lifting it. A pause does not cancel a run already in
+  # flight, and it is what makes `gh run cancel` stick: the retry handler's re-label lands on
+  # a gated implement job and starts nothing. Pause first, cancel second.
+  # docs/pipeline.md has the rest, including what a pause does not do.
   paused:
     if: vars.FACTORY_PAUSED != ''
     runs-on: ubuntu-latest

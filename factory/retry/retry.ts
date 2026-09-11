@@ -4,7 +4,13 @@
  *
  * - retry: post the failing output as a marker comment on the ticket, add
  *   `factory:retry-<n>`, and label `agent:implement` (on the PR when one is
- *   open, so implement-pr runs on the branch; on the ticket otherwise).
+ *   open, so implement-pr runs on the branch; on the ticket otherwise). Only
+ *   a PR the factory authored is labeled (#183): that label starts a run that
+ *   commits to the branch, which is the factory's to do on its own branch and
+ *   nobody else's. Any other open PR is a tell-author instead, `agent:blocked`
+ *   and a comment, which is what update-branch does with the same PR (#180).
+ *   The retry is still recorded and still counted either way; what changes is
+ *   who fixes it.
  * - escalate: agent:* and ready-for-agent off the ticket, needs-human on, the
  *   open PR's agent:* labels off, the branch kept, a comment on the ticket
  *   linking the run and its log. The PR is closed only when the factory
@@ -26,11 +32,13 @@
  *   PR, so the checks that never posted are a fact about the merge, not the
  *   ticket. The PR gets a comment naming the cause and `agent:implement`,
  *   as update-branch's conflict hand-off does: no retry spent, no
- *   `factory:retry-<n>`, no human. The wait reads mergeability on every poll
- *   and ends the moment GitHub reports a definite conflict (#145), rather
- *   than at the deadline. A mergeability GitHub has not decided yet
- *   (UNKNOWN) is never acted on: it keeps waiting, and at the deadline it
- *   stays a requeue.
+ *   `factory:retry-<n>`, no human. On a PR the factory did not author it is a
+ *   tell-author instead, on the same test the retry uses (#183), resolving a
+ *   conflict being one more way of committing to the branch. The
+ *   wait reads mergeability on every poll and ends the moment GitHub reports
+ *   a definite conflict (#145), rather than at the deadline. A mergeability
+ *   GitHub has not decided yet (UNKNOWN) is never acted on: it keeps waiting,
+ *   and at the deadline it stays a requeue.
  *
  * Two tokens: reads (statuses, check runs, run logs and artifacts, labels)
  * use GH_TOKEN, the job's GITHUB_TOKEN, which needs checks: read and
@@ -79,8 +87,10 @@ import {
 } from "./checks";
 import { ESCALATION_LABEL, IMPLEMENT_LABEL, IN_PROGRESS_LABEL } from "../lib/labels.ts";
 import { type FactoryPrFacts } from "../lib/factory-pr.ts";
-import { escalationLabels, prEscalation } from "./escalation.ts";
+import { escalationLabels, type PrFix, prEscalation, prFix } from "./escalation.ts";
 import {
+  type TellAuthorNote,
+  authorConflictReason,
   decide,
   type EscalatedPr,
   type FailureKind,
@@ -89,6 +99,7 @@ import {
   type Mergeability,
   missingFailureReason,
   RATE_LIMITED_REASON,
+  renderTellAuthorComment,
   renderEscalationComment,
   renderHandOffComment,
   renderLeftOpenPrComment,
@@ -222,9 +233,15 @@ const resolveTarget = (): Target => {
   return { issue, pr: pr ? openPr(String(pr.number), pr) : undefined };
 };
 
-/** An open PR's mergeability and base, as GitHub reports them, with the PR they belong to. */
+/**
+ * An open PR's mergeability and base, as GitHub reports them, with the PR they
+ * belong to. The whole `OpenPr` and not its number: the hand-off this feeds
+ * has to ask whether the factory authored the branch before it may put an
+ * implementer on it (#183), and the facts that answer that come from the read
+ * that found the PR.
+ */
 interface PrMergeability {
-  readonly pr: string;
+  readonly pr: OpenPr;
   readonly mergeable: Mergeability;
   readonly base: string;
 }
@@ -234,9 +251,9 @@ interface PrMergeability {
  * `resolveTarget` saw it open before the wait, and nothing is handed off or
  * labeled on a PR that is no longer open.
  */
-const mergeabilityOf = (pr: string): PrMergeability | undefined => {
+const mergeabilityOf = (pr: OpenPr): PrMergeability | undefined => {
   const view = ghJson<{ state: string; mergeable: Mergeability; baseRefName: string }>([
-    "pr", "view", pr, "--repo", REPO, "--json", "state,mergeable,baseRefName",
+    "pr", "view", pr.number, "--repo", REPO, "--json", "state,mergeable,baseRefName",
   ]);
   return view.state === "OPEN" ? { pr, mergeable: view.mergeable, base: view.baseRefName } : undefined;
 };
@@ -390,7 +407,7 @@ const failureOutput = async (f: CheckFailure): Promise<string> => {
  * conflicting (#145), then the failures among them. `waitOver` is the rule;
  * this is the clock and the reads.
  */
-const checksFailure = async (pr: string | undefined): Promise<Failure | undefined> => {
+const checksFailure = async (pr: OpenPr | undefined): Promise<Failure | undefined> => {
   const sha = required("HEAD_SHA");
   const deadline = Date.now() + CHECKS_TIMEOUT_MS;
   // Mergeability is read only while a check is pending, the one state it can end or
@@ -447,14 +464,88 @@ const commentOn = (on: Subject, body: string): void => {
   ghWrite([on.kind, "comment", on.number, "--repo", REPO, "--body-file", file]);
 };
 
+/**
+ * Hand-off or tell-author on the open PR (#183), from the facts the read that
+ * found it came back with. Asked once and used by both paths that would
+ * otherwise have labeled it `agent:implement`.
+ */
+const prFixOf = (pr: OpenPr): PrFix => prFix(pr.facts);
+
+/**
+ * The label `prFix` decided, on the PR, with `ghWrite` rather than `tryWrite`.
+ * On the hand-off it is what starts the next run; on a tell-author it is what
+ * makes the decline stick past this run, since a PR carrying no `agent:*`
+ * label is one the reconciler arms, judges and hands to an implementer at its
+ * verdict deadline. A swallowed failure either way leaves the PR to be picked
+ * up as though nothing had been decided, so this throws instead, which hands
+ * the PR to the workflow's own fallback: `agent:blocked`, which is the label
+ * the tell-author wanted anyway.
+ */
+const labelPr = (pr: OpenPr, fix: PrFix): void => {
+  ghWrite(["pr", "edit", pr.number, "--repo", REPO, "--add-label", fix.add]);
+};
+
+/**
+ * Tell the author of a PR the factory did not author (#183): `agent:blocked`,
+ * and what failed, on their own thread. The same shape `planConflict` gives
+ * the same PR (#180), so nothing here strips a label or disarms auto-merge:
+ * `agent:blocked` is a note rather than a transition (ADR 0005), the PR is
+ * still on its own merge path, and the author taking the label off is what
+ * hands it back.
+ *
+ * `note` is undefined when this thread already carries the record: with no
+ * ticket `recordOn` is this PR, the marker comment lands here saying the same
+ * thing, and a second comment under it would only repeat it. #174's left-open
+ * note skips itself for the same reason. When there is a note it goes last and
+ * throws: by then the label is on, and an author who is not told what failed
+ * has been told nothing at all.
+ */
+const tellAuthor = (pr: OpenPr, fix: PrFix, note: TellAuthorNote | undefined): void => {
+  labelPr(pr, fix);
+  if (note) commentOn({ kind: "pr", number: pr.number }, renderTellAuthorComment({ ...note, runUrl: RUN_URL }));
+  console.log(`PR #${pr.number} is its author's to fix: no ${IMPLEMENT_LABEL}, ${fix.add} on.`);
+};
+
 const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   const label = retryLabel(retryNumber);
-  const comment = renderRetryComment({ retry: retryNumber, kind: failure.kind, runUrl: RUN_URL, output: failure.output });
+  const fix = target.pr ? prFixOf(target.pr) : undefined;
+  const comment = renderRetryComment({
+    retry: retryNumber,
+    kind: failure.kind,
+    runUrl: RUN_URL,
+    output: failure.output,
+    action: fix?.action,
+  });
+  // The record goes on whatever the retry hands the fix to: the attempt was
+  // made, it failed, and the count moves, so nothing is dropped in silence.
   const on = recordOn(target);
   commentOn(on, comment);
   ensureRetryLabel(label);
   ghWrite([on.kind, "edit", on.number, "--repo", REPO, "--add-label", label]);
-  // The label that starts the retry goes last, once the context it reads is in place.
+  // The label goes last, once the context the next run reads is in place.
+  if (target.pr && fix) {
+    if (fix.action === "tell-author") {
+      tellAuthor(
+        target.pr,
+        fix,
+        on.kind === "pr"
+          ? undefined
+          : {
+              reason: failure.summary,
+              issueNumber: on.number,
+              output: failure.output,
+              // The retry just recorded was the ticket's last, so the next
+              // failure on this PR escalates it and the author is the one who
+              // has to know that before spending an evening on the fix.
+              escalatesNext: retryNumber >= MAX_RETRIES,
+            },
+      );
+    } else {
+      labelPr(target.pr, fix);
+    }
+    console.log(`Retry ${retryNumber} of ${MAX_RETRIES}: ${label} on ${on.kind} #${on.number}, ${fix.add} on pr #${target.pr.number} (${failure.summary}).`);
+    return;
+  }
   const trigger = actOn(target);
   ghWrite([trigger.kind, "edit", trigger.number, "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
   console.log(
@@ -501,11 +592,26 @@ const requeue = (target: Target, reason: string): void => {
   );
 };
 
-/** The conflict hand-off update-branch makes, from here: a comment naming the cause, then the implementer's label. No retry label. */
+/**
+ * The conflict hand-off update-branch makes, from here: a comment naming the
+ * cause, then the implementer's label. No retry label.
+ *
+ * Handed to the implementer only on a branch the factory authored, and on the
+ * same test the retry uses (#183). Resolving a conflict is committing to the
+ * branch, so on anyone else's PR this is a tell-author instead, which is the
+ * answer `planConflict` already gives the same PR (#180): the conflict named,
+ * `agent:blocked` on. No retry is spent either way.
+ */
 const handOff = ({ pr, base }: PrMergeability, reason: string): void => {
-  commentOn({ kind: "pr", number: pr }, renderHandOffComment({ reason, base, runUrl: RUN_URL }));
-  ghWrite(["pr", "edit", pr, "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
-  console.log(`Handed off PR #${pr} without spending a retry: ${reason}; ${IMPLEMENT_LABEL} on.`);
+  const fix = prFixOf(pr);
+  if (fix.action === "tell-author") {
+    // Nothing else records this one, no retry being spent, so the note is not optional here.
+    tellAuthor(pr, fix, { reason: authorConflictReason(base), issueNumber: undefined, output: "" });
+    return;
+  }
+  commentOn({ kind: "pr", number: pr.number }, renderHandOffComment({ reason, base, runUrl: RUN_URL }));
+  labelPr(pr, fix);
+  console.log(`Handed off PR #${pr.number} without spending a retry: ${reason}; ${fix.add} on.`);
 };
 
 const escalate = (target: Target, reason: string, failure: Failure): void => {
@@ -590,7 +696,7 @@ const main = async (): Promise<void> => {
     }
     failure = implementFailure(outcome);
   } else if (FAILURE_KIND === "checks") {
-    failure = await checksFailure(target.pr?.number);
+    failure = await checksFailure(target.pr);
   } else {
     throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_KIND}`);
   }

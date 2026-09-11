@@ -9,6 +9,8 @@ import {
   decide,
   FAILURE_KINDS,
   REQUEUED_FILE,
+  authorConflictReason,
+  renderTellAuthorComment,
   renderHandOffComment,
   isImplementerFailure,
   RATE_LIMITED_REASON,
@@ -223,6 +225,75 @@ test("the hand-off comment names the conflict, the implementer's label, and that
   assert.match(body, /Run: u/);
   // Not a human's: the blocked label is never named as what moves it next.
   assert.doesNotMatch(body, /agent:blocked/);
+});
+
+test("the comment on a PR the factory did not author says what failed and that the fix is its author's", () => {
+  // #183, acceptance criterion 2. The author never reads the ticket's retry
+  // comment, so what failed has to be on their own thread, with it.
+  const body = renderTellAuthorComment({
+    reason: "verdict: 2 of 5 acceptance criteria unticked",
+    runUrl: "u",
+    issueNumber: "42",
+    output: "## Verdict: fail\n\n- [ ] the helper exists",
+  });
+  assert.match(body, /2 of 5 acceptance criteria unticked/);
+  assert.match(body, /the helper exists/);
+  assert.match(body, /Run: u/);
+  assert.match(body, /#42/);
+  // The one promise it must not make: nothing of the factory's touches this branch.
+  assert.doesNotMatch(body, /`agent:implement`/);
+  // The label #180 already tells this author's PR with, not a second one, and
+  // it is the label the hand-back instruction names.
+  assert.match(body, /take `agent:blocked` off/);
+  // Never `needs-human` as the thing on this PR now: that one means the factory
+  // has given up, and a fresh verdict follows this author's fix.
+  assert.doesNotMatch(body, /needs-human` (?:is on|on this)/);
+  // Entering the judged path is #181's instruction to give, not a failure
+  // comment's; taking the label off is what actually hands the PR back.
+  assert.doesNotMatch(body, /agent:review/);
+});
+
+test("an author whose next failure is terminal is told so on their own thread", () => {
+  // The retry that spends the ticket's last one is recorded on the ticket,
+  // which this author has no reason to read: the escalation that follows puts
+  // `needs-human` on their PR and disarms its auto-merge, so being told after
+  // the fact is being told too late.
+  const note = { reason: "verdict: failed", runUrl: "u", issueNumber: "42", output: "" };
+  const last = renderTellAuthorComment({ ...note, escalatesNext: true });
+  assert.match(last, /last attempt/);
+  assert.match(last, /`needs-human`/);
+  assert.match(last, /Nothing is closed/);
+  // The conflict path spends no retry, so the same warning there would be a lie.
+  assert.doesNotMatch(renderTellAuthorComment(note), /last attempt/);
+});
+
+test("the author's comment leaves out an output nothing gave it", () => {
+  // The conflict hand-off has a reason and no failing output, there being no
+  // check that failed; an empty <details> would promise one.
+  const body = renderTellAuthorComment({ reason: "verdict: failed", runUrl: "u", issueNumber: undefined, output: "" });
+  assert.doesNotMatch(body, /<details>/);
+  assert.doesNotMatch(body, /#undefined/);
+});
+
+test("a conflict reads the same to the author, minus the implementer that is not coming", () => {
+  const reason = authorConflictReason("main");
+  assert.match(reason, /conflicts with `main`/);
+  assert.match(reason, /no merge gate/);
+  assert.doesNotMatch(reason, /implementer/);
+});
+
+test("the retry comment promises an implementer run only when one is coming", () => {
+  const record = { retry: 1, kind: "verdict" as const, runUrl, output: "out" };
+  const factory = renderRetryComment({ ...record, action: "hand-off" });
+  assert.match(factory, /The implementer runs once more/);
+  const author = renderRetryComment({ ...record, action: "tell-author" });
+  assert.doesNotMatch(author, /The implementer runs once more/);
+  assert.match(author, /did not author/);
+  assert.match(author, /`agent:blocked`/);
+  // Still the record #183's fourth criterion asks for: same marker, same count.
+  assert.match(author, /^<!-- factory:retry retry=1 kind=verdict -->\n/);
+  assert.match(author, /Retry 1 of 1/);
+  assert.equal(parseRetryComment(author)?.output, "out");
 });
 
 test("the requeue comment names the cause in its reason, never a rate limit it did not hit", () => {

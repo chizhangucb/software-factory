@@ -198,7 +198,7 @@ export const renderRetryComment = (context: RetryCommentInput): string =>
     `Attempt ${context.retry} failed (${context.kind}). Run: ${context.runUrl}`,
     "",
     context.action === "tell-author"
-      ? `The factory did not author the open PR, so no implementer runs on its branch: the fix is its author's. The PR carries \`${BLOCKED_LABEL}\`, and taking that label off hands it back to the factory.`
+      ? `The factory did not author the open PR, so no implementer runs on its branch: the fix is its author's. The PR carries \`${BLOCKED_LABEL}\`, and taking that label off hands it back to the factory; a second failure escalates to \`${ESCALATION_LABEL}\`.`
       : "The implementer runs once more on the same branch with this output in its prompt; a second failure escalates to `needs-human`.",
     ...failureDetails(context.output),
   ].join("\n");
@@ -326,6 +326,13 @@ export interface TellAuthorNote {
   readonly issueNumber: string | undefined;
   /** The failing output, when there is one this thread does not already carry. */
   readonly output: string;
+  /**
+   * Whether the next failure on this PR escalates, which is true once the
+   * ticket's retries are spent and false on the conflict path, which spends
+   * none. The author reads this thread and not the ticket, so a terminal next
+   * round has to be said here or it is not said to them at all.
+   */
+  readonly escalatesNext?: boolean;
 }
 
 /**
@@ -351,10 +358,16 @@ export const renderTellAuthorComment = (input: TellAuthorNote & { readonly runUr
     "",
     `${input.reason}. Run: ${input.runUrl}`,
     "",
-    `The factory puts an implementer only on a branch it opened, so nothing of the factory's will commit to this one. It carries \`${BLOCKED_LABEL}\` instead, which holds it here: no factory run picks it up again while that label is on.`,
+    `The factory puts an implementer only on a branch it opened, so no agent of the factory's will rewrite this one. It carries \`${BLOCKED_LABEL}\` instead, this factory's "a human must look", which is what holds the next review and the reconciler back.`,
     "",
-    `Push the fix yourself, then take \`${BLOCKED_LABEL}\` off, which hands the PR back. Auto-merge is untouched, so a passing verdict still lands it.`,
+    `Push the fix yourself, then take \`${BLOCKED_LABEL}\` off, which hands the PR back. Bringing the branch up to date with its base is the one part that never stops, since it never asks who opened a PR; auto-merge, if it is armed, is untouched throughout.`,
     ...(input.issueNumber ? ["", `The attempt is recorded on #${input.issueNumber}.`] : []),
+    ...(input.escalatesNext
+      ? [
+          "",
+          `That was the factory's last attempt on this one. If the next judgement fails too it escalates: \`${ESCALATION_LABEL}\` on this PR and on the ticket, auto-merge disarmed, and a person decides what happens next. Nothing is closed and no commit of yours is touched.`,
+        ]
+      : []),
     ...failureDetails(input.output),
   ].join("\n");
 

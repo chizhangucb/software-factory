@@ -525,7 +525,21 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   // The label goes last, once the context the next run reads is in place.
   if (target.pr && fix) {
     if (fix.action === "tell-author") {
-      tellAuthor(target.pr, fix, on.kind === "pr" ? undefined : { reason: failure.summary, issueNumber: on.number, output: failure.output });
+      tellAuthor(
+        target.pr,
+        fix,
+        on.kind === "pr"
+          ? undefined
+          : {
+              reason: failure.summary,
+              issueNumber: on.number,
+              output: failure.output,
+              // The retry just recorded was the ticket's last, so the next
+              // failure on this PR escalates it and the author is the one who
+              // has to know that before spending an evening on the fix.
+              escalatesNext: retryNumber >= MAX_RETRIES,
+            },
+      );
     } else {
       labelPr(target.pr, fix);
     }

@@ -242,12 +242,29 @@ test("the comment on a PR the factory did not author says what failed and that t
   assert.match(body, /#42/);
   // The one promise it must not make: nothing of the factory's touches this branch.
   assert.doesNotMatch(body, /`agent:implement`/);
-  // The label #180 already tells this author's PR with, not a second one.
-  assert.match(body, /`agent:blocked`/);
-  assert.doesNotMatch(body, /needs-human/);
+  // The label #180 already tells this author's PR with, not a second one, and
+  // it is the label the hand-back instruction names.
+  assert.match(body, /take `agent:blocked` off/);
+  // Never `needs-human` as the thing on this PR now: that one means the factory
+  // has given up, and a fresh verdict follows this author's fix.
+  assert.doesNotMatch(body, /needs-human` (?:is on|on this)/);
   // Entering the judged path is #181's instruction to give, not a failure
   // comment's; taking the label off is what actually hands the PR back.
   assert.doesNotMatch(body, /agent:review/);
+});
+
+test("an author whose next failure is terminal is told so on their own thread", () => {
+  // The retry that spends the ticket's last one is recorded on the ticket,
+  // which this author has no reason to read: the escalation that follows puts
+  // `needs-human` on their PR and disarms its auto-merge, so being told after
+  // the fact is being told too late.
+  const note = { reason: "verdict: failed", runUrl: "u", issueNumber: "42", output: "" };
+  const last = renderTellAuthorComment({ ...note, escalatesNext: true });
+  assert.match(last, /last attempt/);
+  assert.match(last, /`needs-human`/);
+  assert.match(last, /Nothing is closed/);
+  // The conflict path spends no retry, so the same warning there would be a lie.
+  assert.doesNotMatch(renderTellAuthorComment(note), /last attempt/);
 });
 
 test("the author's comment leaves out an output nothing gave it", () => {

@@ -22,7 +22,10 @@
  * rather than being waved through.
  */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { test } from "node:test";
 
 import { AGENT_LABEL_PREFIX, FACTORY_LABEL_PREFIX } from "../lib/labels.ts";
@@ -193,7 +196,7 @@ const WAKING_EVENTS: { job: string; context: Context }[] = [
  * the factory: both are asked for by a pull request that already exists, and
  * neither starts or advances any work. Disabling the caller workflow, the only
  * circuit breaker before this ticket, took them down with everything else, so
- * every PR opened on a halted target silently lost `factory/red-green` and
+ * every PR opened while it was off silently lost `factory/red-green` and
  * `factory/test-integrity` -- checks that did not fail, they just never
  * appeared. Everything else in the caller starts work or moves it along, and
  * the pause stops all of it.
@@ -209,13 +212,12 @@ test("a pause stops every job that starts or advances work, and neither of the t
   const reason = "runaway sweep on 2026-09-10, see #171";
   for (const { job, context } of WAKING_EVENTS) {
     const condition = conditions.get(job)!;
+    const judges = RUNS_WHILE_PAUSED.includes(job);
     assert.equal(evaluate(condition, context), true, `${job} wakes on the event it exists for`);
     assert.equal(
       evaluate(condition, pausedWith(reason, context)),
-      RUNS_WHILE_PAUSED.includes(job),
-      RUNS_WHILE_PAUSED.includes(job)
-        ? `${job} keeps running while the factory is paused`
-        : `${job} does not run while the factory is paused`,
+      judges,
+      judges ? `${job} keeps running while the factory is paused` : `${job} does not run while the factory is paused`,
     );
   }
   assert.deepEqual(
@@ -243,14 +245,62 @@ test("the pause is one repository variable, read the same way by every job it ga
   // reason. So `paused` is every non-empty value, and a maintainer who types
   // `false` into it pauses the factory rather than arming a trap.
   for (const [job, condition] of conditions) {
-    const gates = [...condition.matchAll(/vars\.(\w+) (==|!=) ''/g)].map(([, name, operator]) => `${name} ${operator}`);
-    if (job === "paused") {
-      assert.deepEqual(gates, [`${PAUSE_VARIABLE} !=`], "the paused job runs only while the variable is set");
-    } else if (RUNS_WHILE_PAUSED.includes(job)) {
-      assert.deepEqual(gates, [], `${job} must keep running while paused, so it reads no pause variable`);
-    } else {
-      assert.deepEqual(gates, [`${PAUSE_VARIABLE} ==`], `${job} runs only while the pause variable is empty`);
-    }
+    const gates = [...condition.matchAll(/vars\.(\w+) (==|!=) ''/g)].map(([, variable, operator]) => ({ variable, operator }));
+    const expected =
+      job === "paused"
+        ? [{ variable: PAUSE_VARIABLE, operator: "!=" }] // runs only while the variable is set
+        : RUNS_WHILE_PAUSED.includes(job)
+          ? [] // must keep running while paused, so it reads no pause variable at all
+          : [{ variable: PAUSE_VARIABLE, operator: "==" }]; // runs only while the variable is empty
+    assert.deepEqual(gates, expected, `${job} does not read the pause variable the way its role requires`);
+  }
+});
+
+test("the paused job says the reason out loud, and never runs it", () => {
+  // Criterion 3 is about what a human sees, so the `if:` is only half of it: a
+  // job that runs and prints nothing proves a pause no better than a skipped
+  // one does. The step is the caller's only `run:`, so it can be lifted out
+  // and executed here the way factory/onboard/onboard.test.ts runs onboard.sh.
+  //
+  // The reason below is hostile on purpose. It arrives from a repository
+  // variable, which is a string a human typed, and the step takes it through
+  // `env:` rather than into the script text for exactly this reason. Asserting
+  // the output carries it back verbatim is what says `$(id)` was printed and
+  // not run: a substituted reason would come back as somebody's uid.
+  const blocks = [...template.matchAll(/\n {8}run: \|\n((?: {10}.*\n|\n)*)/g)];
+  assert.equal(blocks.length, 1, "the caller has one run: step, the pause announcement; every other job is a uses:");
+  assert.match(template, /REASON: \$\{\{ vars\.FACTORY_PAUSED \}\}/, "the step reads the reason from the pause variable");
+
+  const reason = "runaway sweep `whoami` $(id), see #171";
+  const summary = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "factory-paused-")), "summary.md");
+  const result = spawnSync("/bin/bash", ["-c", blocks[0]![1]!.replace(/^ {10}/gm, "")], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH!, REASON: reason, GITHUB_REPOSITORY: "owner/repo", GITHUB_STEP_SUMMARY: summary },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(
+    result.stdout.includes(`::warning title=factory paused::${reason}`),
+    `the annotation carries the reason unevaluated, got: ${result.stdout}`,
+  );
+  const written = fs.readFileSync(summary, "utf8");
+  assert.ok(written.includes(reason), `the run summary carries the reason unevaluated, got: ${written}`);
+  for (const named of ["merge-gate", "audit", "FACTORY_PAUSED", "owner/repo"]) {
+    assert.ok(written.includes(named), `the run summary names ${named}, so the reader knows what still runs and how to resume`);
+  }
+});
+
+test("the caller's own pause comment names every job the pause decides about", () => {
+  // The caller is the only factory file a target carries, and that comment is
+  // the whole of what the human copying it reads about the pause. Same shape as
+  // TRIGGER_SET_SITES below: prose that names a set, tied to the set. A job
+  // added to the caller and left out of the comment fails here rather than
+  // leaving a maintainer in an incident guessing whether it stops.
+  const block = template.match(/((?:^ {2}#.*\n)+) {2}paused:\n/m);
+  assert.ok(block, "the paused job carries the comment that explains the pause");
+  for (const job of conditions.keys()) {
+    if (job === "paused") continue;
+    assert.match(block[1]!, new RegExp(`\\b${job}\\b`), `the pause comment says whether ${job} runs while paused`);
   }
 });
 

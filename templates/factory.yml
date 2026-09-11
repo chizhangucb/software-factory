@@ -41,8 +41,8 @@ permissions:
   actions: read # retry handler: failing runs' logs and artifacts
 
 jobs:
-  # The pause switch. Set the repository variable FACTORY_PAUSED on this repo and the factory
-  # stops; delete it and the factory carries on:
+  # The pause. Set the repository variable FACTORY_PAUSED on this repo and the factory stops;
+  # delete it and the factory carries on:
   #   gh variable set FACTORY_PAUSED --repo <owner>/<repo> --body "runaway sweep, see #123"
   #   gh variable delete FACTORY_PAUSED --repo <owner>/<repo>
   # The value is the reason, not a flag, so the repo says why it is paused rather than leaving
@@ -56,21 +56,31 @@ jobs:
   #
   # What it gates, job by job below: dispatch, implement, review, implement-pr and
   # update-branch, everything that starts work or moves it along. What it deliberately does
-  # not gate: merge-gate and audit. Those judge a pull request that already exists and start
-  # nothing, and a pause that took them down would silently drop factory/red-green and
+  # not gate: merge-gate and audit, the two that judge a pull request somebody else already
+  # opened. A pause that took those down would silently drop factory/red-green and
   # factory/test-integrity from every PR opened while it was on. That is exactly what
   # `gh workflow disable factory.yml` does, and why disabling this file is the wrong breaker.
+  # audit is not idle while paused, to be clear: it runs a model on each merged factory PR
+  # inside its first-20 window and on a miss it opens a revert PR and a needs-human issue.
+  # That is wanted. A bad merge that landed just before the pause is what you most want
+  # caught while everything else is stopped.
   #
   # Nothing is queued while paused: a gated job still runs, evaluates its `if:` to false and
   # skips, so a resume starts nothing retroactively. The factory picks up from the repo's
-  # state on the next heartbeat, the same state any sweep reads.
+  # state on the next heartbeat, the same state any sweep reads, so fix what caused the pause
+  # before lifting it. A pause does not cancel a run already in flight, and it is what makes
+  # `gh run cancel` stick: the retry handler's re-label lands on a gated implement job and
+  # starts nothing. Pause first, cancel second. docs/pipeline.md has the rest.
   paused:
     if: vars.FACTORY_PAUSED != ''
     runs-on: ubuntu-latest
+    permissions: {} # it reads and writes nothing: the whole job is one echo
     steps:
       # The reason goes through the environment rather than into the script text, so whatever
-      # is typed into the variable is data and never a command.
-      - env:
+      # is typed into the variable is data and never a command. The annotation shows its first
+      # line only, which is GitHub's limit on one; the summary below shows all of it.
+      - name: Say the factory is paused, and why
+        env:
           REASON: ${{ vars.FACTORY_PAUSED }}
         run: |
           echo "::warning title=factory paused::$REASON"

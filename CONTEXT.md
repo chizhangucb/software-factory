@@ -74,7 +74,7 @@ _Avoid_: client, consumer, the target's workflow.
 
 **Pause**:
 One target's circuit breaker: the repository variable `FACTORY_PAUSED`, whose value is the reason it is paused. While it is set the caller starts and advances no work, and `merge-gate` and `audit` keep judging pull requests, which is what tells it apart from disabling the caller workflow. A property of one target, set by a human and never by the factory, since `FACTORY_PAT` cannot write repo variables.
-_Avoid_: stop, halt, kill switch, freeze; disable (GitHub's word for turning a workflow off, and the breaker a pause replaces).
+_Avoid_: halt, kill switch, freeze; disable (GitHub's word for turning a workflow off, and the breaker a pause replaces). Stop is fine as the plain verb for what a pause does to a job, never as the name of the thing.
 
 **Maintainer**:
 The human who owns a target repo and the factory working on it. Sets the trust policy and answers what the factory escalates. The actor every spec's user stories are written for, so a spec stays readable when somebody else holds the role.

@@ -50,14 +50,18 @@ gh variable set FACTORY_PAUSED --repo owner/repo --body "runaway sweep, see #123
 gh variable delete FACTORY_PAUSED --repo owner/repo   # resume
 ```
 
-- **Stopped**: dispatch (and the reconciler with it), the implementer, the reviewer, implement-pr, update-branch. Everything that starts work or moves it along.
-- **Still running**: `merge-gate` and `audit`. A PR opened while paused still gets `factory/red-green` and `factory/test-integrity`, so a pause never quietly takes the merge gate off a human's PR.
-- **Visible**: the variable sits in Settings, Secrets and variables, Actions, with the reason as its value, and every factory run while it is set carries a `paused` job whose annotation and summary say the same thing.
-- **Resuming replays nothing.** A gated job still runs and skips rather than queueing, so nothing fires retroactively. The factory picks up from the repo's state on the next heartbeat, the same state any sweep reads.
+- **Paused**: dispatch (and the reconciler with it), the implementer, the reviewer, implement-pr, update-branch. Everything that starts work or moves it along.
+- **Still running**: `merge-gate` and `audit`. A PR opened while paused still gets `factory/red-green` and `factory/test-integrity`, so a pause never quietly takes the merge gate off a human's PR. `audit` still runs a model on merged factory PRs and still opens a revert PR on a miss, which is wanted.
+- **Visible**: the variable sits in Settings, Secrets and variables, Actions, with the reason as its value, and every factory run while it is set carries a `paused` job saying the same thing.
+- **No event is queued**, because a gated job runs and skips rather than waiting, so nothing fires retroactively when you lift it.
 
-Do not reach for `gh workflow disable factory.yml` instead. That file is the caller for every factory role, so disabling it stops `merge-gate` and `audit` too, and the checks they post do not fail on a PR opened while it is off, they never appear.
+In an incident, **pause first, then cancel**. A pause does not stop a run already in flight, and cancelling one before the pause is on buys a replacement within a minute or two: the retry handler reads a cancel as the implementer's own failure and re-labels the ticket. With the pause on, that re-label lands and starts nothing.
 
-The gate lives in the caller, so it drifts like the trigger set: a target that has not re-copied `templates/factory.yml` since this landed has no gate, and setting the variable there does nothing. Re-copy the caller.
+**Before you resume, fix what caused the pause.** No event is replayed, but the repo's state is still there, so the first sweep after a resume dispatches every ticket that is still `ready-for-agent` and repairs every stranding the reconciler finds. A resume with the cause still in place restarts it. `docs/pipeline.md` has the rest, including what a pause does not do.
+
+Do not reach for `gh workflow disable factory.yml` instead. That file is the caller for every factory role, so disabling it takes `merge-gate` and `audit` down too, and their checks do not fail on a PR opened while it is off, they never appear.
+
+The gate lives in the caller, so it drifts like the trigger set: a target that has not re-copied `templates/factory.yml` since this landed has no gate, and setting the variable there does nothing at all. Re-copy the caller.
 
 ## Where to read more
 

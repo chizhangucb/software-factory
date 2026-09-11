@@ -14,12 +14,14 @@
  * (`updateRefusal`). The script spawns and writes; it decides nothing, so
  * nothing it decides goes untested.
  *
- * The one import is `lib/labels.ts`, which imports nothing itself and is in
- * this job's cone. Nothing else may be imported: `GhFailure` below is written
- * structurally rather than importing `lib/gh.ts`, so this stays the pure
- * decision half. Imports use explicit `.ts` so the job can run on bare
- * `node --experimental-strip-types` without installing the engine.
+ * The two imports are `lib/labels.ts` and `lib/factory-pr.ts`, which import
+ * nothing themselves and are both in this job's cone. Nothing else may be
+ * imported: `GhFailure` below is written structurally rather than importing
+ * `lib/gh.ts`, so this stays the pure decision half. Imports use explicit
+ * `.ts` so the job can run on bare `node --experimental-strip-types` without
+ * installing the engine.
  */
+import { type FactoryPrFacts, isFactoryAuthoredPr } from "../lib/factory-pr.ts";
 import { HANDED_OFF_LABELS } from "../lib/labels.ts";
 
 /** A commit status context, not a label: the reviewer's verdict on a head. */
@@ -55,7 +57,12 @@ export type Verdict = {
   sha: string;
 };
 
-export type OpenPr = {
+/**
+ * `headRef` and `body` are here for one reason: they are what
+ * `isFactoryAuthoredPr` reads, and the conflict decision below asks it who
+ * opened the PR. Both come off the same `gh pr list` the scan already makes.
+ */
+export type OpenPr = FactoryPrFacts & {
   number: number;
   /** GitHub's `autoMergeRequest` is set on the PR. GitHub refuses it on drafts, so this also means "not a draft". */
   autoMerge: boolean;
@@ -67,7 +74,7 @@ export type OpenPr = {
   verdict: Verdict;
 };
 
-export type PlanAction = "update" | "hand-off" | "skip";
+export type PlanAction = "update" | "hand-off" | "tell-author" | "skip";
 
 export type Plan = {
   number: number;
@@ -178,17 +185,57 @@ export const updateRefusal = (failure: GhFailure): UpdateRefusal | undefined => 
  */
 export type ConflictPlan = {
   number: number;
-  action: Extract<PlanAction, "skip" | "hand-off">;
+  action: Extract<PlanAction, "skip" | "hand-off" | "tell-author">;
   reason: string;
+};
+
+/** What the conflict decision needs to know about a PR: its labels, and who opened it. */
+export type ConflictSubject = FactoryPrFacts & {
+  readonly number: number;
+  readonly labels: readonly string[];
 };
 
 /**
  * What to do with a PR that conflicts with its base. No API call resolves a
- * conflict, and no merge queue would either; the implementer does, on the
- * branch (agent-implement-pr.yml). Two decisions: a PR an agent already
- * holds is left alone, which is a `skip` whose reason names the label
- * holding it; one nobody holds is a `hand-off`, and the caller writes the
- * comment and the `agent:implement` label that send it to implement-pr.
+ * conflict, and no merge queue would either; an agent does, on the branch
+ * (agent-implement-pr.yml). Three decisions:
+ *
+ * - A PR an agent already holds is left alone, which is a `skip` whose reason
+ *   names the label holding it. First, so it holds whoever opened the PR.
+ * - A **factory-authored PR** nobody holds is a `hand-off`, and the caller
+ *   writes the comment and the `agent:implement` label that send it to
+ *   implement-pr.
+ * - Any other PR is a `tell-author`: the caller comments and adds
+ *   `agent:blocked`, and no agent goes near the branch.
+ *
+ * Why the third (#180, ADR 0003's 2026-09-10 amendment). implement-pr checks
+ * the branch out, merges the base, resolves and force-pushes. On a PR the
+ * factory opened that is the whole point; on a PR a person or an outside agent
+ * wrote it is an agent rewriting someone else's branch. The amendment draws
+ * the line at who opened the PR, not at whether the factory has ever touched
+ * it, so this asks `isFactoryAuthoredPr` and not `isFactoryPr`: the broad
+ * one's verdict arm is exactly the PR that must not be handed off. It is not a
+ * label either, so nothing a human adds to or removes from a PR moves the
+ * answer. One definition, `factory/lib/factory-pr.ts`, shared with escalation
+ * (#174), which had to draw the same line.
+ *
+ * `agent:blocked` and not a bare comment, because the decline has to stick.
+ * update-branch runs on every push to main and the conflict is still there on
+ * the next one, so a bare comment would repeat until the author resolved it.
+ * Worse, the reconciler reads a **Factory PR** with no `agent:*` label as one
+ * to arm and judge and re-adds `agent:review` at its verdict deadline, so a PR
+ * the reviewer had judged would be enrolled again with the conflict still in
+ * place. `agent:blocked` is in `HANDED_OFF_LABELS` and in the reconciler's
+ * `PARKED_LABELS`, so one label answers both: the skip above catches the PR on
+ * the next run, and nothing re-arms it. It is also what `CONTEXT.md` already
+ * says the human counterpart of a hand-off is, and it carries one meaning
+ * everywhere, a human must look. The author removing it after pushing a
+ * resolution is what hands the PR back, and a conflict that returns later is
+ * told again, because by then the label is gone.
+ *
+ * `agent:blocked` is left off the held check's own arm deliberately: a PR
+ * carrying it is skipped by the first branch whoever opened it, which is
+ * today's behaviour for a factory PR and is unchanged here.
  *
  * The one copy of this decision, and it does not depend on who found the
  * conflict. The plan reaches it through `planUpdate` before any call is made,
@@ -196,13 +243,17 @@ export type ConflictPlan = {
  * made anyway (`mergeable: UNKNOWN` is tried); that caller says so in front
  * of the reason, since the refusal is its fact and not this decision's.
  */
-export const planConflict = (
-  pr: { readonly number: number; readonly labels: readonly string[] },
-): ConflictPlan => {
+export const planConflict = (pr: ConflictSubject): ConflictPlan => {
   const held = pr.labels.find((l) => HANDED_OFF_LABELS.includes(l));
-  return held
-    ? { number: pr.number, action: "skip", reason: `conflicts with main, already ${held}` }
-    : { number: pr.number, action: "hand-off", reason: "conflicts with main; handing the PR to the implementer" };
+  if (held) return { number: pr.number, action: "skip", reason: `conflicts with main, already ${held}` };
+  if (!isFactoryAuthoredPr(pr)) {
+    return {
+      number: pr.number,
+      action: "tell-author",
+      reason: "conflicts with main; the factory did not author this PR, so the conflict is its author's to resolve",
+    };
+  }
+  return { number: pr.number, action: "hand-off", reason: "conflicts with main; handing the PR to the implementer" };
 };
 
 export const planUpdate = (pr: OpenPr): Plan => {

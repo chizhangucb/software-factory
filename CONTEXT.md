@@ -58,7 +58,7 @@ A run handed back to the queue because what stopped it was not the ticket's fail
 _Avoid_: retry (the attempt that is counted), hand-off (the implementer's, for a conflict), blocked (a human's).
 
 **Hand-off**:
-A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`.
+A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`. update-branch makes one only on a **Factory-authored PR** (#180); the same conflict on any other PR gets the comment and `agent:blocked`, since the branch is its author's and no agent may rewrite it. The retry handler's own conflict path is #183.
 _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to the reconciler), escalation (the human queue).
 
 **Target repo**:

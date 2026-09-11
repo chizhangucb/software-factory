@@ -120,6 +120,10 @@ _Avoid_: agent PR, bot PR.
 A PR the factory itself opened, rather than one it later worked on: a branch under `agent/`, or the marker the implement workflow writes in the body. Narrower than a **Factory PR** and answering a different question. Factory PR decides what the factory *reads and judges*; this decides what it may *do to* a branch. Escalation may close one and never another, and a conflict is the implementer's to resolve only on one. One definition, `isFactoryAuthoredPr` in `factory/lib/factory-pr.ts`, sitting beside `isFactoryPr`, which is written as this predicate plus the verdict section so the pair cannot drift.
 _Avoid_: hand-authored, human PR (both name what a PR is not, and an outside agent's is neither).
 
+**Producer**:
+Anyone opening a pull request on the target other than the factory: a human, an interactive session, or a cloud agent. The audience of the judged path's instruction, and of the line every target carries in its `AGENTS.md`.
+_Avoid_: contributor, outside agent.
+
 **Judged path**:
 How a PR the factory did not author reaches a merge on the reviewer's verdict rather than on an admin bypass: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. Open to any producer whose branch is in the target itself, since every other required check already runs on any such PR; a fork PR is refused. A PR closing no ticket has no acceptance criteria to judge, and the bypass stays its only route. The factory never closes a PR on it or puts the implementer on its branch, since it asks who authored a PR before doing either (ADR 0003's 2026-09-11 amendment), however the PR came to be labelled.
 _Avoid_: human merge path (ADR 0003 refuses one and still does; what this replaces is the *unjudged* merge, not the absent human).

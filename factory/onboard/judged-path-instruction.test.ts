@@ -87,6 +87,16 @@ test("README's onboarding names the instruction in the step that names the calle
   assert.match(copying[0]!, /fork/, "and its prose names the fork precondition");
 });
 
+test("CONTEXT.md defines the producer the instruction addresses", () => {
+  // The Judged path entry uses the word and nothing defined it, while a producer is the whole
+  // audience of the line a target copies. Glossary shape only: the entry exists once, and says
+  // it is anyone but the factory opening a PR on the target.
+  const entries = readRepo("CONTEXT.md")
+    .split("\n")
+    .filter((line) => line.startsWith("**Producer**:"));
+  assert.equal(entries.length, 1, "Producer is defined, once");
+});
+
 test("the Close convention is still one bullet of docs/agents/issue-tracker.md", () => {
   // Structure only (#220): the rule this bullet carries is proven functionally in
   // dispatch/select.test.ts and lib/linked-issue.test.ts, so wording here is the next

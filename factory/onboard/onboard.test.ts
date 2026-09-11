@@ -50,6 +50,7 @@ case "$args" in
   "api --method POST"*) cat > "$GH_PAYLOAD"; echo 4242 ;;
   "api --method PUT"*)  cat > "$GH_PAYLOAD" ;;
   *"/commits?sha="*)
+    if [ -n "\${GH_COMMITS_ERROR:-}" ]; then echo "$GH_COMMITS_ERROR" >&2; exit 1; fi
     per_page=$(printf '%s' "$args" | sed -n 's/.*per_page=\\([0-9][0-9]*\\).*/\\1/p')
     commit=0
     while IFS= read -r _names; do
@@ -78,17 +79,19 @@ exit 0
  * the caller-presence check itself fail (not a 404), overriding `hasCaller`. `history` is
  * the target's recent default-branch commits, newest first, each the check names that
  * posted on it; the default is a repo whose CI has posted nothing, which is the case every
- * pre-discovery test was written against. */
+ * pre-discovery test was written against. `commitsError`, when set, makes the commit listing
+ * discovery reads fail with that text, the way a rate limit does. */
 type OnboardOptions = {
   existingRulesetId?: string;
   hasCaller?: boolean;
   callerError?: string;
   history?: string[][];
+  commitsError?: string;
 };
 
 /** A temp directory holding the stub `gh`, and the environment that reaches it. */
 const sandbox = (options: OnboardOptions = {}) => {
-  const { existingRulesetId, hasCaller = true, callerError, history = [] } = options;
+  const { existingRulesetId, hasCaller = true, callerError, history = [], commitsError } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
@@ -110,6 +113,7 @@ const sandbox = (options: OnboardOptions = {}) => {
       GH_HAS_CALLER: hasCaller ? "true" : "false",
       GH_CALLER_ERROR: callerError ?? "",
       GH_HISTORY: historyFile,
+      GH_COMMITS_ERROR: commitsError ?? "",
     },
   };
 };
@@ -601,4 +605,18 @@ test("a target whose CI posted nothing on any sampled commit still onboards, and
   assert.deepEqual(run.requiredChecks, factoryChecks);
   assert.match(run.output, /WARNING/);
   assert.deepEqual(reportedPathFiltered(run.output), [], "nothing posted is nothing to report either");
+});
+
+test("a commit listing that fails aborts, rather than being read as a repo with no history", () => {
+  // The same rule the caller check follows: a rate limit is not an answer to "what does this
+  // target's CI post", and reading it as "nothing" would write a ruleset gating on the
+  // factory's three alone, with a warning that misdescribes why.
+  const run = onboardWith([], { commitsError: "gh: API rate limit exceeded (HTTP 403)" });
+  assert.notEqual(run.code, 0, "an ambiguous answer must not be treated as a target whose CI posted nothing");
+  assert.match(run.output, /rate limit/i, "the real gh error reaches the maintainer, not a swallowed failure");
+  assert.doesNotMatch(
+    run.output,
+    /ruleset factory (created|updated)/,
+    "no ruleset should be written off a discovery read that never actually answered",
+  );
 });

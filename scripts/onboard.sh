@@ -190,9 +190,15 @@ sampled_commits=0
 discovered_required=""
 discovered_partial=""
 discover_own_checks() {
-  local sha names counted
+  local sha names counted recent
   local seen=""
-  for sha in $(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha'); do
+  # Held in a variable rather than looped over straight out of `$(...)`, because a command
+  # substitution in a `for` list has its exit status thrown away: a rate limit would arrive as
+  # an empty list and read as a target whose CI has posted nothing, which is a wrong warning
+  # and a ruleset written off an answer nobody got. The assignment fails loudly under set -e.
+  # Same rule the caller check above follows, for the same reason.
+  recent=$(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha')
+  for sha in $recent; do
     sampled_commits=$((sampled_commits + 1))
     # `sort -u` because a re-run posts a second check run under the same name, and one name
     # posted twice on one commit must not count as two commits. awk and not grep -v, which

@@ -131,6 +131,8 @@ jobs:
           STUCK_MINUTES: ${{ inputs.stuck_minutes }}
           VERDICT_MINUTES: ${{ inputs.verdict_minutes }}
           UPDATE_MINUTES: ${{ inputs.update_minutes }}
+          # Whose ticket a PR the factory did not author may close and still be labelled for a verdict (#182).
+          TRUSTED_AUTHOR_ASSOCIATIONS: ${{ inputs.trusted_author_associations }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
         run: node --experimental-strip-types factory/factory/dispatch/sweep.ts

@@ -24,6 +24,10 @@
  *   with "auto-merge not enabled".
  * - factory PR with auto-merge armed and no factory/verdict on its head:
  *   add agent:review.
+ * - any other PR on main with no factory/verdict on its head, armed or not:
+ *   add agent:review, unless it is a draft, from a fork, closes no ticket,
+ *   or closes one an untrusted author opened (#182). Never armed: that is
+ *   its author's.
  * - merge-ready PR behind main with no update-branch run in the window:
  *   dispatch factory-update-branch.
  * Every cancel is a lost event and counts as a miss (#149). The per-account
@@ -49,12 +53,13 @@
 import { isFactoryPr } from "../lib/factory-pr.ts";
 import { agentLabels, ESCALATION_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { issuesClosedBy } from "../lib/linked-issue.ts";
+import { type Author, type TrustPolicy, authorAssociation } from "../lib/trusted-authors.ts";
 import { escalationLabels } from "../retry/escalation.ts";
 
 export type Deadlines = {
   /** A ticket or PR label with no live run for this long is stuck. */
   stuckMinutes: number;
-  /** An auto-merge PR head with no factory/verdict for this long is unjudged. */
+  /** A PR head with no factory/verdict for this long is unjudged: an armed factory PR's, or any other PR's past the guards. */
   verdictMinutes: number;
   /** A merge-ready PR behind main with no update-branch run in this long needs one. */
   updateMinutes: number;
@@ -125,6 +130,12 @@ export type PrState = {
   behindBy?: number;
   /** The later of the PR's creation and its head commit; undefined when not read. */
   headSince?: string;
+  /** Marked draft: its author saying it is not ready. */
+  draft: boolean;
+  /** Its head is in another repository, which `agent-review.yml` refuses to run on. */
+  fork: boolean;
+  /** Whoever opened the ticket it closes, when that was read; only a PR the factory did not author needs it. */
+  ticketAuthor?: Author;
   stateSince: string | undefined;
   marks: readonly SweepMark[];
 };
@@ -323,9 +334,80 @@ const sinceHead = (p: PrState, what: string, now: number, deadline: number): { a
   return { age, head: `#${p.number} (pr) ${what} since ${since}, deadline ${deadline} min` };
 };
 
+/** Why the reconciler leaves a PR it did not author alone: the guard's name, for grepping a sweep log, and a reason. */
+export type Guard = { name: "draft" | "fork" | "no-ticket" | "untrusted-ticket-author"; why: string };
+
+/**
+ * The guards `gh pr list` alone answers, in order. Exported because the sweep
+ * asks it too: a PR one of these stops needs no further read, so its ticket's
+ * author and its head's verdict are read only past them, and the sweep and
+ * the decision cannot disagree about which PRs those are.
+ */
+export const guardFromListing = (p: PrState): Guard | undefined => {
+  if (p.draft) return { name: "draft", why: "a draft is its author saying it is not ready" };
+  if (p.fork) return { name: "fork", why: "its head is in another repository, which agent-review.yml refuses with a comment" };
+  if (p.closes === undefined) return { name: "no-ticket", why: "its body closes no ticket, so there are no acceptance criteria to judge" };
+  return undefined;
+};
+
+/**
+ * The fourth guard, and #179's definition rather than a second one: the
+ * target's own trust policy, asked on the `ticket-author` channel, which is
+ * what `review-context.ts` asks before the reviewer, implement-pr or the
+ * audit read a PR's linked ticket. A ticket it refuses reaches the reviewer
+ * as no acceptance criteria, a mechanical fail, so labelling the PR only
+ * makes noise, and then an escalation on a PR nobody asked to have judged.
+ * An author the sweep could not read is not a trusted one: asked directly,
+ * the policy would read a missing association as `NONE`, and a target that
+ * listed `NONE` would then trust a ticket nobody looked at.
+ */
+const ticketAuthorGuard = (ticket: number, author: Author | undefined, policy: TrustPolicy): Guard | undefined => {
+  if (author === undefined) return { name: "untrusted-ticket-author", why: `#${ticket}'s author was not read` };
+  if (policy.trusts("ticket-author", author)) return undefined;
+  return {
+    name: "untrusted-ticket-author",
+    why: `#${ticket} was opened by ${authorAssociation(author.association)}, and the trust policy acts on ${policy.associations.join(", ")}`,
+  };
+};
+
+/** The first guard that leaves a PR the factory did not author alone, or undefined when none does. */
+const guardStopping = (p: PrState, policy: TrustPolicy): Guard | undefined => {
+  const listed = guardFromListing(p);
+  if (listed || p.closes === undefined) return listed;
+  return ticketAuthorGuard(p.closes, p.ticketAuthor, policy);
+};
+
+/**
+ * A PR the factory did not author, with no agent on it (#182): ask for a
+ * verdict at the deadline, and nothing else. ADR 0003's judged path made
+ * that verdict available to any producer who labels `agent:review`; this is
+ * the reconciler applying the label for a producer that did not, so it is
+ * the one route onto the judged path nobody opted into. That is why it
+ * waited on #174, #180 and #183, each of which stopped the factory writing
+ * destructively to a branch it did not author, and why every guard is a case
+ * where labelling would do something the PR's author never agreed to.
+ *
+ * Only the verdict. Arming auto-merge is the author's (criterion 5), and a
+ * PR the reviewer has judged carries its verdict section and is a factory PR
+ * from the next sweep on, which `decidePrMerge` below owns unchanged.
+ */
+const decideUnjudged = (p: PrState, snap: Snapshot, deadlines: Deadlines, policy: TrustPolicy): Decision => {
+  const subject: Subject = { kind: "pr", number: p.number };
+  const none = (log: string): Decision => ({ subject, action: { type: "none" }, log });
+  const guard = guardStopping(p, policy);
+  if (guard) return none(`#${p.number} (pr) not a factory PR, deadline ${deadlines.verdictMinutes} min: left alone, guard ${guard.name}: ${guard.why}`);
+  const sha = p.headSha.slice(0, 7);
+  if (p.verdict === undefined) return none(`#${p.number} (pr) not a factory PR, factory/verdict on ${sha} not read, deadline ${deadlines.verdictMinutes} min: skip`);
+  if (p.verdict !== "none") return none(`#${p.number} (pr) not a factory PR, factory/verdict ${p.verdict} on ${sha}, deadline ${deadlines.verdictMinutes} min: judged or being judged`);
+  const { age, head } = sinceHead(p, `not a factory PR, no factory/verdict on ${sha}`, Date.parse(snap.now), deadlines.verdictMinutes);
+  if (age !== undefined && age < deadlines.verdictMinutes) return none(`${head}: within deadline`);
+  return { subject, action: { type: "relabel", remove: [], add: "agent:review" }, log: `${head}: add agent:review` };
+};
+
 /** Factory PRs with no agent on them: unarmed, or judged, or stale behind main, or none of those. */
-const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decision | undefined => {
-  if (!p.factory || agentLabels(p.labels).length > 0 || PARKED_LABELS.some((l) => p.labels.includes(l))) return undefined;
+const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines, policy: TrustPolicy): Decision | undefined => {
+  if (agentLabels(p.labels).length > 0 || PARKED_LABELS.some((l) => p.labels.includes(l))) return undefined;
+  if (!p.factory) return decideUnjudged(p, snap, deadlines, policy);
   const subject: Subject = { kind: "pr", number: p.number };
   const none = (log: string): Decision => ({ subject, action: { type: "none" }, log });
   const sha = p.headSha.slice(0, 7);
@@ -369,14 +451,14 @@ const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decisi
 };
 
 /** One decision per candidate, in tracker order: tickets, then PRs by label, then PRs by merge state. */
-export const reconcile = (snap: Snapshot, deadlines: Deadlines): Decision[] => {
+export const reconcile = (snap: Snapshot, deadlines: Deadlines, policy: TrustPolicy): Decision[] => {
   const decisions: Decision[] = [];
   for (const t of snap.issues) {
     const d = decideTicket(t, snap, deadlines);
     if (d) decisions.push(d);
   }
   for (const p of snap.prs) {
-    const d = decidePrLabel(p, snap, deadlines) ?? decidePrMerge(p, snap, deadlines);
+    const d = decidePrLabel(p, snap, deadlines) ?? decidePrMerge(p, snap, deadlines, policy);
     if (d) decisions.push(d);
   }
   return decisions;
@@ -434,7 +516,12 @@ export const ticketFromGitHub = (raw: Record<string, any>): TicketState => ({
   marks: [],
 });
 
-/** From `gh pr list --json number,title,headRefName,headRefOid,labels,autoMergeRequest,body`. */
+/**
+ * From `gh pr list --json number,title,headRefName,headRefOid,labels,autoMergeRequest,body,isDraft,isCrossRepository`.
+ * A payload missing either of the last two reads as a draft and a fork: both
+ * only ever stop a PR the factory did not author, so a field nobody asked for
+ * leaves such a PR alone rather than labelling it on a fact never read.
+ */
 export const prFromGitHub = (raw: Record<string, any>): PrState => {
   const headRef = String(raw.headRefName ?? "");
   const body = String(raw.body ?? "");
@@ -447,6 +534,8 @@ export const prFromGitHub = (raw: Record<string, any>): PrState => {
     autoMerge: raw.autoMergeRequest !== null && raw.autoMergeRequest !== undefined,
     factory: isFactoryPr({ headRef, body }),
     closes: issuesClosedBy(body)[0],
+    draft: raw.isDraft !== false,
+    fork: raw.isCrossRepository !== false,
     stateSince: undefined,
     marks: [],
   };

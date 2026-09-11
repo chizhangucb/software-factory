@@ -12,16 +12,20 @@
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT), READ_TOKEN
  * (GITHUB_TOKEN; defaults to GH_TOKEN), optional BASE_BRANCH (main),
  * STUCK_MINUTES, VERDICT_MINUTES, UPDATE_MINUTES (see DEFAULT_DEADLINES),
- * RUN_URL, OUTPUT_DIR for sweep.json, DRY_RUN=1 to decide without writing.
+ * TRUSTED_AUTHOR_ASSOCIATIONS (default OWNER, the same input the dispatcher
+ * and the reviewer take), RUN_URL, OUTPUT_DIR for sweep.json, DRY_RUN=1 to
+ * decide without writing.
  *
  * Every list read (issues, timelines, runs, jobs) is `gh api --paginate`
  * with a `--jq` projection to the fields the reconciler maps
  * (`gh-read.ts`): a full run payload is 10 KB and a page of them
  * overflowed the spawn buffer on the fixture. A failed read aborts the
  * sweep with one `::error::` line naming the command and the cause,
- * nothing is repaired from a partial snapshot; the one exception is a
- * run's jobs, where a failure only leaves the run's role unknown (it then
- * counts as covering while live).
+ * nothing is repaired from a partial snapshot. Two exceptions, each a read
+ * whose failure can only make the reconciler do less: a run's jobs, where a
+ * failure leaves the run's role unknown (it then counts as covering while
+ * live), and the author of a ticket a PR the factory did not author closes,
+ * where a failure leaves the author unknown and the PR alone (#182).
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine.
@@ -31,6 +35,7 @@ import * as path from "node:path";
 
 import { errorMessage } from "../lib/errors.ts";
 import { GhError, gh } from "../lib/gh.ts";
+import { type Author, trustPolicyFromEnv } from "../lib/trusted-authors.ts";
 import { escalationLabels } from "../retry/escalation.ts";
 import { PROJECTIONS, type Projection, STATUSES_PROJECTION, parseItems } from "./gh-read.ts";
 import {
@@ -43,6 +48,7 @@ import {
   type TicketState,
   type VerdictState,
   PARKED_LABELS,
+  guardFromListing,
   marksFromTimeline,
   prFromGitHub,
   reconcile,
@@ -62,6 +68,11 @@ const base = process.env.BASE_BRANCH || "main";
 const dryRun = process.env.DRY_RUN === "1";
 const runUrl = process.env.RUN_URL;
 const readEnv = { ...process.env, GH_TOKEN: process.env.READ_TOKEN || process.env.GH_TOKEN };
+// Built once here and passed down as a required argument, as the dispatcher
+// builds its own, so the reconciler has no policy of its own to fall back to
+// (#52). It judges who opened the ticket a PR the factory did not author
+// closes, on the channel the reviewer judges that ticket on (#179, #182).
+const policy = trustPolicyFromEnv();
 
 /**
  * A read whose command answered with something other than JSON is a failure of
@@ -136,8 +147,44 @@ const headSince = (pr: PrState, createdAt: string): string => {
   return later(createdAt, committed || createdAt);
 };
 
+/**
+ * Whoever opened a ticket, as `review-context.ts` reads it for the reviewer
+ * (#179): REST, because `gh issue view --json` carries no
+ * `author_association`, and that is the field the `ticket-author` channel is
+ * judged on. A failed read leaves the author unknown rather than aborting:
+ * one PR closing a mistyped number would otherwise stop every repair on the
+ * target every sweep, and an unknown author is one the reconciler leaves the
+ * PR alone for, which is the safe direction to be wrong in.
+ */
+const ticketAuthorOf = (ticket: number): Author | undefined => {
+  try {
+    const raw = ghJson(["api", `repos/${repo}/issues/${ticket}`, "--jq", "{association: .author_association, login: .user.login}"]);
+    return { association: raw.association, login: raw.login };
+  } catch (error) {
+    if (!(error instanceof GhError)) throw error;
+    console.log(`::warning::Could not read who opened #${ticket}; leaving the PRs that close it alone: ${error.message}`);
+    return undefined;
+  }
+};
+
+/**
+ * A PR the factory did not author (#182): who opened its ticket, and the
+ * verdict on its head, read only past the guards the listing already answers,
+ * which `guardFromListing` decides for the reconciler too. Auto-merge is not
+ * asked about: the reconciler asks for a verdict on such a PR armed or not,
+ * and never arms it.
+ */
+const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
+  if (guardFromListing(pr) || pr.closes === undefined) return pr;
+  const ticketAuthor = ticketAuthorOf(pr.closes);
+  const verdict = verdictOn(pr.headSha);
+  if (verdict !== "none") return { ...pr, ticketAuthor, verdict };
+  return { ...pr, ticketAuthor, verdict, headSince: headSince(pr, createdAt) };
+};
+
 const withMergeState = (pr: PrState, createdAt: string): PrState => {
-  if (!pr.factory || pr.labels.some((l) => l.startsWith("agent:")) || parked(pr.labels)) return pr;
+  if (pr.labels.some((l) => l.startsWith("agent:")) || parked(pr.labels)) return pr;
+  if (!pr.factory) return withUnjudgedState(pr, createdAt);
   // No auto-merge: the reconciler re-arms it against the same deadline (#83), and no
   // verdict can change that, so the verdict is not worth a read here.
   if (!pr.autoMerge) return { ...pr, headSince: headSince(pr, createdAt) };
@@ -152,7 +199,7 @@ const withMergeState = (pr: PrState, createdAt: string): PrState => {
 const readPrs = (): PrState[] => {
   const rawPrs: any[] = ghJson([
     "pr", "list", "--repo", repo, "--state", "open", "--base", base, "--limit", "200",
-    "--json", "number,title,headRefName,headRefOid,labels,autoMergeRequest,body,createdAt",
+    "--json", "number,title,headRefName,headRefOid,labels,autoMergeRequest,body,createdAt,isDraft,isCrossRepository",
   ]);
   return rawPrs.map((raw) =>
     withMergeState(withLabelState(prFromGitHub(raw), ["agent:in-progress", "agent:review", "agent:implement"]), raw.createdAt),
@@ -207,7 +254,7 @@ try {
 
 /* Decide and apply. */
 
-const decisions = reconcile(snapshot, deadlines);
+const decisions = reconcile(snapshot, deadlines, policy);
 console.log(
   `Sweep of ${repo} at ${snapshot.now}: ${snapshot.issues.length} open issue(s), ${snapshot.prs.length} open PR(s) on ${base}, ${snapshot.runs.length} run(s) in the last ${lookbackMinutes} min or live; deadlines stuck ${deadlines.stuckMinutes}, verdict ${deadlines.verdictMinutes}, update ${deadlines.updateMinutes} min.`,
 );
@@ -298,7 +345,7 @@ if (outputDir) {
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(
     path.join(outputDir, "sweep.json"),
-    JSON.stringify({ repo, dryRun, deadlines, snapshot, decisions, applied, refused, failed }, null, 2),
+    JSON.stringify({ repo, dryRun, deadlines, trusted: policy.associations, snapshot, decisions, applied, refused, failed }, null, 2),
   );
 }
 

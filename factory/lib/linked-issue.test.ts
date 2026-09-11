@@ -29,16 +29,12 @@ test("the one pattern both readers share carries no state from call to call", ()
   }
 });
 
-test("a padded reference is a number to one reader and the body's own digits to the other", () => {
-  // GitHub resolves `#007` to issue 7. The two readers disagree about it:
-  // `issuesClosedBy` returns the number, `linkedIssueNumber` returns what the
-  // body wrote. This pins the split rather than blessing it. Both halves
-  // answered this way before they shared a pattern, so sharing one changed
-  // nothing here, and `merge-gate.ts` only passes the string to `gh`. But
-  // `lib/preflight.ts` and `retry/retry.ts` compare it against a canonical
-  // number, and "007" is not "7", so a PR body written that way would be
-  // matched by the dispatcher and missed by those two. Nothing the factory
-  // writes pads a reference, which is why no ticket has had to reconcile them.
+test("a padded reference names the same ticket to both readers", () => {
+  // GitHub resolves `#007` to issue 7 and auto-closes it on merge. The preflight
+  // and the retry handler compare `linkedIssueNumber` against a canonical
+  // number, so "007" would miss the PR the dispatcher already counts as
+  // covering ticket 7, and the ticket would be neither dispatched nor claimed.
   assert.deepEqual(issuesClosedBy("Closes #007"), [7]);
-  assert.equal(linkedIssueNumber("Closes #007"), "007");
+  assert.equal(linkedIssueNumber("Closes #007"), "7");
+  assert.equal(linkedIssueNumber("Closes #000"), "0");
 });

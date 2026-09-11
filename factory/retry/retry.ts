@@ -225,8 +225,11 @@ const resolveTarget = (): Target => {
     return { issue: issue || undefined, pr: pr.state === "OPEN" ? openPr(PR_INPUT, pr) : undefined };
   }
   const issue = required("ISSUE_NUMBER");
+  // Every open PR, as the dispatcher lists them, and not a body search: GitHub's
+  // search for `#7` does not find a body reading `#007`, which `linkedIssueNumber`
+  // resolves to 7 (#132), so a search would drop the PR before the comparison.
   const open = ghJson<{ number: number; body: string | null; headRefName: string }[]>([
-    "pr", "list", "--repo", REPO, "--state", "open", "--search", `in:body "#${issue}"`,
+    "pr", "list", "--repo", REPO, "--state", "open", "--limit", "200",
     "--json", "number,body,headRefName",
   ]);
   const pr = open.find((p) => linkedIssueNumber(p.body) === issue);

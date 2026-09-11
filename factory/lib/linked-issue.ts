@@ -24,9 +24,13 @@
  */
 const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/gi;
 
-/** The digits of every closing reference in a body, in the order they appear. */
+/**
+ * Every closing reference in a body, in the order they appear, as canonical
+ * digits: GitHub reads `#007` as issue 7, so every reader has to as well, or
+ * the ones comparing strings miss a PR the ones comparing numbers count (#132).
+ */
 const closingReferences = (prBody: string | null | undefined): string[] =>
-  [...(prBody ?? "").matchAll(CLOSES)].map((match) => match[1]!);
+  [...(prBody ?? "").matchAll(CLOSES)].map((match) => match[1]!.replace(/^0+(?=\d)/, ""));
 
 /** The ticket a PR belongs to: the first it claims to close, or "" for none. */
 export const linkedIssueNumber = (prBody: string | null | undefined): string =>

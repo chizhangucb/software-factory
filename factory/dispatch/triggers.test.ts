@@ -45,8 +45,19 @@ const typesOf = (yaml: string, event: string): string[] => {
   return types[1]!.split(",").map((type) => type.trim()).sort();
 };
 
-/** A webhook payload as a condition sees it: whatever GitHub sends, and nothing else. */
-type Context = { event_name: string; event?: Record<string, unknown> };
+/**
+ * A webhook payload as a condition sees it: whatever GitHub sends, plus the
+ * target's repository variables, which a job-level `if:` can read where a
+ * `secrets` reference cannot.
+ */
+type Context = { event_name: string; event?: Record<string, unknown>; vars?: Record<string, string> };
+
+/**
+ * The one repository variable the caller reads. Empty or unset means running;
+ * any other value pauses the factory and *is* the reason, which is where a
+ * paused target says why (#171).
+ */
+const PAUSE_VARIABLE = "FACTORY_PAUSED";
 
 /**
  * GitHub's `startsWith`, including the two ways it differs from JavaScript's:
@@ -64,7 +75,7 @@ const startsWith = (value: unknown, prefix: unknown): boolean =>
  * `new Function` as a ReferenceError, so the evaluator still refuses loudly
  * what it cannot answer. Add a name here and pass it below, together.
  */
-const CALLABLE = ["read", "startsWith"] as const;
+const CALLABLE = ["read", "readVar", "startsWith"] as const;
 
 /**
  * Answer a condition as GitHub would, except that reading through an absent
@@ -72,6 +83,20 @@ const CALLABLE = ["read", "startsWith"] as const;
  * must say which action each of its clauses is for.
  */
 const evaluate = (expression: string, context: Context): boolean => {
+  /**
+   * GitHub answers an unset repository variable with the empty string, so
+   * reading one is never the null dereference `read` guards against. The
+   * failure that matters for a variable is the other one: a name the caller
+   * spells differently from the name a maintainer sets reads empty forever,
+   * which is a pause that never engages and never says so. A name this test
+   * does not know therefore throws, rather than quietly answering "running".
+   */
+  const readVar = (name: string): string => {
+    if (name !== PAUSE_VARIABLE) {
+      throw new Error(`the condition read vars.${name}, and the caller's only variable is ${PAUSE_VARIABLE}`);
+    }
+    return context.vars?.[name] ?? "";
+  };
   const read = (path: string): unknown => {
     let value: unknown = context;
     for (const key of path.split(".")) {
@@ -84,6 +109,7 @@ const evaluate = (expression: string, context: Context): boolean => {
   };
   const js = expression
     .replace(/github\.([a-z_]+(?:\.[a-z_]+)*)/gi, (_, path: string) => `read(${JSON.stringify(path)})`)
+    .replace(/\bvars\.([A-Za-z_]\w*)/g, (_, name: string) => `readVar(${JSON.stringify(name)})`)
     .replace(/'([^']*)'/g, (_, literal: string) => JSON.stringify(literal));
   const withoutLiterals = js.replace(/"[^"]*"/g, '""');
   assert.doesNotMatch(
@@ -97,7 +123,7 @@ const evaluate = (expression: string, context: Context): boolean => {
       `the condition calls ${name}, which this test cannot evaluate: ${expression}`,
     );
   }
-  return Boolean(new Function("read", "startsWith", `return (${js});`)(read, startsWith));
+  return Boolean(new Function("read", "readVar", "startsWith", `return (${js});`)(read, readVar, startsWith));
 };
 
 const issueEvent = (action: string, label?: string): Context => ({
@@ -148,6 +174,87 @@ const ISSUE_EVENTS: { action: string; label?: string; wakes: string[] }[] = [
 ];
 
 /**
+ * One event that wakes each job, so a job's condition can be asked the only
+ * question the pause makes interesting: given an event this job exists for,
+ * does it still run?
+ */
+const WAKING_EVENTS: { job: string; context: Context }[] = [
+  { job: "dispatch", context: { event_name: "repository_dispatch", event: { action: "factory-sweep" } } },
+  { job: "implement", context: issueEvent("labeled", "agent:implement") },
+  { job: "review", context: { event_name: "pull_request_target", event: { action: "labeled", label: { name: "agent:review" } } } },
+  { job: "implement-pr", context: { event_name: "pull_request_target", event: { action: "labeled", label: { name: "agent:implement" } } } },
+  { job: "merge-gate", context: { event_name: "pull_request", event: { action: "opened" } } },
+  { job: "audit", context: { event_name: "pull_request", event: { action: "closed", pull_request: { merged: true } } } },
+  { job: "update-branch", context: { event_name: "push" } },
+];
+
+/**
+ * The two jobs a pause must never touch (#171). They are the judging half of
+ * the factory: both are asked for by a pull request that already exists, and
+ * neither starts or advances any work. Disabling the caller workflow, the only
+ * circuit breaker before this ticket, took them down with everything else, so
+ * every PR opened on a halted target silently lost `factory/red-green` and
+ * `factory/test-integrity` -- checks that did not fail, they just never
+ * appeared. Everything else in the caller starts work or moves it along, and
+ * the pause stops all of it.
+ */
+const RUNS_WHILE_PAUSED = ["merge-gate", "audit"];
+
+/** A pause as a maintainer sets it: a reason, not a boolean. */
+const pausedWith = (reason: string, context: Context): Context => ({ ...context, vars: { [PAUSE_VARIABLE]: reason } });
+
+test("a pause stops every job that starts or advances work, and neither of the two that judge a PR", () => {
+  // Acceptance criterion 1, driven through the caller's real conditions: the
+  // same event that wakes a job unpaused is replayed with the variable set.
+  const reason = "runaway sweep on 2026-09-10, see #171";
+  for (const { job, context } of WAKING_EVENTS) {
+    const condition = conditions.get(job)!;
+    assert.equal(evaluate(condition, context), true, `${job} wakes on the event it exists for`);
+    assert.equal(
+      evaluate(condition, pausedWith(reason, context)),
+      RUNS_WHILE_PAUSED.includes(job),
+      RUNS_WHILE_PAUSED.includes(job)
+        ? `${job} keeps running while the factory is paused`
+        : `${job} does not run while the factory is paused`,
+    );
+  }
+  assert.deepEqual(
+    WAKING_EVENTS.map(({ job }) => job).filter((job) => !RUNS_WHILE_PAUSED.includes(job)),
+    ["dispatch", "implement", "review", "implement-pr", "update-branch"],
+    "every job the pause stops is covered by an event above, not just asserted over",
+  );
+});
+
+test("the pause announces itself on whatever woke the caller, and says nothing while running", () => {
+  // Acceptance criterion 3. A skipped job is still an absence, and reading a
+  // paused factory off one is exactly the inference this ticket refuses. The
+  // `paused` job is the presence: it runs on every event the caller answers,
+  // for as long as the variable is set, and its whole output is the reason.
+  const condition = conditions.get("paused")!;
+  for (const { job, context } of WAKING_EVENTS) {
+    assert.equal(evaluate(condition, context), false, `nothing announces a pause while running (${job}'s event)`);
+    assert.equal(evaluate(condition, pausedWith("incident", context)), true, `a pause is announced on ${job}'s event`);
+  }
+});
+
+test("the pause is one repository variable, read the same way by every job it gates", () => {
+  // The gate is a string comparison and not a boolean, because a repository
+  // variable is a string and because the value has a second job: it is the
+  // reason. So `paused` is every non-empty value, and a maintainer who types
+  // `false` into it pauses the factory rather than arming a trap.
+  for (const [job, condition] of conditions) {
+    const gates = [...condition.matchAll(/vars\.(\w+) (==|!=) ''/g)].map(([, name, operator]) => `${name} ${operator}`);
+    if (job === "paused") {
+      assert.deepEqual(gates, [`${PAUSE_VARIABLE} !=`], "the paused job runs only while the variable is set");
+    } else if (RUNS_WHILE_PAUSED.includes(job)) {
+      assert.deepEqual(gates, [], `${job} must keep running while paused, so it reads no pause variable`);
+    } else {
+      assert.deepEqual(gates, [`${PAUSE_VARIABLE} ==`], `${job} runs only while the pause variable is empty`);
+    }
+  }
+});
+
+/**
  * Every site outside the caller that names the trigger set in the caller's own
  * bracket form. None is reachable from the caller, so a trigger added to the
  * template leaves each of them telling a reader the dispatcher runs on less
@@ -178,7 +285,7 @@ test("removing a blocking label or an assignee wakes the dispatcher and nothing 
   // naming its action would answer an event it was never meant to see.
   assert.deepEqual(
     [...conditions.keys()],
-    ["dispatch", "implement", "review", "implement-pr", "merge-gate", "audit", "update-branch"],
+    ["paused", "dispatch", "implement", "review", "implement-pr", "merge-gate", "audit", "update-branch"],
     "every job in the caller is guarded by a condition this test evaluates",
   );
   for (const { action, label, wakes } of ISSUE_EVENTS) {

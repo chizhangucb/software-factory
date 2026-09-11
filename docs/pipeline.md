@@ -34,6 +34,19 @@ Every input has a default, so the template works as copied. Set them in the call
 | `trusted_author_associations` | dispatch, implement, implement-pr, review, audit | `OWNER` | Whose words the factory acts on. Set all five together. |
 | `stuck_minutes`, `verdict_minutes`, `update_minutes` | dispatch | `15`, `30`, `30` | The reconciler's deadlines. |
 
+## Pause
+
+The circuit breaker for one target: the repository variable `FACTORY_PAUSED`, read by the caller's job conditions. Empty or unset means running, any other value pauses, and the value is the reason. README has the two commands.
+
+- **What stops.** `dispatch`, and the reconciler with it, `implement`, `review`, `implement-pr`, `update-branch`. Everything that starts work or moves it along.
+- **What does not.** `merge-gate` and `audit`. Both are asked for by a pull request that already exists and neither starts anything, so a pause never takes the factory's checks off a PR. That is the whole of #171: before it the only breaker was `gh workflow disable factory.yml`, and because that one file is the caller for every role it dropped `factory/red-green` and `factory/test-integrity` from every PR opened while it was off. The checks did not fail, they never appeared, which is worse than a red check because nothing says so.
+- **Why a variable.** `vars` is readable in a job-level `if:` and `secrets` is not. A variable is also in the repo's settings UI with its value in plain sight, which is where the reason lives, and `gh variable set` is one command that needs no knowledge of what is in this file. `FACTORY_PAT` cannot write repo variables (see Onboarding details), so the factory can neither pause nor resume itself.
+- **Why a skipped job and not a disabled workflow.** Anything that defers or queues events starts a backlog the moment it is lifted, and a disabled workflow is the same failure from the other side: it drops events on the floor with no record. A gated job runs and evaluates its `if:` to false, so the event is spent rather than held, and a skipped job bills no runner time.
+- **What a resume actually starts.** Nothing retroactive. The factory picks up from the repo's state on the next heartbeat, the same state any sweep reads: tickets still `ready-for-agent` are dispatched then, and a subject left mid-run when the pause landed is repaired by the reconciler at its deadline. So a resume starts what a sweep would start now. Label ten tickets during a pause and the first sweep after it dispatches ten, because ten tickets are ready, not because ten events were held.
+- **A pause cannot let anything merge unjudged.** `factory/verdict` is required and a paused reviewer never posts it, so ADR 0003's gate tightens under a pause rather than loosening. What a pause does not hold is a PR that was already green: auto-merge is GitHub's, armed before the pause, and no job of the caller's stands between it and the merge.
+- **Visible while it is on.** The variable, plus a `paused` job in every factory run for as long as it is set: a `::warning::` annotation and a step summary naming the reason and what is still running. It is the caller's only job that calls no reusable workflow, and it earns its place because a skipped job is still an absence, which is the inference the ticket refuses. It costs one runner minute per event answered while paused, which is what those events cost unpaused.
+- **It lives in the caller, so it drifts silently**, the same way the trigger set does. A target that has not re-copied `templates/factory.yml` since #171 has no gate at all and `FACTORY_PAUSED` set there does nothing; nothing in the factory can see a target's copy. Until the re-copy, `gh workflow disable` is still that target's only breaker, with the cost above.
+
 ## Dispatcher
 
 Runs on the caller's `issues: [closed, labeled, unassigned, unlabeled]`, on `workflow_dispatch`, on the `repository_dispatch` event `factory-sweep`, and on the caller's `schedule` every 10 minutes.

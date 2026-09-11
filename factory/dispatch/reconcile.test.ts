@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { HOLD_LABELS } from "../lib/labels.ts";
 import {
   DEFAULT_DEADLINES,
   type Decision,
+  leftAlone,
+  PARKED_LABELS,
   type PrState,
   type Run,
   type Snapshot,
@@ -270,6 +273,75 @@ test("parked tickets (agent:blocked, needs-human) are never touched", () => {
   assert.deepEqual(repairs(ds), []);
   assert.match(ds[0]!.log, /parked: agent:blocked/);
   assert.match(ds[1]!.log, /parked: needs-human/);
+});
+
+test("a held ticket past its stuck deadline is left alone, on every label of the hold set", () => {
+  // #185: re-adding `agent:implement` starts an agent, and a person said not to.
+  // The whole set, not `hold` alone: the retry handler stands down on all three,
+  // and a reconciler that re-stamped on two of them would undo that stand-down
+  // at its next deadline.
+  for (const label of HOLD_LABELS) {
+    for (const state of ["agent:implement", "agent:in-progress"]) {
+      const held = ticket(1, { labels: ["ready-for-agent", state, label], stateSince: minutesAgo(60) });
+      const d = only(reconcile(snapshot({ issues: [held] }), DEFAULT_DEADLINES));
+      assert.equal(d.action.type, "none", `${state} + ${label}`);
+      assert.match(d.log, new RegExp(`#1 \\(issue\\) ${state}, deadline 15 min: held: ${label}$`));
+    }
+  }
+});
+
+test("a held PR is left alone, and so is a PR whose ticket is held", () => {
+  // The retry handler keeps a stood-down PR in agent:in-progress. Re-adding
+  // agent:review to it would start the reviewer on work a person is holding,
+  // whose failure the handler stands down on again, and the second such miss
+  // escalates: exactly the needs-human #185 says a hold never reaches.
+  const own = pr(11, { labels: ["agent:in-progress", "hold"], stateSince: minutesAgo(60) });
+  const viaTicket = pr(12, { labels: ["agent:in-progress"], stateSince: minutesAgo(60), closes: 2 });
+  const heldTicket = ticket(2, { labels: ["ready-for-agent", "hold"] });
+  const ds = reconcile(snapshot({ issues: [heldTicket], prs: [own, viaTicket] }), DEFAULT_DEADLINES);
+  assert.deepEqual(repairs(ds), []);
+  assert.match(ds.find((d) => d.subject.number === 11)!.log, /#11 \(pr\) agent:in-progress, deadline 15 min: held: hold$/);
+  assert.match(ds.find((d) => d.subject.number === 12)!.log, /#12 \(pr\) agent:in-progress, deadline 15 min: held: hold on #2$/);
+});
+
+test("a held factory PR with no agent label is neither judged nor re-armed", () => {
+  // Adding agent:review starts the reviewer; the merge rules are the reconciler's other way to start one.
+  const unjudged = pr(11, { verdict: "none", headSince: minutesAgo(45), labels: ["hold"] });
+  const unarmed = pr(12, { autoMerge: false, headSince: minutesAgo(45), closes: 3 });
+  const ds = reconcile(snapshot({ issues: [ticket(3, { labels: ["ready-for-agent", "needs-triage"] })], prs: [unjudged, unarmed] }), DEFAULT_DEADLINES);
+  assert.deepEqual(repairs(ds), []);
+  assert.match(ds.find((d) => d.subject.number === 11)!.log, /held: hold$/);
+  assert.match(ds.find((d) => d.subject.number === 12)!.log, /held: needs-triage on #3$/);
+});
+
+test("removing the hold resumes a held subject through the stuck path, on the first sweep after", () => {
+  // #185's fifth criterion. Nothing is reconstructed by hand: the start label
+  // is still on, so the next sweep past the deadline re-adds it. That deadline
+  // runs from when the start label went on, not from when the hold came off,
+  // so a subject held for longer than it is resumed by the first sweep after.
+  const held = { ticket: ticket(1, { labels: ["ready-for-agent", "agent:implement", "hold"], stateSince: minutesAgo(90) }), pr: pr(11, { labels: ["agent:in-progress", "hold"], stateSince: minutesAgo(90) }) };
+  assert.deepEqual(repairs(reconcile(snapshot({ issues: [held.ticket], prs: [held.pr] }), DEFAULT_DEADLINES)), []);
+
+  const released = {
+    ticket: { ...held.ticket, labels: held.ticket.labels.filter((l) => l !== "hold") },
+    pr: { ...held.pr, labels: held.pr.labels.filter((l) => l !== "hold") },
+  };
+  const [onTicket, onPr] = repairs(reconcile(snapshot({ issues: [released.ticket], prs: [released.pr] }), DEFAULT_DEADLINES));
+  assert.deepEqual(onTicket!.action, { type: "relabel", remove: ["agent:implement"], add: "agent:implement", miss: 1 });
+  assert.deepEqual(onPr!.action, { type: "relabel", remove: ["agent:in-progress"], add: "agent:review", miss: 1 });
+
+  // Held for less than the deadline: released, it still waits for the deadline, as any stuck subject does.
+  const brief = { ...released.ticket, stateSince: minutesAgo(5) };
+  assert.equal(only(reconcile(snapshot({ issues: [brief] }), DEFAULT_DEADLINES)).action.type, "none");
+});
+
+test("parked stays the factory's own pair: a hold is left alone without becoming parked", () => {
+  // CONTEXT.md's **Parked** is "always the factory's own doing, which is what
+  // separates it from a hold", and ADR 0005 has PARKED_LABELS as exactly the
+  // pair. The reconciler reads the hold set beside it rather than inside it.
+  assert.deepEqual([...PARKED_LABELS], ["agent:blocked", "needs-human"]);
+  for (const label of [...PARKED_LABELS, ...HOLD_LABELS]) assert.equal(leftAlone(["agent:in-progress", label]), true, label);
+  assert.equal(leftAlone(["ready-for-agent", "agent:in-progress", "factory:retry-1"]), false);
 });
 
 test("a PR carrying agent:review with no review run past the deadline gets the label again", () => {

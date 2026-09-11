@@ -26,6 +26,14 @@
  *   add agent:review.
  * - merge-ready PR behind main with no update-branch run in the window:
  *   dispatch factory-update-branch.
+ * None of them reaches a parked subject (`agent:blocked`, `needs-human`, the
+ * factory's own) or a held one (#185): a label from the hold set on it or, for
+ * a PR, on the ticket it closes. Each is reported with a log line and left
+ * alone. Every repair above starts an agent or moves a PR toward a merge, and
+ * a hold is a person saying not yet. The state label stays on, so taking the
+ * hold off lets the next sweep past the stuck deadline resume the subject;
+ * that deadline runs from when the label went on, so a subject held longer
+ * than it resumes on the first sweep after.
  * Every cancel is a lost event and counts as a miss (#149). The per-account
  * slots that cancelled a third run queued for a full one are gone, so there
  * is no longer a cancel the reconciler should forgive, and it no longer reads
@@ -47,7 +55,7 @@
  * `node --experimental-strip-types` without installing the engine.
  */
 import { isFactoryPr } from "../lib/factory-pr.ts";
-import { agentLabels, ESCALATION_LABEL, READY_LABEL } from "../lib/labels.ts";
+import { agentLabels, ESCALATION_LABEL, HOLD_LABELS, READY_LABEL } from "../lib/labels.ts";
 import { issuesClosedBy } from "../lib/linked-issue.ts";
 import { escalationLabels } from "../retry/escalation.ts";
 
@@ -274,19 +282,62 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
   };
 };
 
-const parkedDecision = (subject: Subject, labels: readonly string[], deadline: number): Decision | undefined => {
+/** The first label of the hold set these carry: the dispatcher's set, from the same module (#185). */
+const holdIn = (labels: readonly string[]): string | undefined => HOLD_LABELS.find((l) => labels.includes(l));
+
+/**
+ * Parked or held, on the subject's own labels: nothing the reconciler does
+ * reaches such a subject. `sweep.ts` reads it to skip the reads it would never
+ * use. A PR held only through its ticket is not caught here, since the ticket's
+ * labels are not the PR's; the reconciler catches that one itself, and the
+ * sweep merely reads a little more than it needs to.
+ */
+export const leftAlone = (labels: readonly string[]): boolean =>
+  PARKED_LABELS.some((l) => labels.includes(l)) || holdIn(labels) !== undefined;
+
+/**
+ * What holds a subject back, as the log names it, or undefined: a label of the
+ * hold set on the subject itself or, for a PR, on the ticket it closes.
+ *
+ * The ticket's hold reaches its PR because the retry handler reads both. It
+ * stands down on a held ticket's PR by keeping it in `agent:in-progress`, and
+ * a reconciler that read the PR alone would re-add `agent:review` at the next
+ * deadline; the reviewer's failure would be stood down on again, and the
+ * second such miss escalates to `needs-human`, so the hold itself would be
+ * what escalated the ticket. Once the hold is off, the resume is a re-dispatch
+ * like any other and counts as the stranding's first miss, as a requeue's does
+ * (#148): a second lost event after it escalates for its own reasons.
+ */
+const heldBy = (labels: readonly string[], ticket: TicketState | undefined): string | undefined => {
+  const own = holdIn(labels);
+  if (own) return own;
+  const onTicket = ticket && holdIn(ticket.labels);
+  return onTicket ? `${onTicket} on #${ticket.number}` : undefined;
+};
+
+/**
+ * A subject no sweep repairs, reported rather than skipped so the sweep log
+ * says why: parked, the factory's own pair, or held, a person's (#185). Two
+ * words for two things, as CONTEXT.md keeps them: parked is always the
+ * factory's doing, a hold is a person choosing the timing, and the dispatcher
+ * already logs the second as `held: <label>`. The same answer either way,
+ * which is that nothing is re-stamped, and parked first when both are on,
+ * since that one is the factory saying a human must look.
+ */
+const leftAloneDecision = (subject: Subject, labels: readonly string[], deadline: number, held: string | undefined): Decision | undefined => {
   const parked = PARKED_LABELS.find((l) => labels.includes(l));
-  if (!parked) return undefined;
+  const why = parked ? `parked: ${parked}` : held ? `held: ${held}` : undefined;
+  if (!why) return undefined;
   const state = agentLabels(labels).filter((l) => l !== "agent:blocked")[0] ?? parked;
-  return { subject, action: { type: "none" }, log: `#${subject.number} (${subject.kind}) ${state}, deadline ${deadline} min: parked: ${parked}` };
+  return { subject, action: { type: "none" }, log: `#${subject.number} (${subject.kind}) ${state}, deadline ${deadline} min: ${why}` };
 };
 
 const decideTicket = (t: TicketState, snap: Snapshot, deadlines: Deadlines): Decision | undefined => {
   const has = (l: string) => t.labels.includes(l);
   if (!has("agent:implement") && !has("agent:in-progress")) return undefined;
   const subject: Subject = { kind: "issue", number: t.number };
-  const parked = parkedDecision(subject, t.labels, deadlines.stuckMinutes);
-  if (parked) return parked;
+  const untouched = leftAloneDecision(subject, t.labels, deadlines.stuckMinutes, heldBy(t.labels, undefined));
+  if (untouched) return untouched;
   const state = has("agent:in-progress") ? "agent:in-progress" : "agent:implement";
   const runs = runsFor({ kind: "issue", title: t.title }, snap.runs).filter((r) => r.role === undefined || r.role === "implement");
   return decideStuck(
@@ -302,12 +353,12 @@ const PR_STATES: readonly { label: string; roles: readonly RunRole[]; expected: 
   { label: "agent:implement", roles: ["implement-pr"], expected: "implement-pr run", add: "agent:implement" },
 ];
 
-const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decision | undefined => {
+const decidePrLabel = (p: PrState, snap: Snapshot, deadlines: Deadlines, held: string | undefined): Decision | undefined => {
   const state = PR_STATES.find((s) => p.labels.includes(s.label));
   if (!state) return undefined;
   const subject: Subject = { kind: "pr", number: p.number };
-  const parked = parkedDecision(subject, p.labels, deadlines.stuckMinutes);
-  if (parked) return parked;
+  const untouched = leftAloneDecision(subject, p.labels, deadlines.stuckMinutes, held);
+  if (untouched) return untouched;
   const runs = runsFor({ kind: "pr", headRef: p.headRef }, snap.runs).filter((r) => r.role === undefined || state.roles.includes(r.role));
   return decideStuck(
     { subject, state: state.label, since: p.stateSince, marks: p.marks, runs, expected: state.expected, labels: p.labels, add: state.add, ticket: p.closes },
@@ -324,10 +375,14 @@ const sinceHead = (p: PrState, what: string, now: number, deadline: number): { a
 };
 
 /** Factory PRs with no agent on them: unarmed, or judged, or stale behind main, or none of those. */
-const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines): Decision | undefined => {
+const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines, held: string | undefined): Decision | undefined => {
   if (!p.factory || agentLabels(p.labels).length > 0 || PARKED_LABELS.some((l) => p.labels.includes(l))) return undefined;
   const subject: Subject = { kind: "pr", number: p.number };
   const none = (log: string): Decision => ({ subject, action: { type: "none" }, log });
+  // Judging the PR adds agent:review, which starts the reviewer; a held PR gets
+  // no agent (#185), and none of the merge rules below is urgent enough to
+  // override a person. Re-arming and updating wait with it.
+  if (held) return none(`#${p.number} (pr) factory PR with no agent label: held: ${held}`);
   const sha = p.headSha.slice(0, 7);
   const now = Date.parse(snap.now);
 
@@ -376,7 +431,8 @@ export const reconcile = (snap: Snapshot, deadlines: Deadlines): Decision[] => {
     if (d) decisions.push(d);
   }
   for (const p of snap.prs) {
-    const d = decidePrLabel(p, snap, deadlines) ?? decidePrMerge(p, snap, deadlines);
+    const held = heldBy(p.labels, snap.issues.find((t) => t.number === p.closes));
+    const d = decidePrLabel(p, snap, deadlines, held) ?? decidePrMerge(p, snap, deadlines, held);
     if (d) decisions.push(d);
   }
   return decisions;

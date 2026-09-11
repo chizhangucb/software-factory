@@ -351,7 +351,9 @@ test("the escalation comment says a PR the factory did not author was left open,
   // #174: escalation still happens on a PR it does not close, so the comment
   // has to carry the one thing that differs, or the PR looks silently skipped.
   const body = renderEscalationComment({
-    issueNumber: "PR 12",
+    // The PR's own number: a PR the factory did not author closes no ticket,
+    // so the escalation is recorded on the PR itself and this self-links.
+    issueNumber: "12",
     reason: 'the ticket has no acceptance criteria (no "Acceptance criteria" checklist)',
     summary: "verdict: no acceptance criteria",
     runUrl,
@@ -363,6 +365,7 @@ test("the escalation comment says a PR the factory did not author was left open,
   });
   assert.match(body, /PR #12 is left open/);
   assert.match(body, /did not author it/);
+  assert.match(body, /auto-merge is disarmed/);
   assert.doesNotMatch(body, /was closed/);
   // The escalation itself still happened: the label is named and the run is linked.
   assert.match(body, /needs-human/);

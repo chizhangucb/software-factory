@@ -22,15 +22,17 @@ test("escalationLabels names only labels the subject carries", () => {
 test("a PR the factory closes keeps no agent:* label", () => {
   assert.deepEqual(prEscalation({ ...agentBranch, labels: ["agent:review", "agent:blocked", "enhancement"] }), {
     remove: ["agent:review", "agent:blocked"],
+    add: undefined,
     close: true,
   });
-  assert.deepEqual(prEscalation({ ...agentBranch, labels: [] }), { remove: [], close: true });
+  assert.deepEqual(prEscalation({ ...agentBranch, labels: [] }), { remove: [], add: undefined, close: true });
 });
 
 test("escalating a PR touches nothing but the factory's own labels", () => {
   // ready-for-agent is the ticket's intent, never the PR's, so a stray one is left alone.
   assert.deepEqual(prEscalation({ ...agentBranch, labels: ["ready-for-agent", "factory:retry-1"] }), {
     remove: [],
+    add: undefined,
     close: true,
   });
 });
@@ -57,4 +59,14 @@ test("escalation stands a PR down whether or not it closes it", () => {
   // The agent:* labels come off either way. A label left on is a run that picks
   // the PR up again, and escalation is the factory saying it is done with it.
   assert.deepEqual(prEscalation({ ...notAuthored, labels: ["agent:review", "bug"] }).remove, ["agent:review"]);
+});
+
+test("a PR left open is parked, not just stripped: removals alone are repaired back", () => {
+  // The reconciler reads a factory PR with no agent:* label as one to arm and
+  // judge, and re-adds agent:review at its verdict deadline: the step that
+  // escalated this PR. needs-human is what it parks on, so the label that
+  // records the escalation is what makes the stand-down stick.
+  assert.equal(prEscalation({ ...notAuthored, labels: ["agent:review"] }).add, "needs-human");
+  // A closed PR is in no listing the reconciler reads, so it needs no parking label.
+  assert.equal(prEscalation({ ...agentBranch, labels: ["agent:review"] }).add, undefined);
 });

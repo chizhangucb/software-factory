@@ -312,7 +312,7 @@ export const renderLeftOpenPrComment = (input: {
     "",
     `${input.reason}. The factory did not author this PR, so it is not the factory's to close.`,
     "",
-    `Its \`agent:*\` labels are off, so no factory run picks it up again. The escalation is on #${input.issueNumber}. Run: ${input.runUrl}`,
+    `Its \`agent:*\` labels are off and \`${ESCALATION_LABEL}\` is on, so no factory run picks it up again. The escalation is on #${input.issueNumber}. Run: ${input.runUrl}`,
   ].join("\n");
 
 export interface EscalationInput {
@@ -342,7 +342,7 @@ export const renderEscalationComment = (input: EscalationInput): string => {
     ? "No PR was open."
     : input.pr.closed
       ? `PR #${input.pr.number} was closed (auto-merge with it) so no open PR remains.`
-      : `PR #${input.pr.number} is left open: the factory did not author it, so it is not the factory's to close. Its \`agent:*\` labels are off, so no factory run picks it up again.`;
+      : `PR #${input.pr.number} is left open: the factory did not author it, so it is not the factory's to close. Its \`agent:*\` labels are off, \`${ESCALATION_LABEL}\` is on and auto-merge is disarmed, so no factory run picks it up again.`;
   const lines = [
     `## Escalated: \`${ESCALATION_LABEL}\``,
     "",

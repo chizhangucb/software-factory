@@ -11,7 +11,9 @@
  *   authored it (#174): closing a factory PR is free, since the ticket still
  *   holds the work and a later run opens a fresh one, but closing a PR a
  *   person or an outside agent wrote throws away work nothing can recreate.
- *   One left open still escalates in every other respect.
+ *   One left open still escalates in every other respect, and gets
+ *   `needs-human` and its auto-merge disarmed, which is what closing would
+ *   otherwise have done for it.
  * - requeue (rate limited on every account (#17), or a check still pending
  *   when the wait runs out): no retry spent, and one meaning on both sides
  *   (#148). The subject gets a comment and nothing is labeled for a human: a
@@ -510,16 +512,25 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
   const openPr = target.pr;
   let escalatedPr: EscalatedPr | undefined;
   if (openPr) {
-    const { remove, close } = prEscalation({
+    const { remove, add, close } = prEscalation({
       ...openPr.facts,
       labels: labelsOf({ kind: "pr", number: openPr.number }),
     });
     if (remove.length > 0) tryWrite(["pr", "edit", openPr.number, "--repo", REPO, "--remove-label", remove.join(",")]);
+    if (add) tryWrite(["pr", "edit", openPr.number, "--repo", REPO, "--add-label", add]);
     if (close) {
       tryWrite([
         "pr", "close", openPr.number, "--repo", REPO, "--comment",
         `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
       ]);
+    } else {
+      // Closing cancels auto-merge; leaving the PR open does not. The factory
+      // arms auto-merge on every PR it reads as its own, this one included, so
+      // a PR it has just declared itself done with would otherwise still hold a
+      // standing instruction to merge the moment its checks go green. Disarming
+      // it is the same "stand down" the labels are. Refused when none was armed,
+      // which `tryWrite` swallows.
+      tryWrite(["pr", "merge", openPr.number, "--repo", REPO, "--disable-auto"]);
     }
     escalatedPr = { number: openPr.number, closed: close };
   }

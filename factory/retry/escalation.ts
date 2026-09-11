@@ -38,9 +38,11 @@ export interface EscalatedPrFacts extends FactoryPrFacts {
   readonly labels: readonly string[];
 }
 
-/** What escalation does to the open PR: which labels come off, and whether it closes. */
+/** What escalation does to the open PR: which labels come off, which goes on, and whether it closes. */
 export interface PrEscalation {
   readonly remove: string[];
+  /** The parking label a PR left open needs, `undefined` when it closes. */
+  readonly add: string | undefined;
   readonly close: boolean;
 }
 
@@ -51,6 +53,15 @@ export interface PrEscalation {
  * a PR no factory run may pick up again, and that is true whether it closes or
  * stays open; a closed PR carries no state besides. Closing says nothing about
  * the ticket, which keeps its own labels until the escalation decides them.
+ *
+ * A PR left open needs `needs-human` on it as well, and not only the removals.
+ * Bare removal stands it down for exactly as long as nothing repairs it: the
+ * reconciler reads any **Factory PR** with no `agent:*` label as one to arm
+ * and judge, and re-adds `agent:review` at its verdict deadline, which is the
+ * very step that escalated this PR in the first place. `needs-human` is what
+ * the reconciler parks on, so the label that records the escalation is also
+ * the one that makes "no factory run picks it up again" true. Closing already
+ * takes the PR out of every listing the reconciler reads, so it needs none.
  *
  * Closing is right only for a PR the factory opened: the attempt failed, the
  * ticket still holds the work, and a later run cuts a fresh branch from main
@@ -69,7 +80,11 @@ export interface PrEscalation {
  * branch prefix and the body marker are written by the factory when it opens
  * the PR and are not the sort of thing a human adds or removes on one.
  */
-export const prEscalation = (pr: EscalatedPrFacts): PrEscalation => ({
-  remove: agentLabels(pr.labels),
-  close: isFactoryAuthoredPr(pr),
-});
+export const prEscalation = (pr: EscalatedPrFacts): PrEscalation => {
+  const close = isFactoryAuthoredPr(pr);
+  return {
+    remove: agentLabels(pr.labels),
+    add: close ? undefined : ESCALATION_LABEL,
+    close,
+  };
+};

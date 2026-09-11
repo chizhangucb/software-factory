@@ -134,3 +134,13 @@ test("a session reading CLAUDE.md's ticket bullet reaches that page, and so does
   // The README is where the verbatim rule lives, so it says where prose goes instead.
   assert.ok(readRepo("factory/plugins/README.md").includes(`\`${OWN_TRACKER_PAGE}\``), `factory/plugins/README.md names ${OWN_TRACKER_PAGE}`);
 });
+
+test("ADR 0003's closing-keyword bullet says where the rule lives now", () => {
+  // Its #181 correction says "the page" requires the keyword, meaning issue-tracker.md, which no
+  // longer holds it. ADRs are corrected in place and dated, so a note beside it names the new home.
+  const bullet = readRepo("docs/adr/0003-gate-in-ci-auto-merge-with-audit.md")
+    .split("\n")
+    .filter((line) => line.startsWith("- **The convention against closing keywords narrows.**"));
+  assert.equal(bullet.length, 1, "the bullet is still there, once");
+  assert.match(bullet[0]!, new RegExp(`Corrected 2026-09-11 \\(#197\\): [^\\n]*\`${OWN_TRACKER_PAGE}\``), `and a dated correction names ${OWN_TRACKER_PAGE}`);
+});

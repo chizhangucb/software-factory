@@ -360,7 +360,7 @@ test("the merge rules skip a PR carrying an agent label, whoever opened it and a
   assert.equal(ds.filter((d) => d.subject.number === 14).length, 1, "only the review-label rule sees #14");
 });
 
-test("an unjudged PR the factory did not author gets agent:review at the verdict deadline, armed or not, and is never armed by it", () => {
+test("a PR that is not a factory PR gets agent:review at the verdict deadline, armed or not, and this decision never arms it", () => {
   const unarmed = unjudged(21);
   const armed = unjudged(22, { autoMerge: true });
   const ds = reconcile(snapshot({ prs: [unarmed, armed] }), DEFAULT_DEADLINES, POLICY);
@@ -371,7 +371,7 @@ test("an unjudged PR the factory did not author gets agent:review at the verdict
   assert.match(ds[0]!.log, /^#21 \(pr\) not a factory PR, no factory\/verdict on abcdef1 since .*45 min ago, deadline 30 min: add agent:review$/);
 });
 
-test("an unjudged PR the factory did not author is left alone within the verdict deadline, and once a verdict is on its head", () => {
+test("a PR that is not a factory PR is left alone within the verdict deadline, and once a verdict is on its head", () => {
   const young = unjudged(21, { headSince: minutesAgo(10) });
   const pending = unjudged(22, { verdict: "pending" });
   const notRead = unjudged(23, { verdict: undefined });
@@ -382,36 +382,36 @@ test("an unjudged PR the factory did not author is left alone within the verdict
   assert.match(ds[2]!.log, /#23 \(pr\) not a factory PR, factory\/verdict on abcdef1 not read, deadline 30 min: skip/);
 });
 
-// Each guard is a case where labelling would do something the PR's author never
+// Each reason is a case where labelling would do something the PR's author never
 // agreed to (#182), so each is proved on a PR that would otherwise be labelled.
-test("a draft the factory did not author is left alone, and the log names the draft guard", () => {
+test("a draft is left alone, and the log says so by name", () => {
   const d = only(reconcile(snapshot({ prs: [unjudged(21, { draft: true })] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.action, { type: "none" });
-  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone, guard draft: /);
+  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone \(draft\): /);
 });
 
-test("a PR from a fork is left alone rather than labelled for agent-review.yml to refuse, and the log names the fork guard", () => {
+test("a PR from a fork is left alone rather than labelled for agent-review.yml to refuse, and the log says so by name", () => {
   const d = only(reconcile(snapshot({ prs: [unjudged(21, { fork: true })] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.action, { type: "none" });
-  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone, guard fork: /);
+  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone \(fork\): /);
 });
 
-test("a PR closing no ticket is left alone, since its verdict would be a mechanical fail, and the log names the no-ticket guard", () => {
+test("a PR closing no ticket is left alone, since its verdict would be a mechanical fail, and the log says so by name", () => {
   const d = only(reconcile(snapshot({ prs: [unjudged(21, { closes: undefined, ticketAuthor: undefined })] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.action, { type: "none" });
-  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone, guard no-ticket: /);
+  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone \(no-ticket\): /);
 });
 
 // #179's definition, not a second one: the trust policy the target configured,
 // asked on the ticket-author channel the reviewer and the audit are asked on.
-test("a PR whose ticket an untrusted author opened is left alone, and the log names the untrusted-ticket-author guard", () => {
+test("a PR whose ticket an untrusted author opened is left alone, and the log says so by name", () => {
   const stranger = unjudged(21, { closes: 5, ticketAuthor: { association: "CONTRIBUTOR", login: "passer-by" } });
   const d = only(reconcile(snapshot({ prs: [stranger] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.action, { type: "none" });
-  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone, guard untrusted-ticket-author: #5 was opened by CONTRIBUTOR, and the trust policy acts on OWNER$/);
+  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone \(untrusted-ticket-author\): #5 was opened by CONTRIBUTOR, and the trust policy acts on OWNER$/);
 });
 
-test("the untrusted-ticket-author guard is the target's own trust policy: a widened one lets its member's ticket be judged", () => {
+test("untrusted-ticket-author is the target's own trust policy: a widened one lets its member's ticket be judged", () => {
   const member = unjudged(21, { ticketAuthor: { association: "MEMBER", login: "colleague" } });
   assert.deepEqual(only(reconcile(snapshot({ prs: [member] }), DEFAULT_DEADLINES, POLICY)).action, { type: "none" });
   assert.deepEqual(only(reconcile(snapshot({ prs: [member] }), DEFAULT_DEADLINES, trustPolicy("OWNER,MEMBER"))).action, { type: "relabel", remove: [], add: "agent:review" });
@@ -422,13 +422,13 @@ test("a ticket author the sweep could not read is not a trusted one: the PR is l
   for (const policy of [POLICY, trustPolicy("OWNER,NONE")]) {
     const d = only(reconcile(snapshot({ prs: [unread] }), DEFAULT_DEADLINES, policy));
     assert.deepEqual(d.action, { type: "none" });
-    assert.match(d.log, /left alone, guard untrusted-ticket-author: #5's author was not read$/);
+    assert.match(d.log, /left alone \(untrusted-ticket-author\): #5's author was not read$/);
   }
 });
 
 // The regression bar for #182: a factory PR reaches exactly today's decision on every
-// branch of the merge rules, whatever the four guards would have said about it.
-test("no guard reaches a factory PR: every merge rule decides as before, draft, fork, ticketless and untrusted alike", () => {
+// branch of the merge rules, whatever the four reasons to leave a PR alone would say.
+test("no reason to leave a PR alone reaches a factory PR: every merge rule decides as before, draft, fork, ticketless and untrusted alike", () => {
   const today: [PrState, Decision["action"]][] = [
     [pr(11, { autoMerge: false, verdict: undefined, behindBy: undefined, headSince: minutesAgo(45) }), { type: "arm-auto-merge", pr: 11 }],
     [pr(12, { autoMerge: false, verdict: undefined, behindBy: undefined, headSince: minutesAgo(5) }), { type: "none" }],
@@ -440,15 +440,15 @@ test("no guard reaches a factory PR: every merge rule decides as before, draft, 
     [pr(18, { verdict: "success", behindBy: 2 }), { type: "dispatch", eventType: "factory-update-branch", pr: 18 }],
     [pr(19, { verdict: "success", behindBy: 0 }), { type: "none" }],
   ];
-  const guarded = (p: PrState): PrState => ({ ...p, draft: true, fork: true, closes: undefined, ticketAuthor: { association: "NONE", login: "passer-by" } });
+  const worst = (p: PrState): PrState => ({ ...p, draft: true, fork: true, closes: undefined, ticketAuthor: { association: "NONE", login: "passer-by" } });
   const before = reconcile(snapshot({ prs: today.map(([p]) => p) }), DEFAULT_DEADLINES, POLICY);
-  const after = reconcile(snapshot({ prs: today.map(([p]) => guarded(p)) }), DEFAULT_DEADLINES, POLICY);
+  const after = reconcile(snapshot({ prs: today.map(([p]) => worst(p)) }), DEFAULT_DEADLINES, POLICY);
   assert.deepEqual(before.map((d) => d.action), today.map(([, action]) => action));
   assert.deepEqual(after, before);
-  for (const d of after) assert.doesNotMatch(d.log, /guard|not a factory PR/);
+  for (const d of after) assert.doesNotMatch(d.log, /left alone|not a factory PR/);
 });
 
-test("a parked PR the factory did not author is never labelled: a tell-author's agent:blocked sticks", () => {
+test("a parked PR that is not a factory PR is never labelled: a tell-author's agent:blocked sticks", () => {
   const told = unjudged(21, { labels: ["agent:blocked"] });
   const escalated = unjudged(22, { labels: ["needs-human"] });
   assert.deepEqual(reconcile(snapshot({ prs: [told, escalated] }), DEFAULT_DEADLINES, POLICY), []);
@@ -554,7 +554,7 @@ test("ticketFromGitHub and prFromGitHub map the tracker shapes and detect factor
   assert.equal(prFromGitHub(worked).factory, true);
 });
 
-test("prFromGitHub reads the draft and fork facts, and a payload missing either reads as the one the guard leaves alone", () => {
+test("prFromGitHub reads the draft and fork facts, and a payload missing either reads as the one left alone", () => {
   const raw = { number: 21, title: "Tidy", headRefName: "someone/tidy", headRefOid: "abc", labels: [], autoMergeRequest: null, body: "Closes #5" };
   const ready = prFromGitHub({ ...raw, isDraft: false, isCrossRepository: false });
   assert.equal(ready.draft, false);

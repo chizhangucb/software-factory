@@ -24,7 +24,7 @@
  * nothing is repaired from a partial snapshot. Two exceptions, each a read
  * whose failure can only make the reconciler do less: a run's jobs, where a
  * failure leaves the run's role unknown (it then counts as covering while
- * live), and the author of a ticket a PR the factory did not author closes,
+ * live), and the author of a ticket closed by a PR that is not a factory PR,
  * where a failure leaves the author unknown and the PR alone (#182).
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
@@ -48,7 +48,7 @@ import {
   type TicketState,
   type VerdictState,
   PARKED_LABELS,
-  guardFromListing,
+  leftAloneFromListing,
   marksFromTimeline,
   prFromGitHub,
   reconcile,
@@ -70,7 +70,7 @@ const runUrl = process.env.RUN_URL;
 const readEnv = { ...process.env, GH_TOKEN: process.env.READ_TOKEN || process.env.GH_TOKEN };
 // Built once here and passed down as a required argument, as the dispatcher
 // builds its own, so the reconciler has no policy of its own to fall back to
-// (#52). It judges who opened the ticket a PR the factory did not author
+// (#52). It judges who opened the ticket a PR that is not a factory PR
 // closes, on the channel the reviewer judges that ticket on (#179, #182).
 const policy = trustPolicyFromEnv();
 
@@ -155,6 +155,12 @@ const headSince = (pr: PrState, createdAt: string): string => {
  * one PR closing a mistyped number would otherwise stop every repair on the
  * target every sweep, and an unknown author is one the reconciler leaves the
  * PR alone for, which is the safe direction to be wrong in.
+ *
+ * A copy of `readLinkedIssue`'s REST half rather than a call into it:
+ * `review-context.ts` imports extensionless tsx modules, and this job runs on
+ * bare `node --experimental-strip-types`. The read is copied; the judgement
+ * is not, since the policy decides in `reconcile.ts` exactly as it decides
+ * there.
  */
 const ticketAuthorOf = (ticket: number): Author | undefined => {
   try {
@@ -168,14 +174,15 @@ const ticketAuthorOf = (ticket: number): Author | undefined => {
 };
 
 /**
- * A PR the factory did not author (#182): who opened its ticket, and the
- * verdict on its head, read only past the guards the listing already answers,
- * which `guardFromListing` decides for the reconciler too. Auto-merge is not
+ * A PR that is not a factory PR (#182): who opened its ticket, and the
+ * verdict on its head, read only past the reasons to leave it alone that the
+ * listing already answers, which `leftAloneFromListing` decides for the
+ * reconciler too. Auto-merge is not
  * asked about: the reconciler asks for a verdict on such a PR armed or not,
- * and never arms it.
+ * and that decision never arms it.
  */
 const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
-  if (guardFromListing(pr) || pr.closes === undefined) return pr;
+  if (leftAloneFromListing(pr) || pr.closes === undefined) return pr;
   const ticketAuthor = ticketAuthorOf(pr.closes);
   const verdict = verdictOn(pr.headSha);
   if (verdict !== "none") return { ...pr, ticketAuthor, verdict };

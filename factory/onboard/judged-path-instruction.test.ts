@@ -19,7 +19,7 @@ import { issuesClosedBy, linkedIssueNumber } from "../lib/linked-issue.ts";
  * other: a copy compared with another copy of itself agrees by construction and proves nothing.
  */
 const JUDGED_PATH_INSTRUCTION =
-  "- **Opening a pull request yourself**: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. All three, or it stays blocked. The factory judges it and merges it.";
+  "- **Opening a pull request yourself**: your branch has to be in this repo, not a fork. Put `Closes #N` in the body, label it `agent:review`, and arm auto-merge. All three, or it stays blocked. The factory judges it and merges it.";
 const JUDGED_PATH_TEMPLATE = "templates/agents-md-judged-path.md";
 
 /** A file in this repo, by its path from the root. */
@@ -81,6 +81,22 @@ test("README's onboarding names the instruction in the step that names the calle
   assert.equal(copying.length, 1, "one step names the routing test command");
   assert.ok(copying[0]!.includes("templates/factory.yml"), "and it is the step that names the caller");
   assert.ok(copying[0]!.includes(JUDGED_PATH_TEMPLATE), `the same step names ${JUDGED_PATH_TEMPLATE}`);
+  // The prose is a paraphrase, not a copy, so the literal above does not hold it and it would
+  // otherwise drift uncaught. It names the fork precondition beside the three steps, or a
+  // maintainer reading only the README under-describes the line they are about to copy.
+  assert.match(copying[0]!, /fork/, "and its prose names the fork precondition");
+});
+
+test("CONTEXT.md defines the producer the instruction addresses", () => {
+  // The Judged path entry uses the word and nothing defined it, while a producer is the whole
+  // audience of the line a target copies. Glossary shape only: the entry exists once, and says
+  // it is anyone but the factory opening a PR on the target.
+  // An entry is its bold term and the definition on the line under it, the glossary's shape.
+  const lines = readRepo("CONTEXT.md").split("\n");
+  const terms = lines.filter((line) => line.startsWith("**Producer**:"));
+  assert.equal(terms.length, 1, "Producer is defined, once");
+  const definition = lines[lines.indexOf(terms[0]!) + 1] ?? "";
+  assert.match(definition, /other than the factory/, "and says it is anyone but the factory");
 });
 
 test("the Close convention is still one bullet of docs/agents/issue-tracker.md", () => {

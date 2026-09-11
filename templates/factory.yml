@@ -41,6 +41,59 @@ permissions:
   actions: read # retry handler: failing runs' logs and artifacts
 
 jobs:
+  # The pause. Set the repository variable FACTORY_PAUSED on this repo and the factory stops;
+  # delete it and the factory carries on:
+  #   gh variable set FACTORY_PAUSED --repo <owner>/<repo> --body "runaway sweep, see #123"
+  #   gh variable delete FACTORY_PAUSED --repo <owner>/<repo>
+  # The value is the reason, not a flag, so the repo says why it is paused rather than leaving
+  # a reader to infer it from an absence of runs. Any non-empty value pauses, so a maintainer
+  # who types "false" into it pauses the factory instead of arming a trap.
+  #
+  # Why a variable: `vars` is readable in a job's `if:` and `secrets` is not, and a variable
+  # shows up in Settings, Secrets and variables, Actions, where someone looking at the repo
+  # finds it without reading this file. FACTORY_PAT cannot write repo variables, so the factory
+  # can never pause or resume itself.
+  #
+  # What it gates, job by job below: dispatch, implement, review, implement-pr and
+  # update-branch, everything that starts work or moves it along. What it deliberately does
+  # not gate: merge-gate and audit, the two that judge a pull request somebody else already
+  # opened. A pause that took those down would silently drop factory/red-green and
+  # factory/test-integrity from every PR opened while it was on. That is exactly what
+  # `gh workflow disable factory.yml` does, and why disabling this file is the wrong breaker.
+  # audit is not idle while paused, to be clear: it runs a model on each merged factory PR
+  # inside its first-20 window and on a miss it opens a revert PR and a needs-human issue.
+  # That is wanted. A bad merge that landed just before the pause is what you most want
+  # caught while everything else is stopped.
+  #
+  # Nothing is queued while paused: a gated job's `if:` evaluates to false and the job is
+  # skipped before a runner is assigned, so a resume starts nothing retroactively. The factory
+  # picks up from the repo's state on the next heartbeat, the same state any sweep reads, so
+  # fix what caused the pause before lifting it. A pause does not cancel a run already in
+  # flight, and it is what makes `gh run cancel` stick: the retry handler's re-label lands on
+  # a gated implement job and starts nothing. Pause first, cancel second.
+  # docs/pipeline.md has the rest, including what a pause does not do.
+  paused:
+    if: vars.FACTORY_PAUSED != ''
+    runs-on: ubuntu-latest
+    permissions: {} # it reads and writes nothing: the whole job is one echo
+    steps:
+      # The reason goes through the environment rather than into the script text, so whatever
+      # is typed into the variable is data and never a command. The annotation shows its first
+      # line only, which is GitHub's limit on one; the summary below shows all of it.
+      - name: Say the factory is paused, and why
+        env:
+          REASON: ${{ vars.FACTORY_PAUSED }}
+        run: |
+          echo "::warning title=factory paused::$REASON"
+          {
+            echo "## The factory is paused on this repo"
+            echo ""
+            echo "Reason: $REASON"
+            echo ""
+            echo 'Still running: `merge-gate` and `audit`. Nothing else is.'
+            echo 'Resume: `gh variable delete FACTORY_PAUSED --repo '"$GITHUB_REPOSITORY"'`'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # An unlabeled event wakes the sweep for any label except the factory's own two
   # namespaces, agent:* and factory:*. Every label the factory writes goes in with
   # FACTORY_PAT so it fires its event, which is what lets adding agent:implement start
@@ -62,14 +115,15 @@ jobs:
   # stay cancelled outright is #185, in the retry handler rather than here.
   dispatch:
     if: >-
-      github.event_name == 'schedule' ||
+      vars.FACTORY_PAUSED == '' &&
+      (github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'factory-sweep') ||
       (github.event_name == 'issues' && (github.event.action == 'closed' ||
         github.event.action == 'unassigned' ||
         (github.event.action == 'unlabeled' && !startsWith(github.event.label.name, 'agent:') &&
           !startsWith(github.event.label.name, 'factory:')) ||
-        (github.event.action == 'labeled' && github.event.label.name == 'ready-for-agent')))
+        (github.event.action == 'labeled' && github.event.label.name == 'ready-for-agent'))))
     uses: chizhangucb/software-factory/.github/workflows/dispatch.yml@main
     secrets: inherit
     with:
@@ -83,7 +137,9 @@ jobs:
       # verdict_minutes: 30
       # update_minutes: 30
   implement:
-    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent:implement'
+    if: >-
+      vars.FACTORY_PAUSED == '' && github.event_name == 'issues' &&
+      github.event.action == 'labeled' && github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/agent-implement.yml@main
     secrets: inherit
     with:
@@ -95,7 +151,9 @@ jobs:
       # or a trusted author's ticket is dispatched and their comments are then dropped.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
   review:
-    if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:review'
+    if: >-
+      vars.FACTORY_PAUSED == '' && github.event_name == 'pull_request_target' &&
+      github.event.label.name == 'agent:review'
     uses: chizhangucb/software-factory/.github/workflows/agent-review.yml@main
     secrets: inherit
     with:
@@ -106,7 +164,9 @@ jobs:
       # audit), or the factory reads a stranger on one path and not another.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
   implement-pr:
-    if: github.event_name == 'pull_request_target' && github.event.label.name == 'agent:implement'
+    if: >-
+      vars.FACTORY_PAUSED == '' && github.event_name == 'pull_request_target' &&
+      github.event.label.name == 'agent:implement'
     uses: chizhangucb/software-factory/.github/workflows/agent-implement-pr.yml@main
     secrets: inherit
     with:
@@ -144,8 +204,9 @@ jobs:
       # audit_model: claude-fable-5-1
   update-branch:
     if: >-
-      github.event_name == 'push' ||
-      (github.event_name == 'repository_dispatch' && github.event.action == 'factory-update-branch')
+      vars.FACTORY_PAUSED == '' &&
+      (github.event_name == 'push' ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'factory-update-branch'))
     uses: chizhangucb/software-factory/.github/workflows/update-branch.yml@main
     secrets: inherit
     with:

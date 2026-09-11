@@ -83,16 +83,14 @@ test("README's onboarding names the instruction in the step that names the calle
   assert.ok(copying[0]!.includes(JUDGED_PATH_TEMPLATE), `the same step names ${JUDGED_PATH_TEMPLATE}`);
 });
 
-test("issue-tracker.md requires the keyword when the PR's author does the work, and names the one trap", () => {
-  // Rewritten in place, not dropped (#181): the bullet that banned the keyword outright is the
-  // one that now says when writing it is a trap, in ADR 0003's words for that case.
+test("the Close convention is still one bullet of docs/agents/issue-tracker.md", () => {
+  // Structure only (#220): the rule this bullet carries is proven functionally in
+  // dispatch/select.test.ts and lib/linked-issue.test.ts, so wording here is the next
+  // person's to shorten. This only catches the bullet splitting or disappearing.
   const close = readRepo("docs/agents/issue-tracker.md")
     .split("\n")
     .filter((line) => line.startsWith("- **Close**"));
   assert.equal(close.length, 1, "the Close convention is still one bullet");
-  assert.doesNotMatch(close[0]!, /Never put a closing keyword/, "the blanket ban is gone");
-  assert.match(close[0]!, /whose author is doing/, "the keyword is required of a PR whose author does the work");
-  assert.match(close[0]!, /the factory is meant to build/, "and the one trap is a ticket the factory is meant to build");
 });
 
 test("ADR 0003's bullet on the tracker page's ban carries its dated correction, since the ban is gone", () => {

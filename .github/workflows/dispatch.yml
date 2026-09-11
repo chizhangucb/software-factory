@@ -51,7 +51,7 @@ on:
         type: number
         default: 15
       verdict_minutes:
-        description: Reconciler deadline. A factory PR with auto-merge armed and no factory/verdict on its head for this long gets agent:review.
+        description: Reconciler deadline. A factory PR with auto-merge armed, or any other non-draft, non-fork PR closing a trusted ticket, with no factory/verdict on its head for this long gets agent:review.
         type: number
         default: 30
       update_minutes:

@@ -376,10 +376,14 @@ const untrustedTicket = (ticket: number, author: Author | undefined, policy: Tru
   };
 };
 
-/** The first reason to leave a PR that is not a factory PR alone, or undefined when there is none. */
-const whyLeftAlone = (p: PrState, policy: TrustPolicy): LeftAlone | undefined => {
+/**
+ * The first reason to leave a PR that is not a factory PR alone, or undefined
+ * when there is none. Exported so the sweep reads the verdict and the head
+ * only past every reason, the ticket's author included.
+ */
+export const whyLeftAlone = (p: PrState, policy: TrustPolicy): LeftAlone | undefined => {
   const listed = leftAloneFromListing(p);
-  // `closes` is undefined only when the listing already said no-ticket; the test narrows it.
+  // `closes` is undefined only when the listing already said no-ticket; the check narrows it.
   if (listed || p.closes === undefined) return listed;
   return untrustedTicket(p.closes, p.ticketAuthor, policy);
 };

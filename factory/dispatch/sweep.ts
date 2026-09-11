@@ -57,6 +57,7 @@ import {
   runsFor,
   stateSinceFromTimeline,
   ticketFromGitHub,
+  whyLeftAlone,
 } from "./reconcile.ts";
 
 const repo = process.env.GH_REPO;
@@ -184,6 +185,9 @@ const ticketAuthorOf = (ticket: number): Author | undefined => {
 const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
   if (leftAloneFromListing(pr) || pr.closes === undefined) return pr;
   const ticketAuthor = ticketAuthorOf(pr.closes);
+  // A PR its ticket's author leaves alone needs no verdict or head read, and a
+  // failure of either would abort the sweep over a PR it was never going to touch.
+  if (whyLeftAlone({ ...pr, ticketAuthor }, policy)) return { ...pr, ticketAuthor };
   const verdict = verdictOn(pr.headSha);
   if (verdict !== "none") return { ...pr, ticketAuthor, verdict };
   return { ...pr, ticketAuthor, verdict, headSince: headSince(pr, createdAt) };

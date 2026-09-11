@@ -94,3 +94,14 @@ test("the tracker page requires the keyword when the PR's author does the work, 
   assert.match(close[0]!, /whose author is doing/, "the keyword is required of a PR whose author does the work");
   assert.match(close[0]!, /the factory is meant to build/, "and the one trap is a ticket the factory is meant to build");
 });
+
+test("ADR 0003's bullet on the tracker page's ban carries its dated correction, since the ban is gone", () => {
+  // The bullet says the page forbids the keyword outright, which was true when it was written.
+  // ADRs are amended in place and dated rather than rewritten, so the sentence stays and the
+  // correction beside it is what stops the ADR contradicting the page it describes.
+  const bullet = readRepo("docs/adr/0003-gate-in-ci-auto-merge-with-audit.md")
+    .split("\n")
+    .filter((line) => line.startsWith("- **The convention against closing keywords narrows.**"));
+  assert.equal(bullet.length, 1, "the bullet is still there, once");
+  assert.match(bullet[0]!, /Corrected 2026-09-11 \(#181\): /, "and says the outright ban has lapsed");
+});

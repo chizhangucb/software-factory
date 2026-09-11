@@ -51,7 +51,7 @@ on:
         type: number
         default: 15
       verdict_minutes:
-        description: Reconciler deadline. A factory PR with auto-merge armed and no factory/verdict on its head for this long gets agent:review.
+        description: Reconciler deadline. A factory PR with auto-merge armed, or any other non-draft, non-fork PR closing a trusted ticket, with no factory/verdict on its head for this long gets agent:review.
         type: number
         default: 30
       update_minutes:
@@ -131,6 +131,8 @@ jobs:
           STUCK_MINUTES: ${{ inputs.stuck_minutes }}
           VERDICT_MINUTES: ${{ inputs.verdict_minutes }}
           UPDATE_MINUTES: ${{ inputs.update_minutes }}
+          # Whose ticket a PR that is not a factory PR may close and still be labelled for a verdict (#182).
+          TRUSTED_AUTHOR_ASSOCIATIONS: ${{ inputs.trusted_author_associations }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           OUTPUT_DIR: ${{ runner.temp }}/factory-out
         run: node --experimental-strip-types factory/factory/dispatch/sweep.ts

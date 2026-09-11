@@ -24,7 +24,8 @@ import {
   retriesUsed,
   retryLabel,
   retryPromptSection,
-  targetOf,
+  ticketOrPr,
+  ticketOrPrFromPr,
 } from "./decide";
 
 test("retriesUsed counts the highest factory:retry-<n> label, zero without one", () => {
@@ -494,12 +495,24 @@ test("a killed attempt that wrote no reason file says it was killed", () => {
   assert.match(missingFailureReason("failure"), /no reason file/);
 });
 
-test("a run with neither a ticket nor an open PR has no subject", () => {
-  // A PR input naming a PR that is no longer open, whose body links no ticket
-  // (#133): the handler used to carry on and hand `gh` an undefined number.
-  assert.equal(targetOf(undefined, undefined), undefined);
-  assert.equal(targetOf("", undefined), undefined);
-  assert.deepEqual(targetOf("7", undefined), { issue: "7", pr: undefined });
-  assert.deepEqual(targetOf(undefined, { number: "12" }), { issue: undefined, pr: { number: "12" } });
-  assert.deepEqual(targetOf("7", { number: "12" }), { issue: "7", pr: { number: "12" } });
+test("a run with neither a ticket nor an open PR has nothing to act on", () => {
+  assert.equal(ticketOrPr(undefined, undefined), undefined);
+  assert.equal(ticketOrPr("", undefined), undefined);
+  assert.deepEqual(ticketOrPr("7", undefined), { issue: "7", pr: undefined });
+  assert.deepEqual(ticketOrPr(undefined, { number: "12" }), { issue: undefined, pr: { number: "12" } });
+  assert.deepEqual(ticketOrPr("7", { number: "12" }), { issue: "7", pr: { number: "12" } });
+});
+
+test("a PR input no longer open, whose body links no ticket, fails naming both facts", () => {
+  // #133: the handler used to carry on and hand `gh` an undefined number.
+  const pr = { number: "12" };
+  assert.throws(
+    () => ticketOrPrFromPr({ number: "12", state: "CLOSED", ticket: "", pr }),
+    /PR #12 is closed, not open, and its body links no ticket/,
+  );
+  assert.throws(() => ticketOrPrFromPr({ number: "12", state: "MERGED", ticket: undefined, pr }), /PR #12 is merged/);
+  // A closed PR with a ticket falls back to the ticket; an open one counts either way.
+  assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "CLOSED", ticket: "7", pr }), { issue: "7", pr: undefined });
+  assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "OPEN", ticket: "", pr }), { issue: undefined, pr });
+  assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "OPEN", ticket: "7", pr }), { issue: "7", pr });
 });

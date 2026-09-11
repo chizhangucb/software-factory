@@ -108,8 +108,9 @@ import {
   REQUEUED_FILE,
   retriesUsed,
   retryLabel,
-  type Target as RetryTarget,
-  targetOf,
+  type TicketOrPr,
+  ticketOrPr,
+  ticketOrPrFromPr,
 } from "./decide";
 
 const REPO = required("GH_REPO");
@@ -168,7 +169,7 @@ interface OpenPr {
   readonly facts: FactoryPrFacts;
 }
 
-type Target = RetryTarget<OpenPr>;
+type Target = TicketOrPr<OpenPr>;
 
 /**
  * The one thing an action is taken on: a ticket or a PR, named the way the
@@ -201,6 +202,7 @@ const recordOn = (target: Target): Subject =>
  * a retry uses both at once.
  */
 const actOn = (target: Target): Subject =>
+  // Two PR branches, not one: only `issue === undefined` narrows `pr` to present.
   target.issue === undefined
     ? { kind: "pr", number: target.pr.number }
     : target.pr
@@ -223,10 +225,13 @@ const resolveTarget = (): Target => {
     const pr = ghJson<{ state: string; body: string | null; headRefName: string }>([
       "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body,headRefName",
     ]);
-    const target = targetOf(ISSUE_INPUT ?? linkedIssueNumber(pr.body), pr.state === "OPEN" ? openPr(PR_INPUT, pr) : undefined);
-    // Neither to record on nor to act on: stop before any write names an undefined number (#133).
-    if (!target) throw new Error(`PR #${PR_INPUT} is ${pr.state.toLowerCase()}, not open, and its body links no ticket: nothing to retry or escalate on.`);
-    return target;
+    // Throws when nothing resolves, so no write ever names an undefined number (#133).
+    return ticketOrPrFromPr({
+      number: PR_INPUT,
+      state: pr.state,
+      ticket: ISSUE_INPUT ?? linkedIssueNumber(pr.body),
+      pr: openPr(PR_INPUT, pr),
+    });
   }
   const issue = required("ISSUE_NUMBER");
   // Every open PR, as the dispatcher lists them, and not a body search: GitHub's
@@ -722,7 +727,7 @@ const main = async (): Promise<void> => {
   if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
     if (!mergeability) {
       console.log(`PR #${target.pr.number} closed or merged as the handler waited; it is no longer the subject.`);
-      const ticketOnly = targetOf<OpenPr>(target.issue, undefined);
+      const ticketOnly = ticketOrPr<OpenPr>(target.issue, undefined);
       if (!ticketOnly) {
         console.log("No ticket to fall back to; nothing to requeue.");
         return;

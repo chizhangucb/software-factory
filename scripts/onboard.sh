@@ -3,7 +3,7 @@
 # ruleset on the default branch that requires a PR plus the factory's checks
 # (up to date with main) before anything merges. Secrets and the caller
 # workflow are the other two steps; see README.md. Idempotent. It ends by
-# printing the line a target's sessions need in its AGENTS.md; see note_judged_path.
+# printing the line a target needs in its AGENTS.md; see note_judged_path.
 #   scripts/onboard.sh owner/repo [own-check ...]
 # Each extra argument is a status check the target's own CI already posts
 # (the job name, e.g. `check`); it is required next to the factory's three.
@@ -160,27 +160,31 @@ note_unused_defaults() {
     echo "############################################################"
   } >&2
 }
-# The one line a target's sessions need (#181). A session that opens a PR on the target itself
-# has to put `Closes #N` in the body, `agent:review` on the PR and auto-merge on it, or the PR
-# sits blocked on factory/verdict for good, and it should do all three without being asked. So
-# the line goes in the target's AGENTS.md, which every session there reads. This script writes
-# no file in the target: landing the line is the target's own PR, so it is printed, not written.
+# The one line every target needs for its other producers (#181): anything but the factory that
+# opens a PR on the target, an interactive session or a cloud agent, has to put `Closes #N` in
+# the body, `agent:review` on the PR and auto-merge on it, or the PR sits blocked on
+# factory/verdict for good, and it should do all three without being asked. So the line goes in
+# the target's AGENTS.md, which every agent working there reads. This script writes no file in
+# the target: landing the line is the target's own PR, so it is printed, not written.
 # Read off templates/ rather than spelled out here, so what this shows is the copy every target
 # takes, byte for byte, with no second copy in this file to drift from it. Printed bare rather
 # than behind `## `, so it pastes into AGENTS.md as it stands.
-# A NOTE and not a WARNING: a session nobody told gets a PR that sits blocked, which is where
+# A NOTE and not a WARNING: a producer nobody told gets a PR that sits blocked, which is where
 # it was before, so nothing is at risk. And only on a repo with a caller: without one nothing
 # answers `agent:review` and no factory check is required, so the line's last sentence, the
 # factory judges it and merges it, would be false there.
+# Never fatal, for the same reason note_unused_defaults is not: the ruleset is written by now
+# and the warning prints after this, so a template that cannot be read costs this note alone.
 judged_path_template="$(dirname "${BASH_SOURCE[0]}")/../templates/agents-md-judged-path.md"
 note_judged_path() {
   {
     echo "############################################################"
-    echo "## NOTE: a session opening a PR on $repo itself needs"
+    echo "## NOTE: an agent opening a PR on $repo itself needs"
     echo "## the line below in the target's AGENTS.md (or CLAUDE.md),"
     echo "## as it stands, or that PR stays blocked. It is the whole of"
     echo "## templates/agents-md-judged-path.md:"
-    cat "$judged_path_template"
+    cat "$judged_path_template" ||
+      echo "## (could not read it here: take it from the factory repo)"
     echo "## Landing it is $repo's own PR: this script writes no"
     echo "## file there."
     echo "############################################################"

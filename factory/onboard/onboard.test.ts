@@ -16,7 +16,6 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { HOLD_LABEL, HOLD_LABELS } from "../lib/labels.ts";
-import { issuesClosedBy, linkedIssueNumber } from "../lib/linked-issue.ts";
 
 const onboard = fileURLToPath(new URL("../../scripts/onboard.sh", import.meta.url));
 const target = "chizhangucb/factory-fixture";
@@ -773,49 +772,13 @@ test("the warning only says discovery came back empty when discovery actually ra
 });
 
 /**
- * The instruction a target's sessions read (#181): the three things a session opening a PR
- * itself has to do, or the PR sits blocked on `factory/verdict` for good. These bytes are the
- * ticket's own, copied out of #181 programmatically rather than retyped, and they are the pin.
- * The template and every other copy are compared against this literal, never against each
- * other: a copy compared with another copy of itself agrees by construction and proves nothing.
+ * The instruction onboarding prints (#181), as the template holds it. Read off the template
+ * rather than pinned here, because what these tests prove is that the script prints the
+ * template rather than a copy of its own; the bytes themselves are pinned to the ticket's in
+ * `judged-path-instruction.test.ts`, and a change to them goes red there.
  */
-const JUDGED_PATH_INSTRUCTION = "- **Opening a pull request yourself**: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. All three, or it stays blocked. The factory judges it and merges it.";
 const JUDGED_PATH_TEMPLATE = "templates/agents-md-judged-path.md";
-
-/**
- * Where a copy of the instruction could live: the pages a maintainer or a session reads, what
- * a target copies, and the code and prompts. Named roots rather than a walk from the top,
- * because a checkout of this repo holds other sessions' worktrees under `.claude/`, and the
- * test files are left out because the pin above lives in one.
- */
-const INSTRUCTION_ROOTS = ["README.md", "CONTEXT.md", "AGENTS.md", "CLAUDE.md", "docs", "templates", "scripts", "factory", ".github"];
-const repoFiles = (entry: string): string[] => {
-  const url = new URL(`../../${entry}`, import.meta.url);
-  if (!fs.existsSync(url)) return [];
-  if (!fs.statSync(url).isDirectory()) return entry.endsWith(".test.ts") ? [] : [entry];
-  return fs.readdirSync(url).flatMap((name) => (name === "node_modules" ? [] : repoFiles(`${entry}/${name}`)));
-};
-
-test("the template a target copies is the agreed instruction, byte for byte", () => {
-  // One line and its newline, nothing else, so copying the whole file is copying the line.
-  assert.equal(fs.readFileSync(new URL(`../../${JUDGED_PATH_TEMPLATE}`, import.meta.url), "utf8"), `${JUDGED_PATH_INSTRUCTION}\n`);
-});
-
-test("every copy of the instruction in the tree is the agreed one, not a near miss", () => {
-  // Anchored on the bullet's own name, so a copy reworded anywhere after it is still found,
-  // and then held to the whole literal rather than to the anchor.
-  const anchor = "Opening a pull request yourself";
-  const carrying = INSTRUCTION_ROOTS.flatMap(repoFiles).filter((file) =>
-    fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8").includes(anchor),
-  );
-  assert.ok(carrying.includes(JUDGED_PATH_TEMPLATE), `${JUDGED_PATH_TEMPLATE} carries the instruction`);
-  for (const file of carrying) {
-    const lines = fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8").split("\n");
-    for (const line of lines.filter((text) => text.includes(anchor))) {
-      assert.ok(line.includes(JUDGED_PATH_INSTRUCTION), `${file} carries a copy of the instruction that has drifted: ${line}`);
-    }
-  }
-});
+const JUDGED_PATH_INSTRUCTION = fs.readFileSync(new URL(`../../${JUDGED_PATH_TEMPLATE}`, import.meta.url), "utf8").trimEnd();
 
 /** The line index of every exact copy of the instruction in a run's output. */
 const instructionLines = (output: string): number[] =>
@@ -839,7 +802,7 @@ test("the instruction sits beside the required checks, and the warning still has
 });
 
 test("the instruction is printed in the script's banner idiom, as a note rather than a warning", () => {
-  // A target missing the line fails closed: a session that has not been told gets a PR that
+  // A target missing the line fails closed: a producer nobody told gets a PR that
   // sits blocked, which is where it was before. Nothing is at risk, so it is a NOTE, and the
   // WARNING stays reserved for a ruleset that lets a broken build merge.
   const { output } = onboardWith(["check"]);
@@ -876,37 +839,22 @@ test("a target with no caller is not told the factory judges its PRs, since noth
   assert.doesNotMatch(output, /Opening a pull request yourself/);
 });
 
-test("README's onboarding names the instruction in the step that names the caller and the routing test command", () => {
-  // The step where a maintainer copies files into the target is where one more file to copy
-  // gets seen. Read as that one step, not the whole page, so naming it anywhere else fails.
-  const readme = fs.readFileSync(new URL("../../README.md", import.meta.url), "utf8");
-  const onboarding = readme.split(/^## /m).find((section) => section.startsWith("Onboard a target repo"));
-  assert.ok(onboarding, "README still has its onboarding section");
-  const steps = onboarding.split(/^(?=\d+\. )/m).slice(1);
-  // Found by the routing test command, which only the copying step names; the caller turns up
-  // in a later step too, where its permissions are checked.
-  const copying = steps.filter((step) => step.includes("templates/routing-test-command.sh"));
-  assert.equal(copying.length, 1, "one step names the routing test command");
-  assert.ok(copying[0]!.includes("templates/factory.yml"), "and it is the step that names the caller");
-  assert.ok(copying[0]!.includes(JUDGED_PATH_TEMPLATE), `the same step names ${JUDGED_PATH_TEMPLATE}`);
-});
-
-test("the instruction's keyword is one the reviewer reads, and its placeholder claims no ticket", () => {
-  // Read by the same regex the dispatcher, the reviewer and the merge gate share. `#N` is not a
-  // number, so the line can sit in an AGENTS.md or be quoted in a PR body without the dispatcher
-  // skipping any ticket over it; with a real number in place it is the PR's ticket, which is the
-  // whole of what the instruction asks the keyword to do.
-  assert.deepEqual(issuesClosedBy(JUDGED_PATH_INSTRUCTION), []);
-  assert.equal(linkedIssueNumber(JUDGED_PATH_INSTRUCTION.replace("#N", "#42")), "42");
-});
-
-test("the tracker page requires the keyword when the PR's author does the work, and names the one trap", () => {
-  // Rewritten in place, not dropped (#181): the bullet that banned the keyword outright is the
-  // one that now says when writing it is a trap, in ADR 0003's words for that case.
-  const page = fs.readFileSync(new URL("../../docs/agents/issue-tracker.md", import.meta.url), "utf8");
-  const close = page.split("\n").filter((line) => line.startsWith("- **Close**"));
-  assert.equal(close.length, 1, "the Close convention is still one bullet");
-  assert.doesNotMatch(close[0]!, /Never put a closing keyword/, "the blanket ban is gone");
-  assert.match(close[0]!, /whose author is doing/, "the keyword is required of a PR whose author does the work");
-  assert.match(close[0]!, /the factory is meant to build/, "and the one trap is a ticket the factory is meant to build");
+test("a template the script cannot read never takes the warning down with it", () => {
+  // The ruleset is written by the time the note prints, and the warning still has to print
+  // after it, so under set -e an unreadable template must cost the note alone. Run from a copy
+  // of the script with no templates/ beside it, which is that failure without touching the tree.
+  const box = sandbox();
+  const lone = path.join(box.dir, "scripts", "onboard.sh");
+  fs.mkdirSync(path.dirname(lone));
+  fs.copyFileSync(onboard, lone);
+  try {
+    const result = spawnSync("/bin/sh", ["-c", 'exec "$0" "$@" 2>&1', lone, target], { encoding: "utf8", env: box.env });
+    assert.equal(result.status, 0, `onboard.sh failed: ${result.stdout}`);
+    const lines = result.stdout.split("\n");
+    const unreadable = lines.findIndex((line) => /could not read/.test(line));
+    assert.ok(unreadable >= 0, "the note says it could not read the template");
+    assert.ok(Math.max(...warningLines(result.stdout)) > unreadable, "and the warning still prints after it");
+  } finally {
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  }
 });

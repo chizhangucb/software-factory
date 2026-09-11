@@ -39,6 +39,16 @@
  *   a definite conflict (#145), rather than at the deadline. A mergeability
  *   GitHub has not decided yet (UNKNOWN) is never acted on: it keeps waiting,
  *   and at the deadline it stays a requeue.
+ * - stand-down (#185): a label from the hold set (`HOLD_LABELS`, the one the
+ *   dispatcher reads) is on the ticket or on its open PR. A person has said to
+ *   leave the subject alone, so it outranks every action above that would
+ *   start an agent or escalate: no `agent:implement`, no `factory:retry-<n>`,
+ *   no `needs-human`, and no `agent:*` label taken off. A comment names the
+ *   label and the subject it was found on. The subject is left where a
+ *   requeue leaves it, so taking the hold off resumes it through the sweep
+ *   that already owns it: a ticket through the dispatcher, a PR through the
+ *   reconciler's stuck deadline. A cancel with no hold is untouched by this
+ *   and still spends the one retry (#51).
  *
  * Two tokens: reads (statuses, check runs, run logs and artifacts, labels)
  * use GH_TOKEN, the job's GITHUB_TOKEN, which needs checks: read and
@@ -94,6 +104,9 @@ import {
   decide,
   type EscalatedPr,
   type FailureKind,
+  findHold,
+  type Hold,
+  type Subject,
   isImplementerFailure,
   MAX_RETRIES,
   type Mergeability,
@@ -105,6 +118,7 @@ import {
   renderLeftOpenPrComment,
   renderRequeueComment,
   renderRetryComment,
+  renderStandDownComment,
   REQUEUED_FILE,
   retriesUsed,
   retryLabel,
@@ -171,22 +185,6 @@ interface OpenPr {
 }
 
 type Target = TicketOrPr<OpenPr>;
-
-/**
- * The one thing an action is taken on: a ticket or a PR, named the way the
- * sweep names one (`Subject` in `dispatch/reconcile.ts`). Not imported from
- * there: that module is the dispatch job's, and it numbers its subjects with
- * a number, while every number here is the string the workflow handed over,
- * which is also the `gh` argument.
- *
- * A retry has two subjects at once, the one that records it and the one whose
- * label starts the next run, so which is which has to be readable at every
- * call site rather than positional.
- */
-interface Subject {
-  readonly kind: "issue" | "pr";
-  readonly number: string;
-}
 
 /**
  * Where the record of this run goes: a comment, the retry label, the
@@ -606,6 +604,37 @@ const requeue = (target: Target, reason: string): void => {
 };
 
 /**
+ * A person holds the subject (#185): a label from the hold set is on the
+ * ticket or on its open PR, so no agent starts. The retry's label is the one
+ * thing that would have started one, and it is not written; neither is
+ * `factory:retry-<n>`, since a person stopped the attempt rather than the
+ * implementer failing it, nor anything of escalation's, since `needs-human` is
+ * the factory giving up and a person taking the wheel is the opposite.
+ *
+ * What is left is what a requeue leaves (#148), and for the same reason: each
+ * side stays in the state its own sweep reads, and both sweeps honour the hold.
+ * A ticket keeps no factory label (the workflow took `agent:implement` off at
+ * the run's start and `agent:in-progress` a step before this handler), which
+ * the dispatcher skips while it is held and picks up once it is not. A PR is
+ * kept in `agent:in-progress`, which the reconciler leaves alone while it is
+ * held and re-labels at its stuck deadline once it is not. So removing the
+ * hold is the whole of resuming, and nobody reconstructs a state label by hand.
+ *
+ * The comment goes where the hold was found, the thread whoever added it is
+ * reading, and names the label and the subject.
+ */
+const standDown = (target: Target, { hold, reason }: { readonly hold: Hold; readonly reason: string }, failure: Failure): void => {
+  const resume = actOn(target);
+  const pr = resume.kind === "pr" ? resume.number : undefined;
+  commentOn(hold.on, renderStandDownComment({ hold, summary: failure.summary, runUrl: RUN_URL, pr }));
+  if (pr) keepInProgress(pr, reason);
+  console.log(
+    `Stood down: ${reason}. No retry spent, nothing labeled` +
+      (pr ? `; PR #${pr} left in ${IN_PROGRESS_LABEL} for the reconciler once the hold is off.` : "; the dispatcher picks the ticket up once the hold is off."),
+  );
+};
+
+/**
  * The conflict hand-off update-branch makes, from here: a comment naming the
  * cause, then the implementer's label. No retry label.
  *
@@ -742,7 +771,12 @@ const main = async (): Promise<void> => {
       target = ticketOnly;
     }
   }
-  const labels = labelsOf(recordOn(target));
+  const record = recordOn(target);
+  const labels = labelsOf(record);
+  // The open PR's labels too when the record is the ticket's: whatever the retry
+  // would label goes on the PR, so a hold there stops it the same (#185).
+  const pr: Subject | undefined = record.kind === "issue" && target.pr ? { kind: "pr", number: target.pr.number } : undefined;
+  const held = findHold([{ ...record, labels }, ...(pr ? [{ ...pr, labels: labelsOf(pr) }] : [])]);
   const used = retriesUsed(labels);
   const decision = decide({
     retriesUsed: used,
@@ -751,10 +785,12 @@ const main = async (): Promise<void> => {
     requeue: failure.requeue,
     mergeable: mergeability?.mergeable,
     unretryable: failure.unretryable,
+    held,
   });
   console.log(`${failure.summary}. Retries used: ${used}. Decision: ${decision.action}${"reason" in decision ? ` (${decision.reason})` : ""}.`);
 
-  if (decision.action === "retry") retry(target, decision.retry, failure);
+  if (decision.action === "stand-down") standDown(target, decision, failure);
+  else if (decision.action === "retry") retry(target, decision.retry, failure);
   else if (decision.action === "escalate") escalate(target, decision.reason, failure);
   else if (decision.action === "requeue") requeue(target, decision.reason);
   else if (decision.action === "hand-off") {

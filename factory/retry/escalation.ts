@@ -101,9 +101,11 @@ export interface PrEscalation {
  */
 export const prEscalation = (pr: LabelledPrFacts): PrEscalation => {
   const close = isFactoryAuthoredPr(pr);
+  const down = standDown(pr.labels);
   return {
-    ...standDown(pr.labels),
-    add: close ? undefined : ESCALATION_LABEL,
+    remove: down.remove,
+    // A closed PR is in no listing the reconciler reads, so it needs no parking label.
+    add: close ? undefined : down.add,
     close,
   };
 };
@@ -114,11 +116,16 @@ export const prEscalation = (pr: LabelledPrFacts): PrEscalation => {
  */
 export type Fixer = "factory" | "author";
 
-/** What the retry handler does to the open PR: who fixes it, and the labels that say so. */
+/**
+ * What the retry handler does to the open PR: who fixes it, and the labels
+ * that say so. `add` is one of two labels and not any string, so "no
+ * `agent:implement` on a branch the factory did not author" is a fact tsc
+ * checks rather than one a caller has to keep.
+ */
 export interface PrFix {
   readonly fixer: Fixer;
   readonly remove: string[];
-  readonly add: string;
+  readonly add: typeof IMPLEMENT_LABEL | typeof ESCALATION_LABEL;
 }
 
 /**

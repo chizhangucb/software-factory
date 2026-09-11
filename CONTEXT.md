@@ -50,7 +50,7 @@ A changed test file whose process died before any test reported a result, which 
 _Avoid_: skipped, skip (the placeholder's word), ignored (it is named in the status, never passed over in silence).
 
 **Escalation**:
-A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read.
+A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read. `needs-human` also parks a PR the factory has **stood down** on, which spends no retry and says nothing about the ticket.
 _Avoid_: failure, blocked (the tracker's dependency word).
 
 **Requeue**:
@@ -58,8 +58,12 @@ A run handed back to the queue because what stopped it was not the ticket's fail
 _Avoid_: retry (the attempt that is counted), hand-off (the implementer's, for a conflict), blocked (a human's).
 
 **Hand-off**:
-A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`.
+A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`. Only ever on a **Factory-authored PR**, since resolving a conflict is committing to the branch; on any other PR the conflict is **stood down** for its own author instead (#183).
 _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to the reconciler), escalation (the human queue).
+
+**Stood down**:
+A PR the factory will not act on again until a human moves it: every `agent:*` label off, `needs-human` on, auto-merge disarmed, and a comment on the PR saying what failed and that the fix is its author's. What the factory does with a PR it did not author where it would otherwise put an implementer on the branch (#183) or close it (#174). Taking the `agent:*` labels off is not on its own enough: the reconciler reads a **Factory PR** with no `agent:*` label as one to arm and judge, so the parking label is what makes it last. Taking `needs-human` back off hands the PR to the factory again.
+_Avoid_: escalation (the ticket's queue, after the retry cap), blocked (a run that broke), hand-back (handing a *ticket* back to the factory).
 
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.

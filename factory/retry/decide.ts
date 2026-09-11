@@ -17,7 +17,7 @@
  */
 import { ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { boundOutput } from "../lib/verdict";
-import { type Fixer } from "./escalation.ts";
+import type { Fixer } from "./escalation.ts";
 
 export type FailureKind = "implement" | "merge-gate" | "ci" | "verdict";
 
@@ -151,12 +151,12 @@ export interface RetryContext {
 }
 
 /**
- * What the marker comment says, which is the context above plus who the
- * factory handed the fix to (#183). Not part of `RetryContext` itself: that is
- * what a later implementer run reads back out of the comment, and by then the
- * fixer is history.
+ * What `renderRetryComment` is given: the context above plus who the factory
+ * handed the fix to (#183). The fixer is not part of `RetryContext` itself:
+ * that is what a later implementer run reads back out of the comment, and by
+ * then the fixer is history.
  */
-export interface RetryComment extends RetryContext {
+export interface RetryCommentInput extends RetryContext {
   /** Default `factory`, the only fixer there was before #183. */
   readonly fixer?: Fixer;
 }
@@ -173,13 +173,24 @@ const fence = (text: string): string => {
 };
 
 /**
+ * The failing output folded away at the end of a comment, bounded, or nothing
+ * when there is none to show. Every comment that carries an output carries it
+ * the same way, and `parseRetryComment` reads this shape back out of the
+ * marker comment.
+ */
+const failureDetails = (output: string): string[] =>
+  output.trim().length === 0
+    ? []
+    : ["", "<details><summary>Failure output</summary>", "", fence(boundOutput(output, OUTPUT_LIMITS)), "", "</details>"];
+
+/**
  * The marker comment the failure handler posts on the ticket before the retry
  * starts. It records the attempt whoever fixes it (#183), so the count is the
  * same either way and nothing is dropped in silence; only the line saying what
  * happens next changes, because on a PR the factory did not author the answer
  * is "nothing of the factory's does".
  */
-export const renderRetryComment = (context: RetryComment): string =>
+export const renderRetryComment = (context: RetryCommentInput): string =>
   [
     `<!-- factory:retry retry=${context.retry} kind=${context.kind} -->`,
     `### Retry ${context.retry} of ${MAX_RETRIES} requested by the factory`,
@@ -187,14 +198,9 @@ export const renderRetryComment = (context: RetryComment): string =>
     `Attempt ${context.retry} failed (${context.kind}). Run: ${context.runUrl}`,
     "",
     context.fixer === "author"
-      ? `The factory did not author the open PR, so no implementer runs on its branch: the fix is its author's. The PR is parked with \`${ESCALATION_LABEL}\` and carries this failure.`
+      ? `The factory did not author the open PR, so no implementer runs on its branch: the fix is its author's. The PR is parked with \`${ESCALATION_LABEL}\`, and taking that label off hands it back to the factory.`
       : "The implementer runs once more on the same branch with this output in its prompt; a second failure escalates to `needs-human`.",
-    "",
-    "<details><summary>Failure output</summary>",
-    "",
-    fence(boundOutput(context.output, OUTPUT_LIMITS)),
-    "",
-    "</details>",
+    ...failureDetails(context.output),
   ].join("\n");
 
 const isFailureKind = (value: string): value is FailureKind =>
@@ -312,6 +318,16 @@ export const renderHandOffComment = (input: {
 export const authorConflictReason = (base: string): string =>
   `the PR conflicts with \`${base}\`, so GitHub started no merge gate on this head`;
 
+/** What the factory tells the author of a PR it will not put an implementer on (#183). */
+export interface AuthorFixNote {
+  /** What the factory found: the failure summary, or the conflict. */
+  readonly reason: string;
+  /** The ticket carrying the record, when the record went elsewhere; undefined when nothing else holds it. */
+  readonly issueNumber: string | undefined;
+  /** The failing output, when there is one this thread does not already carry. */
+  readonly output: string;
+}
+
 /**
  * The comment on a PR the factory will not put an implementer on (#183), for
  * the PR's own thread. Both paths that would have labelled it
@@ -323,31 +339,27 @@ export const authorConflictReason = (base: string): string =>
  * this author's thread and may not even be theirs to read. It also says what
  * the labels now say, because a PR whose `agent:*` labels vanished and that
  * acquired `needs-human` otherwise reads as the factory losing interest.
+ *
+ * What it does not say is "add `agent:review`". That is the **Judged path**,
+ * and ADR 0003's amendment forbids telling any producer to take it until #174,
+ * #180 and #183 have all landed, #180 being the conflict hand-off in
+ * update-branch, which still puts an implementer on a branch the factory did
+ * not author. Taking `needs-human` off is enough and is what actually happens:
+ * the reconciler then reads the PR as a factory PR with no `agent:*` label,
+ * re-arms auto-merge and asks for the verdict itself.
  */
-export const renderAuthorFixComment = (input: {
-  /** What the factory found: the failure summary, or the conflict. */
-  readonly reason: string;
-  readonly runUrl: string;
-  /** The ticket carrying the record, when the record went elsewhere; undefined when this thread has it. */
-  readonly issueNumber: string | undefined;
-  /** The failing output, when there is one this thread does not already carry. */
-  readonly output: string;
-}): string => {
-  const lines = [
+export const renderAuthorFixComment = (input: AuthorFixNote & { readonly runUrl: string }): string =>
+  [
     "### The fix is yours: the factory did not author this PR",
     "",
     `${input.reason}. Run: ${input.runUrl}`,
     "",
     `The factory puts an implementer only on a branch it opened, so nothing of the factory's will commit to this one. Its \`agent:*\` labels are off, \`${ESCALATION_LABEL}\` is on and auto-merge is disarmed, so no factory run picks it up again.`,
     "",
-    `Push the fix yourself, then take \`${ESCALATION_LABEL}\` off and add \`agent:review\` to have it judged again.`,
-  ];
-  if (input.issueNumber) lines.push("", `The attempt is recorded on #${input.issueNumber}.`);
-  if (input.output.trim().length > 0) {
-    lines.push("", "<details><summary>Failure output</summary>", "", fence(boundOutput(input.output, OUTPUT_LIMITS)), "", "</details>");
-  }
-  return lines.join("\n");
-};
+    `Push the fix yourself. Taking \`${ESCALATION_LABEL}\` off hands the PR back to the factory, which re-arms auto-merge and asks for a fresh verdict, so a passing one still lands it.`,
+    ...(input.issueNumber ? ["", `The attempt is recorded on #${input.issueNumber}.`] : []),
+    ...failureDetails(input.output),
+  ].join("\n");
 
 /**
  * The PR that was open when the factory gave up, and what became of it.
@@ -420,15 +432,6 @@ export const renderEscalationComment = (input: EscalationInput): string => {
     "",
     `To hand it back to the factory: fix the ticket, then remove \`${ESCALATION_LABEL}\` and \`${retryLabel(MAX_RETRIES)}\`, then add \`${READY_LABEL}\` back (escalation took it off). The dispatcher picks it up on the next event and the new run starts from main again${input.branchExists ? "; the kept branch is for reading" : ""}.`,
   ];
-  if (input.output.trim().length > 0) {
-    lines.push(
-      "",
-      "<details><summary>Failure output</summary>",
-      "",
-      fence(boundOutput(input.output, OUTPUT_LIMITS)),
-      "",
-      "</details>",
-    );
-  }
+  lines.push(...failureDetails(input.output));
   return lines.join("\n");
 };

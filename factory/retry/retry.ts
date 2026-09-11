@@ -34,11 +34,10 @@
  *   `factory:retry-<n>`, no human. On a PR the factory did not author it goes
  *   back to that author instead, on the same test the retry uses (#183),
  *   resolving a conflict being one more way of committing to the branch. The
- *   wait reads mergeability on every poll
- *   and ends the moment GitHub reports a definite conflict (#145), rather
- *   than at the deadline. A mergeability GitHub has not decided yet
- *   (UNKNOWN) is never acted on: it keeps waiting, and at the deadline it
- *   stays a requeue.
+ *   wait reads mergeability on every poll and ends the moment GitHub reports
+ *   a definite conflict (#145), rather than at the deadline. A mergeability
+ *   GitHub has not decided yet (UNKNOWN) is never acted on: it keeps waiting,
+ *   and at the deadline it stays a requeue.
  *
  * Two tokens: reads (statuses, check runs, run logs and artifacts, labels)
  * use GH_TOKEN, the job's GITHUB_TOKEN, which needs checks: read and
@@ -89,6 +88,7 @@ import { ESCALATION_LABEL, IMPLEMENT_LABEL, IN_PROGRESS_LABEL } from "../lib/lab
 import { type FactoryPrFacts } from "../lib/factory-pr.ts";
 import { escalationLabels, type PrFix, prEscalation, prFix } from "./escalation.ts";
 import {
+  type AuthorFixNote,
   authorConflictReason,
   decide,
   type EscalatedPr,
@@ -472,41 +472,49 @@ const prFixOf = (pr: OpenPr): PrFix =>
   prFix({ ...pr.facts, labels: labelsOf({ kind: "pr", number: pr.number }) });
 
 /**
- * Hand the open PR back to whoever wrote it (#183): parked, and told what
- * failed and that the fix is theirs.
+ * The labels `prFix` decided, applied to the PR.
  *
- * The parking label goes on before the `agent:*` ones come off, and with
- * `ghWrite` rather than `tryWrite`. Order, because a PR carrying no label of
- * the factory's at all is one the reconciler arms and judges, so removing
- * first opens a window where a heartbeat undoes the decline. `ghWrite`,
- * because the parking is what makes the decline last longer than one sweep: a
- * swallowed failure there leaves the PR to be re-armed, re-judged and handed
- * to an implementer at the next verdict deadline, which is the one outcome
- * this exists to prevent. Throwing hands it to the workflow's own fallback
- * instead, which adds `agent:blocked`, itself a parked label.
- *
- * The comment goes last and throws too: by then the record is written (the
- * ticket's on the retry path, this comment itself on the hand-off path, which
- * has no other), and an author who is not told what failed has been told
- * nothing at all.
+ * The label it adds goes on before the ones it takes off, and with `ghWrite`
+ * rather than `tryWrite`. Order, because a PR carrying no label of the
+ * factory's at all is one the reconciler arms and judges, so removing first
+ * opens a window where a heartbeat undoes what this just decided. `ghWrite`,
+ * because on the author's path the label added is the parking one, and it is
+ * what makes the decline last longer than one sweep: a swallowed failure there
+ * leaves the PR to be re-armed, re-judged and handed to an implementer at the
+ * next verdict deadline, the one outcome #183 exists to prevent. Throwing
+ * hands it to the workflow's own fallback instead, which adds `agent:blocked`,
+ * itself a parked label.
  */
-const handBackToAuthor = (
-  pr: OpenPr,
-  fix: PrFix,
-  note: { readonly reason: string; readonly issueNumber: string | undefined; readonly output: string },
-): void => {
+const labelPr = (pr: OpenPr, fix: PrFix): void => {
   ghWrite(["pr", "edit", pr.number, "--repo", REPO, "--add-label", fix.add]);
   if (fix.remove.length > 0) tryWrite(["pr", "edit", pr.number, "--repo", REPO, "--remove-label", fix.remove.join(",")]);
-  // The factory arms auto-merge on every PR it reads as its own, this one
-  // included, so a PR it has just stood down would otherwise still hold a
-  // standing instruction to merge the moment its checks go green: on a target
-  // whose main does not require `factory/verdict`, a merge with nothing
-  // judging it. The same disarm escalation does to a PR it leaves open (#174).
-  // Refused when none was armed, which `tryWrite` swallows.
+};
+
+/**
+ * Park the open PR for whoever wrote it (#183): no implementer on the branch,
+ * and its author told what failed and that the fix is theirs.
+ *
+ * `note` is what goes on the PR's own thread, and is undefined when this
+ * thread already carries the record: with no ticket `recordOn` is this PR, the
+ * marker comment lands here saying the same thing, and a second comment under
+ * it would only repeat it. #174's left-open note skips itself for the same
+ * reason. When there is a note it goes last and throws: by then the labels are
+ * on, and an author who is not told what failed has been told nothing at all.
+ */
+const parkForItsAuthor = (pr: OpenPr, fix: PrFix, note: AuthorFixNote | undefined): void => {
+  labelPr(pr, fix);
+  // The reconciler arms auto-merge on every PR it reads as a factory PR, one
+  // the factory did not author included, so a PR it has just stood down would
+  // otherwise still hold a standing instruction to merge the moment its checks
+  // go green: on a target whose main does not require `factory/verdict`, a
+  // merge with nothing judging it, which ADR 0003 refuses. The same disarm
+  // escalation does to a PR it leaves open (#174), and the same reconciler
+  // re-arms it when the parking label comes off, which is what the comment
+  // tells the author. Refused when none was armed, which `tryWrite` swallows.
   tryWrite(["pr", "merge", pr.number, "--repo", REPO, "--disable-auto"]);
-  commentOn({ kind: "pr", number: pr.number }, renderAuthorFixComment({ ...note, runUrl: RUN_URL }));
+  if (note) commentOn({ kind: "pr", number: pr.number }, renderAuthorFixComment({ ...note, runUrl: RUN_URL }));
   console.log(
-    `PR #${pr.number} handed back to its author: no ${IMPLEMENT_LABEL}, ${fix.add} on, ${fix.remove.join(", ") || "no agent labels"} off, auto-merge disarmed (${note.reason}).`,
+    `PR #${pr.number} is its author's to fix: no ${IMPLEMENT_LABEL}, ${fix.add} on, ${fix.remove.join(", ") || "no agent labels"} off, auto-merge disarmed.`,
   );
 };
 
@@ -526,19 +534,16 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   commentOn(on, comment);
   ensureRetryLabel(label);
   ghWrite([on.kind, "edit", on.number, "--repo", REPO, "--add-label", label]);
-  if (target.pr && fix?.fixer === "author") {
-    handBackToAuthor(target.pr, fix, {
-      reason: failure.summary,
-      // Where the record went, when it went elsewhere. With no ticket it is
-      // the comment just posted on this PR, and the output would be twice on
-      // the one thread.
-      issueNumber: on.kind === "issue" ? on.number : undefined,
-      output: on.kind === "issue" ? failure.output : "",
-    });
-    console.log(`Retry ${retryNumber} of ${MAX_RETRIES} recorded: ${label} on ${on.kind} #${on.number} (${failure.summary}).`);
+  // The labels go last, once the context the next run reads is in place.
+  if (target.pr && fix) {
+    if (fix.fixer === "author") {
+      parkForItsAuthor(target.pr, fix, on.kind === "pr" ? undefined : { reason: failure.summary, issueNumber: on.number, output: failure.output });
+    } else {
+      labelPr(target.pr, fix);
+    }
+    console.log(`Retry ${retryNumber} of ${MAX_RETRIES}: ${label} on ${on.kind} #${on.number}, ${fix.add} on pr #${target.pr.number} (${failure.summary}).`);
     return;
   }
-  // The label that starts the retry goes last, once the context it reads is in place.
   const trigger = actOn(target);
   ghWrite([trigger.kind, "edit", trigger.number, "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
   console.log(
@@ -597,12 +602,13 @@ const requeue = (target: Target, reason: string): void => {
 const handOff = ({ pr, base }: PrMergeability, reason: string): void => {
   const fix = prFixOf(pr);
   if (fix.fixer === "author") {
-    handBackToAuthor(pr, fix, { reason: authorConflictReason(base), issueNumber: undefined, output: "" });
+    // Nothing else records this one, no retry being spent, so the note is not optional here.
+    parkForItsAuthor(pr, fix, { reason: authorConflictReason(base), issueNumber: undefined, output: "" });
     return;
   }
   commentOn({ kind: "pr", number: pr.number }, renderHandOffComment({ reason, base, runUrl: RUN_URL }));
-  ghWrite(["pr", "edit", pr.number, "--repo", REPO, "--add-label", IMPLEMENT_LABEL]);
-  console.log(`Handed off PR #${pr.number} without spending a retry: ${reason}; ${IMPLEMENT_LABEL} on.`);
+  labelPr(pr, fix);
+  console.log(`Handed off PR #${pr.number} without spending a retry: ${reason}; ${fix.add} on.`);
 };
 
 const escalate = (target: Target, reason: string, failure: Failure): void => {

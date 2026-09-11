@@ -243,12 +243,15 @@ test("the comment on a PR the factory did not author says what failed and that t
   // The one promise it must not make: nothing of the factory's touches this branch.
   assert.doesNotMatch(body, /`agent:implement`/);
   assert.match(body, /`needs-human`/);
-  assert.match(body, /`agent:review`/);
+  // Nor may it tell a producer to take the judged path: ADR 0003's amendment
+  // forbids that until #180 lands too, and taking the parking label off is
+  // both enough and what the reconciler actually acts on.
+  assert.doesNotMatch(body, /agent:review/);
 });
 
-test("the hand-back comment leaves out an output the same thread already carries", () => {
-  // With no ticket the retry's own comment lands on this PR, so repeating the
-  // output under it would be the same failure twice on one thread.
+test("the author's comment leaves out an output nothing gave it", () => {
+  // The conflict hand-off has a reason and no failing output, there being no
+  // check that failed; an empty <details> would promise one.
   const body = renderAuthorFixComment({ reason: "verdict: failed", runUrl: "u", issueNumber: undefined, output: "" });
   assert.doesNotMatch(body, /<details>/);
   assert.doesNotMatch(body, /#undefined/);

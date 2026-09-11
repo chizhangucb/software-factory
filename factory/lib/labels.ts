@@ -4,7 +4,8 @@
  * modules that import them cannot drift apart.
  *
  * `ready-for-agent` is a human's intent, `agent:*` is factory state (which
- * step holds the subject right now), `needs-human` is the factory giving up.
+ * step holds the subject right now), `needs-human` is the factory giving up,
+ * and `hold` is a human's instruction to leave a ready ticket alone.
  *
  * Not yet every home. `dispatch/select.ts` still spells `agent:implement` as
  * its own `DISPATCH_LABEL`, and its `FACTORY_STATE_LABELS` is
@@ -27,6 +28,20 @@ export const READY_LABEL = "ready-for-agent";
 export const ESCALATION_LABEL = "needs-human";
 
 /**
+ * A human said not to dispatch this ticket, whatever else it says. Unprefixed
+ * because it is a human's instruction rather than factory state, so it belongs
+ * next to `ready-for-agent` rather than in `agent:*`.
+ *
+ * It exists because holding a ready ticket back had no label of its own, so
+ * people reached for `needs-triage` and it quietly became a veto: on chronicle
+ * 14 tickets carried `needs-triage` + `ready-for-agent`, a triage pass read
+ * that pair as drift, cleared it, and released 12 tickets into the factory at
+ * once (#169). `hold` + `ready-for-agent` cannot be misread, because the label
+ * says what it is for.
+ */
+export const HOLD_LABEL = "hold";
+
+/**
  * Hand the subject to the implementer. On a ticket it starts an implement run;
  * on a PR it starts agent-implement-pr.yml, which works on the branch. The
  * dispatcher adds it to dispatch a ticket, the retry handler to start a retry,
@@ -44,6 +59,21 @@ export const BLOCKED_LABEL = "agent:blocked";
  * stuck deadline (#148) rather than sitting with no `agent:*` label at all.
  */
 export const IN_PROGRESS_LABEL = "agent:in-progress";
+
+/**
+ * Labels that stop a dispatch. `hold` is the one to use; a human adds it and
+ * removes it, and removing it releases the ticket on the next sweep.
+ *
+ * `ready-for-human` and `needs-triage` stay in the set as a backstop, not as
+ * the way to hold something. Given correct labelling neither can fire: the
+ * dispatcher only ever looks at tickets carrying `ready-for-agent`, and a
+ * ticket that is genuinely somebody's to write by hand or genuinely untriaged
+ * does not carry it. They are here so that the tickets already held by that
+ * pair keep being held, with no window in which one is unprotected, and so
+ * that the next person who reaches for `needs-triage` as a veto still gets
+ * one.
+ */
+export const HOLD_LABELS: readonly string[] = [HOLD_LABEL, "ready-for-human", "needs-triage"];
 
 /** Labels that say an agent already holds the subject (implementer or reviewer, running or queued) or that it is parked. */
 export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, IN_PROGRESS_LABEL, "agent:review", BLOCKED_LABEL];

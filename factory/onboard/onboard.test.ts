@@ -15,14 +15,18 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { HOLD_LABEL, HOLD_LABELS } from "../lib/labels.ts";
+
 const onboard = fileURLToPath(new URL("../../scripts/onboard.sh", import.meta.url));
 const target = "chizhangucb/factory-fixture";
 const factoryChecks = ["factory/verdict", "factory/red-green", "factory/test-integrity"];
 
 /**
  * A stub `gh`: it answers the reads `onboard.sh` makes and keeps the ruleset payload it
- * is handed. `GH_EXISTING_ID` is how a test picks the create path (unset) or the update
- * path (an id). `GH_CALLER_ERROR`, when set, makes the caller-presence check fail with
+ * is handed, and the label creates it is asked for, one tab-separated argv per line
+ * (tab-separated rather than `$*`, because a description is several words and would
+ * otherwise be indistinguishable from the arguments around it). `GH_EXISTING_ID` is how
+ * a test picks the create path (unset) or the update path (an id). `GH_CALLER_ERROR`, when set, makes the caller-presence check fail with
  * that text instead of answering -- real `gh` on a 404 prints "HTTP 404" among other
  * text, which is what tells `onboard.sh` a missing file from any other kind of failure.
  * A call it does not recognise fails, so a reshaped `gh` line breaks the test loudly
@@ -31,7 +35,8 @@ const factoryChecks = ["factory/verdict", "factory/red-green", "factory/test-int
 const stubGh = `#!/usr/bin/env bash
 args="$*"
 case "$args" in
-  "label create"*|"repo edit"*) ;;
+  "label create"*) printf '%s\\t' "$@" >> "$GH_LABELS"; printf '\\n' >> "$GH_LABELS" ;;
+  "repo edit"*) ;;
   "api --method POST"*) cat > "$GH_PAYLOAD"; echo 4242 ;;
   "api --method PUT"*)  cat > "$GH_PAYLOAD" ;;
   *"contents/.github/workflows/factory.yml"*)
@@ -58,13 +63,16 @@ const sandbox = (options: OnboardOptions = {}) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
+  const labelsFile = path.join(dir, "labels.tsv");
   return {
     dir,
     payloadFile,
+    labelsFile,
     env: {
       ...process.env,
       PATH: `${dir}:${process.env.PATH}`,
       GH_PAYLOAD: payloadFile,
+      GH_LABELS: labelsFile,
       // Pinned rather than omitted: an ambient GH_EXISTING_ID would otherwise put the
       // create-path tests silently on the update path.
       GH_EXISTING_ID: existingRulesetId ?? "",
@@ -82,11 +90,25 @@ const requiredChecks = (payloadFile: string): string[] => {
   return (checks?.parameters.required_status_checks ?? []).map((c: { context: string }) => c.context);
 };
 
+/** The labels the script asked GitHub to create, by name, with the description it gave each. */
+const createdLabels = (labelsFile: string): Map<string, string> => {
+  if (!fs.existsSync(labelsFile)) return new Map();
+  const labels = new Map<string, string>();
+  for (const line of fs.readFileSync(labelsFile, "utf8").split("\n").filter(Boolean)) {
+    const args = line.split("\t");
+    const description = args.indexOf("--description");
+    // `gh label create <name>`, so the name is the third argument.
+    labels.set(args[2]!, description === -1 ? "" : args[description + 1]!);
+  }
+  return labels;
+};
+
 type Run = {
   code: number;
   /** stdout and stderr interleaved, which is the one stream a terminal shows. */
   output: string;
   requiredChecks: string[];
+  labels: Map<string, string>;
 };
 
 /** Onboard the target with these own checks. See `OnboardOptions` for `options`. */
@@ -98,11 +120,32 @@ const onboardWith = (ownChecks: string[], options: OnboardOptions = {}): Run => 
       env: box.env,
     });
     if (result.error) assert.fail(`onboard.sh did not run: ${result.error.message}`);
-    return { code: result.status ?? -1, output: result.stdout, requiredChecks: requiredChecks(box.payloadFile) };
+    return {
+      code: result.status ?? -1,
+      output: result.stdout,
+      requiredChecks: requiredChecks(box.payloadFile),
+      labels: createdLabels(box.labelsFile),
+    };
   } finally {
     fs.rmSync(box.dir, { recursive: true, force: true });
   }
 };
+
+test("onboarding creates every label that stops a dispatch, so a triager can reach for one", () => {
+  const { labels } = onboardWith(["check"]);
+  for (const label of HOLD_LABELS) {
+    assert.ok(labels.has(label), `onboard.sh creates ${label}, or a target has no way to hold a ticket back`);
+  }
+});
+
+test("the hold label's description states the veto, because that is where a triager reads it", () => {
+  // The label picker is the one place the meaning reaches the person choosing
+  // it, which is where both of #169's failures happened. Prose in the target's
+  // docs would be a second copy this repo cannot see.
+  const { labels } = onboardWith(["check"]);
+  assert.match(labels.get(HOLD_LABEL)!, /never dispatched/i);
+  assert.match(labels.get(HOLD_LABEL)!, /^Factory:/, "the factory's own labels say whose they are");
+});
 
 const warningLines = (output: string): number[] =>
   output.split("\n").flatMap((line, i) => (/WARNING: no own check/.test(line) ? [i] : []));

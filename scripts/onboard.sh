@@ -42,6 +42,11 @@ warn_no_own_check() {
 }
 label() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
 label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
+# The hold, and where its meaning is delivered. A triager meets this label in the label
+# picker and nowhere else, so the description has to carry the whole rule; prose in the
+# target's own docs would be a copy this repo cannot see or keep in step. `--force` above
+# means a re-run rewrites it, so every existing target gets it by re-running the script.
+label "hold"              "d4c5f9" "Factory: never dispatched while this is set"
 label "ready-for-human"   "c2e0c6" "Requires human implementation"
 label "needs-triage"      "ededed" "Maintainer needs to evaluate this issue"
 label "agent:implement"   "1d76db" "Factory: run the implementer on this ticket"

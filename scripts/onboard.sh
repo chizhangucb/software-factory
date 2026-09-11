@@ -117,7 +117,7 @@ discover_own_checks() {
   local listing_status=0
   local seen=""
   listing_error_file=$(mktemp)
-  # Assigned, not looped over inline, so a failed listing aborts rather than reading as no history.
+  # Assigned, not looped over inline, so a failure is caught; only GitHub's empty-repo 409 reads as no history.
   recent=$(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha' 2>"$listing_error_file") ||
     listing_status=$?
   listing_error=$(cat "$listing_error_file")

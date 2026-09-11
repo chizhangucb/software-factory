@@ -28,14 +28,11 @@ test("the removed pages and test are gone, and no file names them", () => {
   }
 });
 
-test("hold is one row of triage-labels.md, no longer than the others", () => {
-  const lines = readRepo("docs/agents/triage-labels.md").split("\n");
-  const rows = lines.filter((line) => line.startsWith("|"));
-  const hold = lines.filter((line) => line.includes("`hold`"));
+test("hold is one row of triage-labels.md, and the page names it nowhere else", () => {
+  const hold = readRepo("docs/agents/triage-labels.md").split("\n").filter((line) => line.includes("`hold`"));
   assert.equal(hold.length, 1, "the page names hold on one line");
-  assert.ok(rows.includes(hold[0]!), "and that line is a row of the table");
-  for (const row of rows) assert.ok(hold[0]!.length <= row.length, `no longer than ${row}`);
-  assert.match(hold[0]!, /never dispatched, retried or re-queued/);
+  assert.match(hold[0]!, /^\| .* \|$/, "and that line is a row of the table");
+  assert.match(hold[0]!, /never dispatched, retried or requeued/);
   assert.match(hold[0]!, /does not stop an open PR: close the PR/);
 });
 

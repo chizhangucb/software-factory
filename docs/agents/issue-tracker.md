@@ -14,7 +14,7 @@ Tickets and specs are GitHub issues on this repo, driven with `gh`, which infers
 
 ## Pull requests
 
-**PRs as a request surface: no.** `/triage` reads this flag; `yes` puts external PRs through the same labels with `gh pr`.
+**PRs as a request surface: no.** `/triage` reads this flag; `yes` puts external PRs (`authorAssociation` `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR` or `NONE`) through the same labels with `gh pr`.
 
 Issues and PRs share one number space: resolve a bare `#42` with `gh pr view 42`, then `gh issue view 42`.
 

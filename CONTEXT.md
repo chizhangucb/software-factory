@@ -17,6 +17,7 @@ _Except_ as a vendored step name: the `Refuse PRD-shaped issue` step in `.github
 One vertical slice of a spec, sized to one fresh context window, carrying acceptance criteria. Produced by /to-tickets. The unit the factory picks up.
 _Avoid_: task, issue (the tracker's word for the container), sub-issue.
 _Except_ as a heading: `# ISSUE` and `# LINKED ISSUE` are the vendored prompts' section headings and stay sandcastle's. The prose under them says ticket.
+_Except_ as a vendored label string: `wayfinder:task` is one of the `wayfinder:<type>` labels the vendored wayfinder skill creates and reads, so it keeps that spelling wherever the label is written, `scripts/onboard.sh` included. Prose about such a ticket still says ticket.
 
 **Acceptance criteria**:
 The checklist on a ticket that says what done means. Written before any agent starts. The reviewer ticks each one with evidence.
@@ -50,20 +51,38 @@ A changed test file whose process died before any test reported a result, which 
 _Avoid_: skipped, skip (the placeholder's word), ignored (it is named in the status, never passed over in silence).
 
 **Escalation**:
-A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read. `needs-human` also parks a PR the factory has **stood down** on, which is a fact about that PR and not about the ticket: the ticket keeps whatever the path that stood the PR down left on it, a spent retry on the retry path and nothing at all on the conflict one.
-_Avoid_: failure, blocked (the tracker's dependency word).
+A ticket or PR the factory gives up on: `needs-human` on it, its `agent:*` labels off and `ready-for-agent` with them, branch kept, log attached. Not only when the retry cap runs out; the reconciler and the audit reach it too. The only queue a human must read.
+_Avoid_: failure, blocked (bare *blocked* is the tracker's dependency word, and `agent:blocked` is the other state: see **Blocked**).
 
 **Requeue**:
 A run handed back to the queue because what stopped it was not the ticket's failure: every account rate limited, or a check still pending when the wait for it runs out. A comment naming the cause, no retry spent, and no label for a human. One meaning on both sides (#148): a ticket is left with no factory label for the dispatcher, a PR in `agent:in-progress` for the reconciler, which re-adds the start label at its stuck deadline.
 _Avoid_: retry (the attempt that is counted), hand-off (the implementer's, for a conflict), blocked (a human's).
 
 **Hand-off**:
-A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`. Only ever on a **Factory-authored PR**, since resolving a conflict is committing to the branch; on any other PR the conflict is **stood down** for its own author instead (#183).
+A PR given back to the implementer because it conflicts with its base: a comment naming the cause, then `agent:implement`, with no retry spent. Made by update-branch when the API cannot bring the branch up to date, and by the retry handler when GitHub reports the conflict during its wait for checks. Never for a human: that is `agent:blocked`. Either maker makes one only on a **Factory-authored PR**, update-branch since #180 and the retry handler since #183; the same conflict on any other PR gets the comment and `agent:blocked`, since the branch is its author's and no agent may rewrite it.
 _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to the reconciler), escalation (the human queue).
 
-**Stood down**:
-A PR the factory will not act on again until a human moves it: every `agent:*` label off, `needs-human` on, auto-merge disarmed, and a comment on the PR saying what failed and that the fix is its author's. What the factory does with a PR it did not author where it would otherwise put an implementer on the branch (#183) or close it (#174). Taking the `agent:*` labels off is not on its own enough: the reconciler reads a **Factory PR** with no `agent:*` label as one to arm and judge, so the parking label is what makes it last. Taking `needs-human` back off hands the PR to the factory again.
-_Avoid_: escalation (the ticket's queue, after the retry cap), blocked (a run that broke), hand-back (handing a *ticket* back to the factory).
+**Tell-author**:
+The hand-off's counterpart on a PR the factory did not author (#180): the same comment naming the conflict, then `agent:blocked` instead of `agent:implement`, because merging the base in and pushing someone else's branch is not the factory's to do. The label is what makes it stick, holding the PR through the next push to `main` here and, on a PR the reviewer has judged, parking it at the reconciler too, and the author taking it off is what hands the PR back. Updates are untouched either way.
+
+The retry handler tells an author for a second reason (#183): a check that failed on such a PR, where labelling `agent:implement` would put an implementer on the branch just as a conflict would. Same comment shape, same label, and the retry is still recorded on the ticket and still counted, because the attempt was made and failed. So a tell-author spends no retry when a conflict caused it and spends the ticket's one when a failing check did; what it never does either way is write to the branch.
+_Avoid_: escalation (the factory is not giving up: a fresh verdict follows the author's fix), hand-back (the PR was never the factory's to hand anywhere), stood down (this is the word).
+
+**Blocked**:
+A ticket or PR the factory has stopped on because something a person has to deal with is in the way: the `agent:blocked` label. A note rather than a transition, so the label takes nothing off and spends no retry. Who that person is and what they do depends on what stopped: a failed step is cleared by re-adding that step's label, a **tell-author** conflict by resolving it and taking the label off. Distinct from an **escalation**, which is the factory done trying rather than waiting.
+_Avoid_: blocked on its own (the tracker's dependency word, so prose writes `agent:blocked`), stuck (the reconciler's word for a subject with no live run), failed.
+
+**Parked**:
+A ticket or PR the factory has stopped on and no sweep repairs: the `agent:blocked` and `needs-human` pair, `PARKED_LABELS` in `factory/dispatch/reconcile.ts`. Always the factory's own doing, which is what separates it from a **hold**, and the way the factory stops touching something without closing it.
+_Avoid_: held (a hold is a person choosing the timing), stalled, abandoned.
+
+**Hold**:
+A human's instruction to leave a ready ticket alone: the `hold` label, which holds a ticket back whatever else it carries. Removing it releases the ticket on the next sweep. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `HOLD_LABELS` in `factory/lib/labels.ts` is the set the dispatcher reads, and `docs/agents/hold.md` is what a triager reads.
+_Avoid_: blocked, on hold as a state the factory sets (the factory never adds or removes it); paused, which since #171 names the whole target's breaker rather than one ticket's timing (**Pause**).
+
+**Ready for human**:
+A ticket a person is to implement rather than the factory: the `ready-for-human` label, one of the five triage roles `docs/agents/triage-labels.md` maps. The factory never writes it, and the dispatcher reads it only as a backstop among the labels that hold a ticket back, since a ticket genuinely somebody's to write by hand does not also carry `ready-for-agent`.
+_Avoid_: human ticket, manual, hold (a **hold** says not yet, this says not the factory).
 
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.
@@ -71,6 +90,10 @@ A repo the factory is allowed to work on. First one is chronicle.
 **Caller**:
 The one workflow file a target repo carries, at its own `.github/workflows/factory.yml`. It calls the factory's reusable workflows and holds that target's inputs. Copied from `templates/factory.yml`.
 _Avoid_: client, consumer, the target's workflow.
+
+**Pause**:
+One target's circuit breaker: the repository variable `FACTORY_PAUSED`, whose value is the reason it is paused. While it is set the caller starts and advances no work, and `merge-gate` and `audit` keep judging pull requests, which is what tells it apart from disabling the caller workflow. A property of one target, set by a human and never by the factory, since `FACTORY_PAT` cannot write repo variables. Scoped to the whole repo, which is what tells it from a **Hold**: a hold is a person holding one ticket back and lives on that ticket, a pause stops every ticket at once and lives on the repo.
+_Avoid_: halt, kill switch, freeze; hold (one ticket's, and a human's timing rather than a breaker); disable (GitHub's word for turning a workflow off, and the breaker a pause replaces). Stop is fine as the plain verb for what a pause does to a job, never as the name of the thing.
 
 **Maintainer**:
 The human who owns a target repo and the factory working on it. Sets the trust policy and answers what the factory escalates. The actor every spec's user stories are written for, so a spec stays readable when somebody else holds the role.
@@ -112,7 +135,7 @@ The `factory-sweep` dispatch sent to a target on an interval from outside GitHub
 _Avoid_: cron (GitHub's word for the `schedule` trigger), the sweep (what the heartbeat triggers, not the heartbeat itself).
 
 **Trusted author**:
-Whoever the factory will take instructions from, by GitHub's `author_association`. A ticket body is what the implementer executes, and a PR comment is what the reviewer and implement-pr read, so on a public target the dispatcher runs only tickets written by a trusted author, and every agent reads only trusted authors' comments, review threads and linked-ticket comments, with a count in place of what was dropped. Default: the repo owner alone.
+Whoever the factory will take instructions from, by GitHub's `author_association`. A ticket body is what the implementer executes, and a PR comment is what the reviewer and implement-pr read, so on a public target the dispatcher runs only tickets written by a trusted author, and every agent reads only trusted authors' comments, review threads and linked-ticket comments, with a count in place of what was dropped. A PR's linked ticket is judged the same way, title and body together: the reviewer, implement-pr and the audit reach a ticket by the PR's closing keyword rather than through the dispatcher, so an untrusted author's ticket gives them no acceptance criteria and a note in place of its body (#179). Default: the repo owner alone.
 _Avoid_: allowlist, whitelist.
 
 **Trust policy**:

@@ -4,22 +4,20 @@
  * Pure. Input is the tracker's open issues reduced to what the rules need;
  * output is the subset to label `agent:implement`. The human intent label is
  * `ready-for-agent`; `agent:*` and `needs-human` are factory state. A ticket
- * is dispatched when a human said it is ready, nothing open blocks it
- * (GitHub native dependencies, open blockers only), nobody holds it, and the
- * factory is not already on it.
+ * is dispatched when a human said it is ready, no label from `HOLD_LABELS`
+ * holds it back, nothing open blocks it (GitHub native dependencies, open
+ * blockers only), nobody is assigned to it, and the factory is not already on
+ * it.
  *
  * Imports use explicit `.ts` so the dispatch job can run on bare `node
  * --experimental-strip-types` without installing the engine.
  */
 
-import { READY_LABEL } from "../lib/labels.ts";
+import { HOLD_LABELS, READY_LABEL } from "../lib/labels.ts";
 import { issuesClosedBy } from "../lib/linked-issue.ts";
 import { authorAssociation, type AuthorAssociation, type TrustPolicy } from "../lib/trusted-authors.ts";
 
 export const DISPATCH_LABEL = "agent:implement";
-
-/** A human claimed this work; the factory must never automate it. */
-export const REFUSED_LABELS = ["ready-for-human", "needs-triage"] as const;
 
 /** The factory already holds this ticket in some state. */
 export const FACTORY_STATE_LABELS = [
@@ -54,8 +52,8 @@ export const whySkipped = (
   const has = (label: string) => issue.labels.includes(label);
   if (issue.state === "closed") return "closed since the snapshot";
   if (!has(READY_LABEL)) return `no ${READY_LABEL}`;
-  const refused = REFUSED_LABELS.find(has);
-  if (refused) return `refused: ${refused}`;
+  const held = HOLD_LABELS.find(has);
+  if (held) return `held: ${held}`;
   const state = FACTORY_STATE_LABELS.find(has);
   if (state) return `already in the factory: ${state}`;
   // After the label checks: a skipped ticket gets no comment, so its one log

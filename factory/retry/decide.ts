@@ -15,9 +15,9 @@
  * implementer run reads back. Pure functions here; `retry.ts` does the API
  * calls.
  */
-import { ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
+import { BLOCKED_LABEL, ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { boundOutput } from "../lib/verdict";
-import type { Fixer } from "./escalation.ts";
+import type { PrFixAction } from "./escalation.ts";
 
 export type FailureKind = "implement" | "merge-gate" | "ci" | "verdict";
 
@@ -151,14 +151,14 @@ export interface RetryContext {
 }
 
 /**
- * What `renderRetryComment` is given: the context above plus who the factory
- * handed the fix to (#183). The fixer is not part of `RetryContext` itself:
- * that is what a later implementer run reads back out of the comment, and by
- * then the fixer is history.
+ * What `renderRetryComment` is given: the context above plus which way the
+ * open PR went (#183). Not part of `RetryContext` itself: that is what a later
+ * implementer run reads back out of the comment, and by then the PR that
+ * failed may be gone.
  */
 export interface RetryCommentInput extends RetryContext {
-  /** Default `factory`, the only fixer there was before #183. */
-  readonly fixer?: Fixer;
+  /** Default `hand-off`, the only answer there was before #183. */
+  readonly action?: PrFixAction;
 }
 
 const MARKER = /^<!-- factory:retry retry=(\d+) kind=([a-z-]+) -->\n?/;
@@ -197,8 +197,8 @@ export const renderRetryComment = (context: RetryCommentInput): string =>
     "",
     `Attempt ${context.retry} failed (${context.kind}). Run: ${context.runUrl}`,
     "",
-    context.fixer === "author"
-      ? `The factory did not author the open PR, so no implementer runs on its branch: the fix is its author's. The PR is parked with \`${ESCALATION_LABEL}\`, and taking that label off hands it back to the factory.`
+    context.action === "tell-author"
+      ? `The factory did not author the open PR, so no implementer runs on its branch: the fix is its author's. The PR carries \`${BLOCKED_LABEL}\`, and taking that label off hands it back to the factory.`
       : "The implementer runs once more on the same branch with this output in its prompt; a second failure escalates to `needs-human`.",
     ...failureDetails(context.output),
   ].join("\n");
@@ -319,7 +319,7 @@ export const authorConflictReason = (base: string): string =>
   `the PR conflicts with \`${base}\`, so GitHub started no merge gate on this head`;
 
 /** What the factory tells the author of a PR it will not put an implementer on (#183). */
-export interface AuthorFixNote {
+export interface TellAuthorNote {
   /** What the factory found: the failure summary, or the conflict. */
   readonly reason: string;
   /** The ticket carrying the record, when the record went elsewhere; undefined when nothing else holds it. */
@@ -340,23 +340,20 @@ export interface AuthorFixNote {
  * the labels now say, because a PR whose `agent:*` labels vanished and that
  * acquired `needs-human` otherwise reads as the factory losing interest.
  *
- * What it does not say is "add `agent:review`". That is the **Judged path**,
- * and ADR 0003's amendment forbids telling any producer to take it until #174,
- * #180 and #183 have all landed, #180 being the conflict hand-off in
- * update-branch, which still puts an implementer on a branch the factory did
- * not author. Taking `needs-human` off is enough and is what actually happens:
- * the reconciler then reads the PR as a factory PR with no `agent:*` label,
- * re-arms auto-merge and asks for the verdict itself.
+ * What it does not say is "add `agent:review`". Taking `agent:blocked` off is
+ * what actually hands the PR back, which is what #180's own tell-author
+ * comment says, and telling a producer how to enter the **Judged path** is
+ * #181's job rather than a failure comment's.
  */
-export const renderAuthorFixComment = (input: AuthorFixNote & { readonly runUrl: string }): string =>
+export const renderTellAuthorComment = (input: TellAuthorNote & { readonly runUrl: string }): string =>
   [
     "### The fix is yours: the factory did not author this PR",
     "",
     `${input.reason}. Run: ${input.runUrl}`,
     "",
-    `The factory puts an implementer only on a branch it opened, so nothing of the factory's will commit to this one. Its \`agent:*\` labels are off, \`${ESCALATION_LABEL}\` is on and auto-merge is disarmed, so no factory run picks it up again.`,
+    `The factory puts an implementer only on a branch it opened, so nothing of the factory's will commit to this one. It carries \`${BLOCKED_LABEL}\` instead, which holds it here: no factory run picks it up again while that label is on.`,
     "",
-    `Push the fix yourself. Taking \`${ESCALATION_LABEL}\` off hands the PR back to the factory, which re-arms auto-merge and asks for a fresh verdict, so a passing one still lands it.`,
+    `Push the fix yourself, then take \`${BLOCKED_LABEL}\` off, which hands the PR back. Auto-merge is untouched, so a passing verdict still lands it.`,
     ...(input.issueNumber ? ["", `The attempt is recorded on #${input.issueNumber}.`] : []),
     ...failureDetails(input.output),
   ].join("\n");

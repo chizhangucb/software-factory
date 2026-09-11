@@ -7,9 +7,10 @@
  *   open, so implement-pr runs on the branch; on the ticket otherwise). Only
  *   a PR the factory authored is labeled (#183): that label starts a run that
  *   commits to the branch, which is the factory's to do on its own branch and
- *   nobody else's. The retry is still recorded and still counted on a PR the
- *   factory did not author; what changes is that the PR is parked and its
- *   author told what failed, rather than an implementer being put on it.
+ *   nobody else's. Any other open PR is a tell-author instead, `agent:blocked`
+ *   and a comment, which is what update-branch does with the same PR (#180).
+ *   The retry is still recorded and still counted either way; what changes is
+ *   who fixes it.
  * - escalate: agent:* and ready-for-agent off the ticket, needs-human on, the
  *   open PR's agent:* labels off, the branch kept, a comment on the ticket
  *   linking the run and its log. The PR is closed only when the factory
@@ -31,9 +32,9 @@
  *   PR, so the checks that never posted are a fact about the merge, not the
  *   ticket. The PR gets a comment naming the cause and `agent:implement`,
  *   as update-branch's conflict hand-off does: no retry spent, no
- *   `factory:retry-<n>`, no human. On a PR the factory did not author it goes
- *   back to that author instead, on the same test the retry uses (#183),
- *   resolving a conflict being one more way of committing to the branch. The
+ *   `factory:retry-<n>`, no human. On a PR the factory did not author it is a
+ *   tell-author instead, on the same test the retry uses (#183), resolving a
+ *   conflict being one more way of committing to the branch. The
  *   wait reads mergeability on every poll and ends the moment GitHub reports
  *   a definite conflict (#145), rather than at the deadline. A mergeability
  *   GitHub has not decided yet (UNKNOWN) is never acted on: it keeps waiting,
@@ -88,7 +89,7 @@ import { ESCALATION_LABEL, IMPLEMENT_LABEL, IN_PROGRESS_LABEL } from "../lib/lab
 import { type FactoryPrFacts } from "../lib/factory-pr.ts";
 import { escalationLabels, type PrFix, prEscalation, prFix } from "./escalation.ts";
 import {
-  type AuthorFixNote,
+  type TellAuthorNote,
   authorConflictReason,
   decide,
   type EscalatedPr,
@@ -98,7 +99,7 @@ import {
   type Mergeability,
   missingFailureReason,
   RATE_LIMITED_REASON,
-  renderAuthorFixComment,
+  renderTellAuthorComment,
   renderEscalationComment,
   renderHandOffComment,
   renderLeftOpenPrComment,
@@ -464,58 +465,45 @@ const commentOn = (on: Subject, body: string): void => {
 };
 
 /**
- * Who fixes the failure on the open PR, and what its labels say (#183). Asked
- * once, from the facts the read that found the PR came back with, and used by
- * both paths that would otherwise have labeled it `agent:implement`.
+ * Hand-off or tell-author on the open PR (#183), from the facts the read that
+ * found it came back with. Asked once and used by both paths that would
+ * otherwise have labeled it `agent:implement`.
  */
-const prFixOf = (pr: OpenPr): PrFix =>
-  prFix({ ...pr.facts, labels: labelsOf({ kind: "pr", number: pr.number }) });
+const prFixOf = (pr: OpenPr): PrFix => prFix(pr.facts);
 
 /**
- * The labels `prFix` decided, applied to the PR.
- *
- * The label it adds goes on before the ones it takes off, and with `ghWrite`
- * rather than `tryWrite`. Order, because a PR carrying no label of the
- * factory's at all is one the reconciler arms and judges, so removing first
- * opens a window where a heartbeat undoes what this just decided. `ghWrite`,
- * because on the author's path the label added is the parking one, and it is
- * what makes the decline last longer than one sweep: a swallowed failure there
- * leaves the PR to be re-armed, re-judged and handed to an implementer at the
- * next verdict deadline, the one outcome #183 exists to prevent. Throwing
- * hands it to the workflow's own fallback instead, which adds `agent:blocked`,
- * itself a parked label.
+ * The label `prFix` decided, on the PR, with `ghWrite` rather than `tryWrite`.
+ * On the hand-off it is what starts the next run; on a tell-author it is what
+ * makes the decline stick past this run, since a PR carrying no `agent:*`
+ * label is one the reconciler arms, judges and hands to an implementer at its
+ * verdict deadline. A swallowed failure either way leaves the PR to be picked
+ * up as though nothing had been decided, so this throws instead, which hands
+ * the PR to the workflow's own fallback: `agent:blocked`, which is the label
+ * the tell-author wanted anyway.
  */
 const labelPr = (pr: OpenPr, fix: PrFix): void => {
   ghWrite(["pr", "edit", pr.number, "--repo", REPO, "--add-label", fix.add]);
-  if (fix.remove.length > 0) tryWrite(["pr", "edit", pr.number, "--repo", REPO, "--remove-label", fix.remove.join(",")]);
 };
 
 /**
- * Park the open PR for whoever wrote it (#183): no implementer on the branch,
- * and its author told what failed and that the fix is theirs.
+ * Tell the author of a PR the factory did not author (#183): `agent:blocked`,
+ * and what failed, on their own thread. The same shape `planConflict` gives
+ * the same PR (#180), so nothing here strips a label or disarms auto-merge:
+ * `agent:blocked` is a note rather than a transition (ADR 0005), the PR is
+ * still on its own merge path, and the author taking the label off is what
+ * hands it back.
  *
- * `note` is what goes on the PR's own thread, and is undefined when this
- * thread already carries the record: with no ticket `recordOn` is this PR, the
- * marker comment lands here saying the same thing, and a second comment under
- * it would only repeat it. #174's left-open note skips itself for the same
- * reason. When there is a note it goes last and throws: by then the labels are
- * on, and an author who is not told what failed has been told nothing at all.
+ * `note` is undefined when this thread already carries the record: with no
+ * ticket `recordOn` is this PR, the marker comment lands here saying the same
+ * thing, and a second comment under it would only repeat it. #174's left-open
+ * note skips itself for the same reason. When there is a note it goes last and
+ * throws: by then the label is on, and an author who is not told what failed
+ * has been told nothing at all.
  */
-const parkForItsAuthor = (pr: OpenPr, fix: PrFix, note: AuthorFixNote | undefined): void => {
+const tellAuthor = (pr: OpenPr, fix: PrFix, note: TellAuthorNote | undefined): void => {
   labelPr(pr, fix);
-  // The reconciler arms auto-merge on every PR it reads as a factory PR, one
-  // the factory did not author included, so a PR it has just stood down would
-  // otherwise still hold a standing instruction to merge the moment its checks
-  // go green: on a target whose main does not require `factory/verdict`, a
-  // merge with nothing judging it, which ADR 0003 refuses. The same disarm
-  // escalation does to a PR it leaves open (#174), and the same reconciler
-  // re-arms it when the parking label comes off, which is what the comment
-  // tells the author. Refused when none was armed, which `tryWrite` swallows.
-  tryWrite(["pr", "merge", pr.number, "--repo", REPO, "--disable-auto"]);
-  if (note) commentOn({ kind: "pr", number: pr.number }, renderAuthorFixComment({ ...note, runUrl: RUN_URL }));
-  console.log(
-    `PR #${pr.number} is its author's to fix: no ${IMPLEMENT_LABEL}, ${fix.add} on, ${fix.remove.join(", ") || "no agent labels"} off, auto-merge disarmed.`,
-  );
+  if (note) commentOn({ kind: "pr", number: pr.number }, renderTellAuthorComment({ ...note, runUrl: RUN_URL }));
+  console.log(`PR #${pr.number} is its author's to fix: no ${IMPLEMENT_LABEL}, ${fix.add} on.`);
 };
 
 const retry = (target: Target, retryNumber: number, failure: Failure): void => {
@@ -526,7 +514,7 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
     kind: failure.kind,
     runUrl: RUN_URL,
     output: failure.output,
-    fixer: fix?.fixer,
+    action: fix?.action,
   });
   // The record goes on whatever the retry hands the fix to: the attempt was
   // made, it failed, and the count moves, so nothing is dropped in silence.
@@ -534,10 +522,10 @@ const retry = (target: Target, retryNumber: number, failure: Failure): void => {
   commentOn(on, comment);
   ensureRetryLabel(label);
   ghWrite([on.kind, "edit", on.number, "--repo", REPO, "--add-label", label]);
-  // The labels go last, once the context the next run reads is in place.
+  // The label goes last, once the context the next run reads is in place.
   if (target.pr && fix) {
-    if (fix.fixer === "author") {
-      parkForItsAuthor(target.pr, fix, on.kind === "pr" ? undefined : { reason: failure.summary, issueNumber: on.number, output: failure.output });
+    if (fix.action === "tell-author") {
+      tellAuthor(target.pr, fix, on.kind === "pr" ? undefined : { reason: failure.summary, issueNumber: on.number, output: failure.output });
     } else {
       labelPr(target.pr, fix);
     }
@@ -596,14 +584,15 @@ const requeue = (target: Target, reason: string): void => {
  *
  * Handed to the implementer only on a branch the factory authored, and on the
  * same test the retry uses (#183). Resolving a conflict is committing to the
- * branch, so on anyone else's PR this is the same hazard: the PR goes back to
- * its author, parked, with the conflict named. No retry is spent either way.
+ * branch, so on anyone else's PR this is a tell-author instead, which is the
+ * answer `planConflict` already gives the same PR (#180): the conflict named,
+ * `agent:blocked` on. No retry is spent either way.
  */
 const handOff = ({ pr, base }: PrMergeability, reason: string): void => {
   const fix = prFixOf(pr);
-  if (fix.fixer === "author") {
+  if (fix.action === "tell-author") {
     // Nothing else records this one, no retry being spent, so the note is not optional here.
-    parkForItsAuthor(pr, fix, { reason: authorConflictReason(base), issueNumber: undefined, output: "" });
+    tellAuthor(pr, fix, { reason: authorConflictReason(base), issueNumber: undefined, output: "" });
     return;
   }
   commentOn({ kind: "pr", number: pr.number }, renderHandOffComment({ reason, base, runUrl: RUN_URL }));

@@ -40,7 +40,11 @@ import {
 } from "../shared/common";
 import { resolveRoleModel } from "../../lib/model";
 import { assertReadOnly, worktreeState } from "../../lib/read-only";
-import { describeDropped, fetchPullRequestContext } from "../shared/review-context";
+import {
+  describeDropped,
+  fetchPullRequestContext,
+  noCriteriaReason,
+} from "../shared/review-context";
 import { trustPolicyFromEnv } from "../../lib/trusted-authors";
 import {
   filterInlineComments,
@@ -128,9 +132,7 @@ try {
 
   if (criteria.length === 0) {
     // Nothing to tick, so no reviewer run: the verdict is a mechanical fail.
-    const reason = context.issueNumber
-      ? `#${context.issueNumber} has no checklist under an "Acceptance criteria" heading.`
-      : "The PR body links no ticket (no `Closes #N`).";
+    const reason = noCriteriaReason(context);
     console.log(reason);
     writeReview({
       verdict: resolveVerdict([], { verdict: "fail", criteria: [] }),

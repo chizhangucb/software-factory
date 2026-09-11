@@ -10,7 +10,7 @@ import {
   FAILURE_KINDS,
   REQUEUED_FILE,
   authorConflictReason,
-  renderAuthorFixComment,
+  renderTellAuthorComment,
   renderHandOffComment,
   isImplementerFailure,
   RATE_LIMITED_REASON,
@@ -230,7 +230,7 @@ test("the hand-off comment names the conflict, the implementer's label, and that
 test("the comment on a PR the factory did not author says what failed and that the fix is its author's", () => {
   // #183, acceptance criterion 2. The author never reads the ticket's retry
   // comment, so what failed has to be on their own thread, with it.
-  const body = renderAuthorFixComment({
+  const body = renderTellAuthorComment({
     reason: "verdict: 2 of 5 acceptance criteria unticked",
     runUrl: "u",
     issueNumber: "42",
@@ -242,17 +242,18 @@ test("the comment on a PR the factory did not author says what failed and that t
   assert.match(body, /#42/);
   // The one promise it must not make: nothing of the factory's touches this branch.
   assert.doesNotMatch(body, /`agent:implement`/);
-  assert.match(body, /`needs-human`/);
-  // Nor may it tell a producer to take the judged path: ADR 0003's amendment
-  // forbids that until #180 lands too, and taking the parking label off is
-  // both enough and what the reconciler actually acts on.
+  // The label #180 already tells this author's PR with, not a second one.
+  assert.match(body, /`agent:blocked`/);
+  assert.doesNotMatch(body, /needs-human/);
+  // Entering the judged path is #181's instruction to give, not a failure
+  // comment's; taking the label off is what actually hands the PR back.
   assert.doesNotMatch(body, /agent:review/);
 });
 
 test("the author's comment leaves out an output nothing gave it", () => {
   // The conflict hand-off has a reason and no failing output, there being no
   // check that failed; an empty <details> would promise one.
-  const body = renderAuthorFixComment({ reason: "verdict: failed", runUrl: "u", issueNumber: undefined, output: "" });
+  const body = renderTellAuthorComment({ reason: "verdict: failed", runUrl: "u", issueNumber: undefined, output: "" });
   assert.doesNotMatch(body, /<details>/);
   assert.doesNotMatch(body, /#undefined/);
 });
@@ -266,12 +267,12 @@ test("a conflict reads the same to the author, minus the implementer that is not
 
 test("the retry comment promises an implementer run only when one is coming", () => {
   const record = { retry: 1, kind: "verdict" as const, runUrl, output: "out" };
-  const factory = renderRetryComment({ ...record, fixer: "factory" });
+  const factory = renderRetryComment({ ...record, action: "hand-off" });
   assert.match(factory, /The implementer runs once more/);
-  const author = renderRetryComment({ ...record, fixer: "author" });
+  const author = renderRetryComment({ ...record, action: "tell-author" });
   assert.doesNotMatch(author, /The implementer runs once more/);
   assert.match(author, /did not author/);
-  assert.match(author, /`needs-human`/);
+  assert.match(author, /`agent:blocked`/);
   // Still the record #183's fourth criterion asks for: same marker, same count.
   assert.match(author, /^<!-- factory:retry retry=1 kind=verdict -->\n/);
   assert.match(author, /Retry 1 of 1/);

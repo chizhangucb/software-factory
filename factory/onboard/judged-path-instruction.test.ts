@@ -91,10 +91,12 @@ test("CONTEXT.md defines the producer the instruction addresses", () => {
   // The Judged path entry uses the word and nothing defined it, while a producer is the whole
   // audience of the line a target copies. Glossary shape only: the entry exists once, and says
   // it is anyone but the factory opening a PR on the target.
-  const entries = readRepo("CONTEXT.md")
-    .split("\n")
-    .filter((line) => line.startsWith("**Producer**:"));
-  assert.equal(entries.length, 1, "Producer is defined, once");
+  // An entry is its bold term and the definition on the line under it, the glossary's shape.
+  const lines = readRepo("CONTEXT.md").split("\n");
+  const terms = lines.filter((line) => line.startsWith("**Producer**:"));
+  assert.equal(terms.length, 1, "Producer is defined, once");
+  const definition = lines[lines.indexOf(terms[0]!) + 1] ?? "";
+  assert.match(definition, /other than the factory/, "and says it is anyone but the factory");
 });
 
 test("the Close convention is still one bullet of docs/agents/issue-tracker.md", () => {

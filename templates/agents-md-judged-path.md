@@ -1,1 +1,1 @@
-- **Opening a pull request yourself**: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. All three, or it stays blocked. The factory judges it and merges it.
+- **Opening a pull request yourself**: your branch has to be in this repo, not a fork. Put `Closes #N` in the body, label it `agent:review`, and arm auto-merge. All three, or it stays blocked. The factory judges it and merges it.

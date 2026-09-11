@@ -19,7 +19,7 @@ import { issuesClosedBy, linkedIssueNumber } from "../lib/linked-issue.ts";
  * other: a copy compared with another copy of itself agrees by construction and proves nothing.
  */
 const JUDGED_PATH_INSTRUCTION =
-  "- **Opening a pull request yourself**: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. All three, or it stays blocked. The factory judges it and merges it.";
+  "- **Opening a pull request yourself**: your branch has to be in this repo, not a fork. Put `Closes #N` in the body, label it `agent:review`, and arm auto-merge. All three, or it stays blocked. The factory judges it and merges it.";
 const JUDGED_PATH_TEMPLATE = "templates/agents-md-judged-path.md";
 
 /** A file in this repo, by its path from the root. */

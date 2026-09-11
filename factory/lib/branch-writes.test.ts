@@ -118,15 +118,19 @@ const importedFrom = (module: string, name: string): string | undefined => {
   return undefined;
 };
 
-/** `module#site` for every call to the predicate in the tree, named by the exported const it sits in. */
+/**
+ * `module#site` for every call to the predicate in the tree, named by the
+ * top-level declaration it sits in, exported or not, so a tabled site that
+ * stops asking is not credited with a call a helper below it makes.
+ */
 const callSites = (): string[] =>
   factoryModules()
     .filter((module) => module !== PREDICATE_MODULE)
     .flatMap((module) => {
       const code = codeOf(module);
-      const exports = [...code.matchAll(/^export const (\w+)\s*[=:]/gm)];
+      const decls = [...code.matchAll(/^(?:export\s+)?(?:const|let|function)\s+(\w+)/gm)];
       return [...code.matchAll(/\bisFactoryAuthoredPr\(/g)].map((call) =>
-        siteKey(module, exports.filter((e) => e.index! < call.index!).at(-1)?.[1] ?? "(top level)"),
+        siteKey(module, decls.filter((d) => d.index! < call.index!).at(-1)?.[1] ?? "(top level)"),
       );
     })
     .sort();

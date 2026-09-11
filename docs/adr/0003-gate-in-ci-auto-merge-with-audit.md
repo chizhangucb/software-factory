@@ -185,7 +185,7 @@ The condition the amendment above set is met by its own terms. Telling a produce
 
 #### The test, and how far to trust it
 
-`factory/lib/branch-writes.test.ts` holds a table of the sites and of the module that makes each site's write: `factory/retry/retry.ts` for the first two, `factory/update-branch/update-branch.ts` for the third. For each site it checks three things:
+`factory/lib/branch-writes.test.ts` holds a table of the sites and of the module that makes each site's write: `factory/retry/retry.ts` for `prEscalation` and `prFix`, `factory/update-branch/update-branch.ts` for `planConflict`. For each site it checks three things:
 
 - the answer turns on who authored the PR;
 - the site calls `isFactoryAuthoredPr`, imported from `factory/lib/factory-pr.ts`, rather than a copy of its two arms;

@@ -126,21 +126,31 @@ export const ticketOrPrFromPr = <Pr>(input: {
  * factory did not author gets a tell-author (#183), so its author was handed
  * `agent:blocked` and a comment for an attempt they never made. A PR on any
  * other branch is not this run's, so the run resolves as though none were
- * open and everything after it lands on the ticket alone.
+ * open and everything after it lands on the ticket alone. Nor is a PR from a
+ * fork: GitHub names a fork's head by its branch alone, so a fork branch named
+ * like the run's (pushed from a fetch of it, say) passes the branch test, and
+ * on an `agent/` branch it would then read as the factory's own and be handed
+ * an implementer or closed on escalation.
  *
  * The branch is the one the workflow handed over, `agent-implement.yml` being
  * the only caller on this path. A run handed a PR number never comes here: that
  * PR is named rather than searched for, and `ticketOrPrFromPr` takes it on
  * whatever branch it is.
  */
-export const ticketOrPrFromTicket = <Pr extends { readonly facts: FactoryPrFacts }>(input: {
+export const ticketOrPrFromTicket = <Pr extends { readonly facts: FactoryPrFacts; readonly fromFork: boolean }>(input: {
   readonly ticket: string;
   readonly branch: string;
-  /** Every open PR, as the handler lists them. */
+  /**
+   * Every open PR, as the handler lists them. `fromFork` is required rather
+   * than optional, so a list that never asked GitHub cannot pass for one
+   * holding no fork.
+   */
   readonly open: readonly Pr[];
 }): TicketOrPr<Pr> => ({
   issue: input.ticket,
-  pr: input.open.find(({ facts }) => facts.headRef === input.branch && linkedIssueNumber(facts.body) === input.ticket),
+  pr: input.open.find(
+    ({ facts, fromFork }) => !fromFork && facts.headRef === input.branch && linkedIssueNumber(facts.body) === input.ticket,
+  ),
 });
 
 /** A PR's mergeability as GitHub reports it (`gh pr view --json mergeable`); UNKNOWN while it is still computing. */

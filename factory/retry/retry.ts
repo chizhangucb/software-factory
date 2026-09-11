@@ -244,11 +244,15 @@ const resolveTarget = (): Target | Unresolved => {
   // Every open PR, as the dispatcher lists them, and not a body search: GitHub's
   // search for `#7` does not find a body reading `#007`, which `linkedIssueNumber`
   // resolves to 7 (#132), so a search would drop the PR before the comparison.
-  const open = ghJson<{ number: number; body: string | null; headRefName: string }[]>([
+  const open = ghJson<{ number: number; body: string | null; headRefName: string; isCrossRepository: boolean }[]>([
     "pr", "list", "--repo", REPO, "--state", "open", "--limit", "200",
-    "--json", "number,body,headRefName",
+    "--json", "number,body,headRefName,isCrossRepository",
   ]);
-  return ticketOrPrFromTicket({ ticket: issue, branch: BRANCH, open: open.map((p) => openPr(String(p.number), p)) });
+  return ticketOrPrFromTicket({
+    ticket: issue,
+    branch: BRANCH,
+    open: open.map((p) => ({ ...openPr(String(p.number), p), fromFork: p.isCrossRepository })),
+  });
 };
 
 /**

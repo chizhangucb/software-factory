@@ -63,6 +63,12 @@ case "$args" in
   "api --method PUT"*)  cat > "$GH_PAYLOAD" ;;
   *"/commits?sha="*)
     if [ -n "\${GH_COMMITS_ERROR:-}" ]; then echo "$GH_COMMITS_ERROR" >&2; exit 1; fi
+    # A repo with no commits is a 409 from GitHub, not an empty list, and gh prints the error
+    # body on stdout with its own line on stderr. Both observed on a real empty repo.
+    if [ ! -s "$GH_HISTORY" ]; then
+      echo '{"message":"Git Repository is empty.","status":"409"}'
+      echo "gh: Git Repository is empty. (HTTP 409)" >&2; exit 1
+    fi
     per_page=$(printf '%s' "$args" | sed -n 's/.*per_page=\\([0-9][0-9]*\\).*/\\1/p')
     commit=0
     while IFS= read -r _names; do
@@ -82,6 +88,7 @@ case "$args" in
   *"contents/.github/workflows/factory.yml"*)
     if [ -n "\${GH_CALLER_ERROR:-}" ]; then echo "$GH_CALLER_ERROR" >&2; exit 1
     elif [ "$GH_HAS_CALLER" = "true" ]; then exit 0
+    elif [ ! -s "$GH_HISTORY" ]; then echo "gh: This repository is empty. (HTTP 404)" >&2; exit 1
     else echo "gh: Not Found (HTTP 404)" >&2; exit 1
     fi ;;
   *"--jq .default_branch") echo main ;;
@@ -710,14 +717,32 @@ test("a target with nothing to report gets no path-filtered note, not an empty o
   }
 });
 
-test("a repo with no commits on its default branch onboards and warns, rather than erroring", () => {
-  // A brand new target: nothing to sample, so nothing to discover. The empty commit listing
-  // still hands the read loop one empty line, and an empty sha reaching the API is a 404, not
-  // a commit that posted nothing.
-  const run = onboardWith([], { history: [] });
-  assert.equal(run.code, 0, `a target with no history still onboards: ${run.output}`);
-  assert.deepEqual(run.requiredChecks, factoryChecks);
-  assert.match(run.output, /WARNING/);
+test("an empty repo onboards and warns as it did before discovery, not abort on GitHub's 409", () => {
+  // A repo created a minute ago with nothing pushed yet: the limiting case of "CI posted
+  // nothing". Before discovery the script never read commits, and the caller check's
+  // "This repository is empty. (HTTP 404)" already read as no caller, so it onboarded with
+  // the loud warning. The commit listing answers the same repo with a 409, which under set -e
+  // would take all of onboarding down with it. #177's criterion 6 is "as today".
+  for (const hasCaller of [false, true]) {
+    const run = onboardWith([], { history: [], hasCaller });
+    assert.equal(run.code, 0, `an empty repo still onboards (caller: ${hasCaller}): ${run.output}`);
+    assert.match(run.output, /ruleset factory created/, "and the ruleset is still written");
+    assert.deepEqual(run.requiredChecks, hasCaller ? factoryChecks : []);
+    assert.match(run.output, /WARNING: no own check/, "with the same loud warning as a repo whose CI posted nothing");
+    assert.match(run.output, /no commits/i, "which says why: there was nothing to read");
+    assert.doesNotMatch(run.output, /Discovery read 0/, "not a count of zero dressed up as a read");
+    assert.doesNotMatch(run.output, /HTTP 409/, "GitHub's answer is an expected one here, not an error to print");
+  }
+});
+
+test("only the empty-repo 409 reads as no history: any other 409 still aborts", () => {
+  // The match is on status and message both. A 409 that is not "Git Repository is empty" is
+  // an answer nobody has explained, and a guess that it means "no commits" would write a
+  // ruleset off it, which is the swallowed-failure hazard with a narrower mouth.
+  const run = onboardWith([], { history: postedOnEvery(5, ["check"]), commitsError: "gh: Conflict (HTTP 409)" });
+  assert.notEqual(run.code, 0, "an unexplained 409 must not be read as an empty repo");
+  assert.match(run.output, /Conflict \(HTTP 409\)/, "and gh's own words reach the maintainer");
+  assert.doesNotMatch(run.output, /ruleset factory (created|updated)/);
 });
 
 test("a check-runs read that fails aborts too, rather than leaving that commit's checks out", () => {

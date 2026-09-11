@@ -53,9 +53,12 @@ warn_no_own_check() {
     # commits to read: telling either of them that five commits were read and came back
     # empty is a sentence about a thing that never happened, in the one block a maintainer
     # is meant to act on.
-    if [ "$discovery_ran" = "true" ]; then
+    if [ "$discovery_ran" = "true" ] && [ "$sampled_commits" -gt 0 ]; then
       echo "## Discovery read $sampled_commits recent commits of the default branch"
       echo "## and found no check posted on every one of them."
+    elif [ "$discovery_ran" = "true" ]; then
+      echo "## Discovery had nothing to read: no commits on the default"
+      echo "## branch yet. Re-run once the target's CI has posted on some."
     fi
     echo "## Fix: name the checks the target's CI posts, which turns"
     echo "## discovery off and requires exactly what you list, e.g."
@@ -204,14 +207,34 @@ discovery_ran=false
 discovered_required=""
 discovered_partial=""
 discover_own_checks() {
-  local sha names runs statuses counted recent
+  local sha names runs statuses counted recent listing_error listing_error_file
+  local listing_status=0
   local seen=""
   # Held in a variable rather than looped over straight out of `$(...)`, because a command
   # substitution in a `for` list has its exit status thrown away: a rate limit would arrive as
   # an empty list and read as a target whose CI has posted nothing, which is a wrong warning
-  # and a ruleset written off an answer nobody got. The assignment fails loudly under set -e.
-  # Same rule the caller check above follows, for the same reason.
-  recent=$(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha')
+  # and a ruleset written off an answer nobody got.
+  # And caught by hand rather than left to set -e, the way the caller check above is, because
+  # one failure here is an answer. GitHub lists a repo with no commits yet as a 409, "Git
+  # Repository is empty", where the caller check gets a 404 for the same repo and reads it as
+  # no caller. Before discovery such a repo onboarded with the loud warning, and it still does:
+  # the 409 is zero sampled commits. Matched on status and message both, narrowly, because the
+  # point of the strictness is that a rate limit must never read as an empty history; anything
+  # else is re-raised with gh's own words. stderr goes to a file because stdout carries the
+  # shas, and gh prints its error body there on a failure.
+  listing_error_file=$(mktemp)
+  recent=$(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha' 2>"$listing_error_file") ||
+    listing_status=$?
+  listing_error=$(cat "$listing_error_file")
+  rm -f "$listing_error_file"
+  if [ "$listing_status" -ne 0 ]; then
+    if [[ "$listing_error" == *"HTTP 409"* && "$listing_error" == *"Git Repository is empty"* ]]; then
+      recent=""
+    else
+      echo "onboard.sh: could not read $repo's recent commits: $listing_error" >&2
+      exit 1
+    fi
+  fi
   while IFS= read -r sha; do
     # An empty listing still feeds a herestring one empty line, and a sha of "" would count as
     # a commit that posted nothing and take the intersection down to nothing with it.

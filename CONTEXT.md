@@ -135,7 +135,7 @@ The daily Telegram message listing merges, escalations, and audit findings. The 
 The step that moves a ticket into the factory once its blockers close. Bridges the human intent label to the factory's state labels.
 
 **Heartbeat**:
-The `factory-sweep` dispatch sent to a target on an interval from outside GitHub, because the caller's own `schedule` does not reliably fire. It is what actually drives the dispatcher's sweep and the reconciler, so it is required and the `schedule` is the fallback, not the other way round. One sender covers any number of targets.
+The `factory-sweep` dispatch sent to a target on an interval from outside GitHub, because the caller's own `schedule` does not reliably fire. It is what actually drives the dispatcher's sweep and the reconciler, so it is required and the `schedule` is the fallback, not the other way round. One sender covers any number of targets, and it sends to a target something is waiting on, reading each target's open work first and skipping an idle one (#212).
 _Avoid_: cron (GitHub's word for the `schedule` trigger), the sweep (what the heartbeat triggers, not the heartbeat itself).
 
 **Trusted author**:

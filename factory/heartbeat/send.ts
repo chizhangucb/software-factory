@@ -3,9 +3,13 @@
  *
  *   GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts
  *
- * every 10 minutes, with a token that has contents write on every target in
- * `targets.ts` and nothing else. `DRY_RUN=1` reports the pass without sending a
- * dispatch, as `dispatch/sweep.ts` reads the same var.
+ * every 10 minutes, with a token that has contents write and issues and pull
+ * requests read on every target in `targets.ts` and nothing else, the reads
+ * being what says whether a target has anything waiting. `DRY_RUN=1` reports
+ * the pass without touching a
+ * target at all, as `dispatch/sweep.ts` reads the same var: no dispatch, and no
+ * read either, so every target answers as one with work and the pass reports the
+ * shape a busy interval takes.
  *
  * It holds no state: no log file of its own, no lock, nothing carried between
  * passes. Every outcome is a line on stdout and a failure is a line on stderr,
@@ -17,9 +21,12 @@
  * Builtins only, imported with explicit `.ts`, so it runs with no `npm ci`
  * (`send.test.ts` pins that).
  */
+import { parseItems } from "../dispatch/gh-read.ts";
 import { gh } from "../lib/gh.ts";
-import { sendHeartbeat } from "./heartbeat.ts";
+import { READY_LABEL } from "../lib/labels.ts";
+import { type TargetOutcome, sendHeartbeat } from "./heartbeat.ts";
 import { TARGET_REPOS } from "./targets.ts";
+import { type OpenSubject, fromGitHub, openWorkArgs } from "./work.ts";
 
 const dryRun = process.env.DRY_RUN === "1";
 
@@ -36,20 +43,31 @@ const wake = (target: string): void => {
   gh(["api", "--method", "POST", `repos/${target}/dispatches`, "-f", "event_type=factory-sweep", "--silent"]);
 };
 
+/** What is open on a target, through the same `gh` call and the same projection the sweep reads. */
+const readOpenWork = (target: string): OpenSubject[] => fromGitHub(parseItems(gh(openWorkArgs(target))));
+
+/** A dry run reads no target, and answers as one with a ready ticket on it. */
+const asIfBusy = (): OpenSubject[] => [{ pullRequest: false, labels: [READY_LABEL] }];
+
 const outcomes = sendHeartbeat({
   targets: TARGET_REPOS,
+  readOpenWork: dryRun ? asIfBusy : readOpenWork,
   wake: dryRun ? () => {} : wake,
   report: (outcome) => {
     // A plain line, not an `::error::` annotation: the host is not a GitHub
     // runner (a heartbeat on GitHub's own cron is the thing this replaces).
     if (outcome.outcome === "failed") console.error(`${at()} factory-sweep FAILED for ${outcome.target}: ${outcome.error}`);
+    else if (outcome.outcome === "skipped") console.log(`${at()} ${outcome.target} skipped: nothing waiting`);
     else console.log(`${at()} factory-sweep dispatched to ${outcome.target}${dryRun ? " (dry run)" : ""}`);
   },
 });
 
-const failed = outcomes.filter((outcome) => outcome.outcome === "failed");
-console.log(`${at()} ${outcomes.length} target(s), ${outcomes.length - failed.length} woken, ${failed.length} failed${dryRun ? " (dry run)" : ""}.`);
+// Typed against the outcomes themselves: a member renamed in `heartbeat.ts`
+// fails here rather than reporting none of it.
+const count = (outcome: TargetOutcome["outcome"]): number => outcomes.filter((each) => each.outcome === outcome).length;
+const failed = count("failed");
+console.log(`${at()} ${outcomes.length} target(s), ${count("woken")} woken, ${count("skipped")} skipped, ${failed} failed${dryRun ? " (dry run)" : ""}.`);
 // `exitCode`, not `process.exit`: stdout is a pipe when a host logs the pass,
 // pipe writes are asynchronous, and exiting in place can drop the lines that
 // say which target failed.
-if (failed.length > 0) process.exitCode = 1;
+if (failed > 0) process.exitCode = 1;

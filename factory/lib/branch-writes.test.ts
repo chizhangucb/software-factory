@@ -1,32 +1,23 @@
 /**
  * The factory asks `isFactoryAuthoredPr` before it closes a pull request or
- * puts an agent on its branch (ADR 0003, 2026-09-11 amendment, #195). The tree
- * is the fixture, in the style of `lib/strip-types-cone.test.ts`: a table of
- * the sites that make one of those writes, checked in both directions against
- * the modules that actually call the predicate, and each site's answer checked
- * against who authored the PR.
+ * puts the implementer on its branch (ADR 0003, 2026-09-11 amendment, #195).
+ * The tree is the fixture, as in `lib/strip-types-cone.test.ts`: a table of
+ * the sites that decide those writes and the modules that make them.
  *
- * What it asserts is the asking, never a shared answer. The sites do different
- * things once they know: escalation leaves a PR it did not author open with
- * `needs-human` instead of closing it, while the conflict decision and the
- * retry's fix both tell its author with `agent:blocked`. Two of the three share
- * a vocabulary and the third does not, so a test comparing answers across sites
- * would pass on two by coincidence and say nothing true about the third. Each
- * answer here is compared only with the same site's other answers.
+ * It asserts the asking, never a shared answer. Escalation answers a PR the
+ * factory did not author with `needs-human`, the other two sites with a
+ * tell-author, so each answer is compared only with the same site's others.
  *
- * The limit, and the test is not to be trusted past it: it pins the sites that
- * exist. A new way for the factory to close a PR or put an agent on a branch
- * still has to choose to call the predicate, and one that never calls it is
- * invisible here, since a call is the thing this test looks for. So it catches
- * a known site that stops asking, or starts asking something else, and a new
- * site that asks without being tabled; it does not catch a new site that never
- * asks. What the author of a new write path reads is the contract in
+ * The limit, and it is not to be trusted past it: it pins the sites that
+ * exist. It checks that each tabled site asks, and that the module making the
+ * site's write calls the site, not which of its functions do or what they do
+ * with the answer. A new write path that calls neither the predicate nor a
+ * site is invisible here. What its author reads is the contract in
  * `factory/lib/factory-pr.ts`'s doc comment, which is why that stays the anchor.
  *
- * Not a site, deliberately: update-branch's own update call. The 2026-09-10
- * amendment applies that to any PR with auto-merge armed, since it is GitHub
- * merging the base in and no agent touches the branch, so `planUpdate` asks
- * nothing about authorship and is right not to.
+ * Not a site: update-branch's own update call. The 2026-09-10 amendment
+ * applies it to any PR with auto-merge armed, since GitHub makes that merge
+ * and no agent touches the branch.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -45,37 +36,42 @@ import {
 
 const repoRoot = new URL("../../", import.meta.url);
 
-/** The one definition, which calls itself through `isFactoryPr` and is not a site. */
-const DEFINITION = "factory/lib/factory-pr.ts";
+/** Where the predicate is defined. It calls itself through `isFactoryPr`, which is not a site. */
+const PREDICATE_MODULE = "factory/lib/factory-pr.ts";
 
 /**
- * Every site that closes a PR or puts an agent on its branch, with the write it
- * makes on the factory's own PR, and its decision called with everything it
- * reads besides who authored the PR held fixed. `planConflict` gets no label
- * that holds a PR, since a held PR is skipped before the question is asked.
+ * Every site that decides whether a PR is closed or gets the implementer, the
+ * module that makes that write, and the site's decision called with everything
+ * it reads besides who authored the PR held fixed. `planConflict` is given no
+ * `HANDED_OFF_LABELS` label, since a PR carrying one is skipped before the
+ * question is asked.
  */
 const WRITE_SITES: readonly {
   module: string;
   site: string;
+  writer: string;
   writes: string;
   decide: (pr: FactoryPrFacts) => unknown;
 }[] = [
   {
     module: "factory/retry/escalation.ts",
     site: "prEscalation",
+    writer: "factory/retry/retry.ts",
     writes: "closes the PR",
     decide: (pr) => prEscalation({ ...pr, labels: ["agent:review"] }),
   },
   {
     module: "factory/retry/escalation.ts",
     site: "prFix",
-    writes: "makes a hand-off",
+    writer: "factory/retry/retry.ts",
+    writes: "puts the implementer on the branch",
     decide: (pr) => prFix(pr),
   },
   {
     module: "factory/update-branch/plan.ts",
     site: "planConflict",
-    writes: "makes a hand-off",
+    writer: "factory/update-branch/update-branch.ts",
+    writes: "puts the implementer on the branch",
     decide: (pr) => planConflict({ ...pr, number: 7, labels: [] }),
   },
 ];
@@ -95,6 +91,8 @@ const PRS: readonly { pr: FactoryPrFacts; authored: boolean }[] = [
   { authored: false, pr: { headRef: "bot/dependabot-bump", body: "" } },
 ];
 
+const siteKey = (module: string, site: string): string => `${module}#${site}`;
+
 /** Every non-test TypeScript module under `factory/`, repo-relative. */
 const factoryModules = (dir = "factory"): string[] =>
   fs.readdirSync(new URL(`${dir}/`, repoRoot), { withFileTypes: true }).flatMap((entry) => {
@@ -103,24 +101,33 @@ const factoryModules = (dir = "factory"): string[] =>
     return entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts") ? [rel] : [];
   });
 
-/** Source with its comments blanked, so a doc comment that names the predicate is not read as a call. */
+/** Source with its comments blanked, so a doc comment that names a function is not read as a call. */
 const codeOf = (module: string): string =>
   fs
     .readFileSync(new URL(module, repoRoot), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|\s)\/\/.*$/gm, "$1");
 
+/** The repo-relative module `module` imports `name` from, by that name and unaliased, or undefined. */
+const importedFrom = (module: string, name: string): string | undefined => {
+  for (const [, names, from] of codeOf(module).matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g)) {
+    if (names!.split(",").some((n) => n.trim().replace(/^type\s+/, "") === name)) {
+      return path.posix.join(path.posix.dirname(module), from!);
+    }
+  }
+  return undefined;
+};
+
 /** `module#site` for every call to the predicate in the tree, named by the exported const it sits in. */
 const callSites = (): string[] =>
   factoryModules()
-    .filter((module) => module !== DEFINITION)
+    .filter((module) => module !== PREDICATE_MODULE)
     .flatMap((module) => {
       const code = codeOf(module);
       const exports = [...code.matchAll(/^export const (\w+)\s*[=:]/gm)];
-      return [...code.matchAll(/\bisFactoryAuthoredPr\(/g)].map((call) => {
-        const owner = exports.filter((e) => e.index! < call.index!).at(-1)?.[1] ?? "(top level)";
-        return `${module}#${owner}`;
-      });
+      return [...code.matchAll(/\bisFactoryAuthoredPr\(/g)].map((call) =>
+        siteKey(module, exports.filter((e) => e.index! < call.index!).at(-1)?.[1] ?? "(top level)"),
+      );
     })
     .sort();
 
@@ -152,11 +159,18 @@ test("each write site asks isFactoryAuthoredPr itself, imported from the one def
   // existed, so the site has to call the definition, not match it today.
   const called = callSites();
   for (const { module, site } of WRITE_SITES) {
-    assert.ok(called.includes(`${module}#${site}`), `${site} in ${module} does not call isFactoryAuthoredPr`);
-    const imports = [...codeOf(module).matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g)];
-    const from = imports.find(([, names]) => /(^|[\s,])isFactoryAuthoredPr\s*(,|$)/.test(names!.trim()))?.[2];
-    assert.ok(from, `${module} does not import isFactoryAuthoredPr by that name`);
-    assert.equal(path.posix.join(path.posix.dirname(module), from), DEFINITION, `${module} imports isFactoryAuthoredPr from ${from}`);
+    assert.ok(called.includes(siteKey(module, site)), `${site} in ${module} does not call isFactoryAuthoredPr`);
+    assert.equal(importedFrom(module, "isFactoryAuthoredPr"), PREDICATE_MODULE, `${module} does not import isFactoryAuthoredPr from ${PREDICATE_MODULE}`);
+  }
+});
+
+test("the module that makes each site's write calls the site", () => {
+  // A site that asks protects nothing if the write goes round it, and that is
+  // where #183's regression lived: retry.ts labelled the open PR
+  // `agent:implement` itself, with no decision in between.
+  for (const { module, site, writer } of WRITE_SITES) {
+    assert.ok(new RegExp(`\\b${site}\\(`).test(codeOf(writer)), `${writer} makes the write ${site} decides without calling it`);
+    assert.equal(importedFrom(writer, site), module, `${writer} does not import ${site} from ${module}`);
   }
 });
 
@@ -165,5 +179,5 @@ test("the table names every call to isFactoryAuthoredPr in the tree, and nothing
   // calling it drops out of the left, and a new caller nobody tabled shows up
   // there instead of going unchecked. A new write path that never calls it
   // appears on neither side: that is the limit the header names.
-  assert.deepEqual(callSites(), WRITE_SITES.map(({ module, site }) => `${module}#${site}`).sort());
+  assert.deepEqual(callSites(), WRITE_SITES.map(({ module, site }) => siteKey(module, site)).sort());
 });

@@ -17,6 +17,7 @@ _Except_ as a vendored step name: the `Refuse PRD-shaped issue` step in `.github
 One vertical slice of a spec, sized to one fresh context window, carrying acceptance criteria. Produced by /to-tickets. The unit the factory picks up.
 _Avoid_: task, issue (the tracker's word for the container), sub-issue.
 _Except_ as a heading: `# ISSUE` and `# LINKED ISSUE` are the vendored prompts' section headings and stay sandcastle's. The prose under them says ticket.
+_Except_ as a vendored label string: `wayfinder:task` is one of the `wayfinder:<type>` labels the vendored wayfinder skill creates and reads, so it keeps that spelling wherever the label is written, `scripts/onboard.sh` included. Prose about such a ticket still says ticket.
 
 **Acceptance criteria**:
 The checklist on a ticket that says what done means. Written before any agent starts. The reviewer ticks each one with evidence.

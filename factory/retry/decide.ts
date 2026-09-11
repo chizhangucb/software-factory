@@ -90,8 +90,17 @@ export const ticketOrPr = <Pr>(issue: string | undefined, pr: Pr | undefined): T
   issue ? { issue, pr } : pr ? { issue: undefined, pr } : undefined;
 
 /**
+ * A run whose subject did not resolve, and why. Not thrown: a run with nothing
+ * failed has no write to make, so it needs no subject, and only a run that has
+ * something to write fails on this (#133).
+ */
+export interface Unresolved {
+  readonly unresolved: string;
+}
+
+/**
  * A run handed a PR number: the PR counts only while open, and the ticket is
- * the one handed over or else the one its body links. Throws, naming both
+ * the one handed over or else the one its body links. Unresolved, naming both
  * facts, when that leaves nothing, which is a PR no longer open whose body
  * links no ticket.
  */
@@ -100,15 +109,10 @@ export const ticketOrPrFromPr = <Pr>(input: {
   readonly state: string;
   readonly ticket: string | undefined;
   readonly pr: Pr;
-}): TicketOrPr<Pr> => {
-  const found = ticketOrPr(input.ticket, input.state === "OPEN" ? input.pr : undefined);
-  if (!found) {
-    throw new Error(
-      `PR #${input.number} is ${input.state.toLowerCase()}, not open, and its body links no ticket: nothing to retry or escalate on.`,
-    );
-  }
-  return found;
-};
+}): TicketOrPr<Pr> | Unresolved =>
+  ticketOrPr(input.ticket, input.state === "OPEN" ? input.pr : undefined) ?? {
+    unresolved: `PR #${input.number} is ${input.state.toLowerCase()}, not open, and its body links no ticket: nothing to retry or escalate on.`,
+  };
 
 /** A PR's mergeability as GitHub reports it (`gh pr view --json mergeable`); UNKNOWN while it is still computing. */
 export type Mergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";

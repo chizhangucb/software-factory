@@ -111,6 +111,7 @@ import {
   type TicketOrPr,
   ticketOrPr,
   ticketOrPrFromPr,
+  type Unresolved,
 } from "./decide";
 
 const REPO = required("GH_REPO");
@@ -216,7 +217,7 @@ const actOn = (target: Target): Subject =>
  * GitHub again later is one more call that can fail, on a step whose failure
  * would fall back to closing.
  */
-const resolveTarget = (): Target => {
+const resolveTarget = (): Target | Unresolved => {
   const openPr = (number: string, pr: { headRefName: string; body: string | null }): OpenPr => ({
     number,
     facts: { headRef: pr.headRefName, body: pr.body ?? "" },
@@ -225,7 +226,7 @@ const resolveTarget = (): Target => {
     const pr = ghJson<{ state: string; body: string | null; headRefName: string }>([
       "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body,headRefName",
     ]);
-    // Throws when nothing resolves, so no write ever names an undefined number (#133).
+    // Unresolved when nothing resolves; `main` fails on that before any write (#133).
     return ticketOrPrFromPr({
       number: PR_INPUT,
       state: pr.state,
@@ -694,8 +695,10 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
 };
 
 const main = async (): Promise<void> => {
-  let target = resolveTarget();
-  console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr?.number ?? "(none)"}, branch ${BRANCH}.`);
+  const resolved = resolveTarget();
+  if ("unresolved" in resolved) console.log(`${resolved.unresolved} Branch ${BRANCH}.`);
+  else console.log(`Ticket #${resolved.issue ?? "(none)"}, open PR #${resolved.pr?.number ?? "(none)"}, branch ${BRANCH}.`);
+  const openPr = "unresolved" in resolved ? undefined : resolved.pr;
 
   let failure: Failure | undefined;
   if (FAILURE_KIND === "implement") {
@@ -708,7 +711,7 @@ const main = async (): Promise<void> => {
     }
     failure = implementFailure(outcome);
   } else if (FAILURE_KIND === "checks") {
-    failure = await checksFailure(target.pr);
+    failure = await checksFailure(openPr);
   } else {
     throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_KIND}`);
   }
@@ -716,6 +719,10 @@ const main = async (): Promise<void> => {
     console.log("Every check on the head passed; nothing to retry.");
     return;
   }
+  // Only now is a subject needed: a passing head writes nothing, and a PR with no
+  // ticket that merged as its verdict posted is that case, not a failure (#133).
+  if ("unresolved" in resolved) throw new Error(resolved.unresolved);
+  let target: Target = resolved;
 
   // Only the checks wait can end in a hand-off, and only an open PR can conflict: the
   // wait's last read is used and nothing is read again (#145). A rate limit's requeue

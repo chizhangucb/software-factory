@@ -506,11 +506,12 @@ test("a run with neither a ticket nor an open PR has nothing to act on", () => {
 test("a PR input no longer open, whose body links no ticket, fails naming both facts", () => {
   // #133: the handler used to carry on and hand `gh` an undefined number.
   const pr = { number: "12" };
-  assert.throws(
-    () => ticketOrPrFromPr({ number: "12", state: "CLOSED", ticket: "", pr }),
+  const unresolved = (result: object): string => ("unresolved" in result ? String(result.unresolved) : "");
+  assert.match(
+    unresolved(ticketOrPrFromPr({ number: "12", state: "CLOSED", ticket: "", pr })),
     /PR #12 is closed, not open, and its body links no ticket/,
   );
-  assert.throws(() => ticketOrPrFromPr({ number: "12", state: "MERGED", ticket: undefined, pr }), /PR #12 is merged/);
+  assert.match(unresolved(ticketOrPrFromPr({ number: "12", state: "MERGED", ticket: undefined, pr })), /PR #12 is merged/);
   // A closed PR with a ticket falls back to the ticket; an open one counts either way.
   assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "CLOSED", ticket: "7", pr }), { issue: "7", pr: undefined });
   assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "OPEN", ticket: "", pr }), { issue: undefined, pr });

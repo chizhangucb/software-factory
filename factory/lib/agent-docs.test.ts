@@ -1,6 +1,8 @@
 /**
  * The `docs/agents/` pages are the repo's own (#215), so each rule sits on the page it
  * belongs to. The files are the fixture, in the style of `onboard/judged-path-instruction.test.ts`.
+ * Structure only (#218): a page's wording is the next person's to shorten, so no assertion here
+ * quotes a sentence of one.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -8,6 +10,7 @@ import { test } from "node:test";
 
 const repoUrl = (file: string): URL => new URL(`../../${file}`, import.meta.url);
 const readRepo = (file: string): string => fs.readFileSync(repoUrl(file), "utf8");
+const linesOf = (file: string): string[] => readRepo(file).split("\n");
 
 /** Named roots rather than a walk from the top: `.claude/` holds other sessions' worktrees. */
 const ROOTS = ["README.md", "CONTEXT.md", "AGENTS.md", "docs", "templates", "scripts", "factory", ".github"];
@@ -29,20 +32,22 @@ test("the removed pages and test are gone, and no file names them", () => {
   }
 });
 
-test("hold is one row of triage-labels.md, and the page names it nowhere else", () => {
-  const hold = readRepo("docs/agents/triage-labels.md").split("\n").filter((line) => line.includes("`hold`"));
-  assert.equal(hold.length, 1, "the page names hold on one line");
-  assert.match(hold[0]!, /^\| .* \|$/, "and that line is a row of the table");
-  assert.match(hold[0]!, /never dispatched, retried or requeued/);
-  assert.match(hold[0]!, /does not stop an open PR: close the PR/);
+/** The pages AGENTS.md points at, since a pointer to a page that is gone or gutted routes nobody. */
+test("every docs/agents page AGENTS.md names carries a body under its title", () => {
+  const pages = new Set([...readRepo("AGENTS.md").matchAll(/docs\/agents\/[\w-]+\.md/g)].map((hit) => hit[0]));
+  assert.ok(pages.size > 0, "AGENTS.md points at the pages");
+  for (const page of pages) {
+    assert.ok(fs.existsSync(repoUrl(page)), `${page} is there for AGENTS.md to point at`);
+    const body = linesOf(page).filter((line) => line.trim() !== "");
+    assert.match(body[0] ?? "", /^# /, `${page} opens on a title`);
+    assert.ok(body.length > 1, `${page} carries rules under its title`);
+  }
 });
 
-test("issue-tracker.md carries the repo's tracker rules: when a ticket closes, and what its body says it removes", () => {
-  const page = readRepo("docs/agents/issue-tracker.md");
-  assert.match(page, /the moment its PR merges/, "a ticket closes the moment its PR merges");
-  assert.match(page, /`blocked_by` clears only on close/, "which is what unblocks what it blocks");
-  assert.match(page, /removes something says so in its body/, "a ticket names what it removes");
-  assert.match(page, /every deleted test/, "since every deleted test is judged against it");
+test("hold is one row of triage-labels.md, and the page names it nowhere else", () => {
+  const hold = linesOf("docs/agents/triage-labels.md").filter((line) => line.includes("`hold`"));
+  assert.equal(hold.length, 1, "the page names hold on one line");
+  assert.match(hold[0]!, /^\| .* \|$/, "and that line is a row of the table");
 });
 
 test("factory/plugins/README.md leaves docs/agents alone: no verbatim claim, no re-copy step", () => {

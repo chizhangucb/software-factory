@@ -398,6 +398,15 @@ test("the note about unused defaults goes to stderr, next to the other advice", 
   }
 });
 
+test("every description fits GitHub's 100 character limit, or the label create fails", () => {
+  // GitHub rejects a longer one outright, and `set -e` would take the whole onboarding
+  // down with it, halfway through the vocabulary.
+  const { labels } = onboardWith(["check"]);
+  for (const [name, description] of labels) {
+    assert.ok(description.length <= 100, `${name}'s description is ${description.length} characters`);
+  }
+});
+
 test("onboarding deletes nothing, which is what makes re-running it safe", () => {
   // Deleting a label strips it from every issue carrying it, silently and with no undo, so
   // the script stays purely additive and the unused defaults are printed instead (#176).

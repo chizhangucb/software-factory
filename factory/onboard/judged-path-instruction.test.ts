@@ -83,10 +83,11 @@ test("README's onboarding names the instruction in the step that names the calle
   assert.ok(copying[0]!.includes(JUDGED_PATH_TEMPLATE), `the same step names ${JUDGED_PATH_TEMPLATE}`);
 });
 
-test("the tracker page requires the keyword when the PR's author does the work, and names the one trap", () => {
+test("the repo's tracker conventions require the keyword when the PR's author does the work, and name the one trap", () => {
   // Rewritten in place, not dropped (#181): the bullet that banned the keyword outright is the
-  // one that now says when writing it is a trap, in ADR 0003's words for that case.
-  const close = readRepo("docs/agents/issue-tracker.md")
+  // one that now says when writing it is a trap, in ADR 0003's words for that case. It moved off
+  // the vendored `issue-tracker.md` word for word with the rest of the repo's tracker prose (#197).
+  const close = readRepo("docs/agents/tracker-conventions.md")
     .split("\n")
     .filter((line) => line.startsWith("- **Close**"));
   assert.equal(close.length, 1, "the Close convention is still one bullet");

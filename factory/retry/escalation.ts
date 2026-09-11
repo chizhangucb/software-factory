@@ -1,7 +1,9 @@
 /**
- * What escalation leaves behind (#50): the labels on the subject it parks,
- * and what it does to the open PR. Pure, a fact about the subject in and the
- * actions out, so the two callers below cannot park a ticket two ways.
+ * What the factory does to a subject it is standing down or handing on: the
+ * labels escalation leaves behind (#50), what escalation does to the open PR
+ * (#174), and who the retry hands the open PR to (#183). Pure, a fact about
+ * the subject in and the actions out, so the callers cannot park a ticket two
+ * ways, and so that "the factory may act on this branch" is answered once.
  *
  * Two paths escalate. The retry handler does it when the retry fails too,
  * and the reconciler (#35) does it when the event that starts a run is lost
@@ -13,7 +15,7 @@
  * --experimental-strip-types` without installing the engine.
  */
 import { type FactoryPrFacts, isFactoryAuthoredPr } from "../lib/factory-pr.ts";
-import { agentLabels, ESCALATION_LABEL, isAgentLabel, READY_LABEL } from "../lib/labels.ts";
+import { agentLabels, ESCALATION_LABEL, IMPLEMENT_LABEL, isAgentLabel, READY_LABEL } from "../lib/labels.ts";
 
 /**
  * Escalating: `needs-human` on, every `agent:*` label off, and
@@ -33,10 +35,27 @@ export const escalationLabels = (
   add: ESCALATION_LABEL,
 });
 
-/** What escalation needs to know about the open PR: enough to place it, plus its labels. */
-export interface EscalatedPrFacts extends FactoryPrFacts {
+/**
+ * What a decision about the open PR needs to know: enough to place it, plus
+ * the labels it carries. One shape, because escalating a PR and handing one
+ * back to its author ask the same two questions of it.
+ */
+export interface LabelledPrFacts extends FactoryPrFacts {
   readonly labels: readonly string[];
 }
+
+/**
+ * Standing a PR down: every `agent:*` label off and `needs-human` on. One
+ * definition, because bare removal is not a stand-down and the two callers
+ * would otherwise each have to remember that. The reconciler reads a
+ * **Factory PR** with no `agent:*` label as one to arm and judge, so removal
+ * alone holds only until the next heartbeat repairs it; `needs-human` is what
+ * `PARKED_LABELS` parks on, and parking is what makes it stick.
+ */
+const standDown = (labels: readonly string[]): { readonly remove: string[]; readonly add: typeof ESCALATION_LABEL } => ({
+  remove: agentLabels(labels),
+  add: ESCALATION_LABEL,
+});
 
 /** What escalation does to the open PR: which labels come off, which goes on, and whether it closes. */
 export interface PrEscalation {
@@ -80,11 +99,64 @@ export interface PrEscalation {
  * branch prefix and the body marker are written by the factory when it opens
  * the PR and are not the sort of thing a human adds or removes on one.
  */
-export const prEscalation = (pr: EscalatedPrFacts): PrEscalation => {
+export const prEscalation = (pr: LabelledPrFacts): PrEscalation => {
   const close = isFactoryAuthoredPr(pr);
   return {
-    remove: agentLabels(pr.labels),
+    ...standDown(pr.labels),
     add: close ? undefined : ESCALATION_LABEL,
     close,
   };
 };
+
+/**
+ * Who fixes a failure on the open PR (#183): the factory's implementer, on a
+ * branch the factory authored, or the PR's own author on anyone else's.
+ */
+export type Fixer = "factory" | "author";
+
+/** What the retry handler does to the open PR: who fixes it, and the labels that say so. */
+export interface PrFix {
+  readonly fixer: Fixer;
+  readonly remove: string[];
+  readonly add: string;
+}
+
+/**
+ * What the retry handler does to the open PR when something has to fix it
+ * (#183): the retry after a failing check, and the conflict hand-off, which
+ * take the same answer from here rather than each asking their own.
+ *
+ * `agent:implement` is not a record of anything. It is the label that starts
+ * `agent-implement-pr.yml`, which checks the branch out, lets an agent commit
+ * on it and pushes. That is the whole point on a PR the factory opened, where
+ * the branch is the factory's own; on a PR a person or an outside agent wrote
+ * it is an agent rewriting their branch, the hazard #174 named for escalation
+ * and #180 for the update-branch plan.
+ *
+ * The path is the common one rather than the rare one, which is why it is
+ * worth narrowing. A judged PR whose verdict fails for a real reason (the
+ * acceptance criteria are there and not all ticked) never reaches
+ * `unretryableReason`: `decide` answers `retry`, and the retry labelled
+ * whatever PR was open.
+ *
+ * So the fix goes back to whoever owns the branch, and the labels say which:
+ *
+ * - the factory's branch: `agent:implement`, exactly as before, nothing
+ *   removed. The implementer runs again with the failing output in its prompt.
+ * - anyone else's: no `agent:implement`, `agent:*` off and `needs-human` on.
+ *   Declining to label is not on its own a decline: a PR left with no
+ *   `agent:*` label is one the reconciler arms, judges and re-labels at its
+ *   verdict deadline, so the next heartbeat would hand the branch to an
+ *   implementer anyway and the decline would have to be made again every
+ *   heartbeat. `needs-human` parks it, which is what makes the decline hold,
+ *   and it is true: the author is the human this now needs.
+ *
+ * `isFactoryAuthoredPr` and not `isFactoryPr`, for the reason #174 gives: the
+ * broad predicate's verdict arm is exactly the PR the factory did not author,
+ * which is the one this must not put an implementer on. Reused rather than
+ * re-tested here, so this answer and escalation's cannot drift.
+ */
+export const prFix = (pr: LabelledPrFacts): PrFix =>
+  isFactoryAuthoredPr(pr)
+    ? { fixer: "factory", remove: [], add: IMPLEMENT_LABEL }
+    : { fixer: "author", ...standDown(pr.labels) };

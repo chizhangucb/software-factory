@@ -17,6 +17,7 @@
  */
 import { ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { boundOutput } from "../lib/verdict";
+import { type Fixer } from "./escalation.ts";
 
 export type FailureKind = "implement" | "merge-gate" | "ci" | "verdict";
 
@@ -149,6 +150,17 @@ export interface RetryContext {
   readonly output: string;
 }
 
+/**
+ * What the marker comment says, which is the context above plus who the
+ * factory handed the fix to (#183). Not part of `RetryContext` itself: that is
+ * what a later implementer run reads back out of the comment, and by then the
+ * fixer is history.
+ */
+export interface RetryComment extends RetryContext {
+  /** Default `factory`, the only fixer there was before #183. */
+  readonly fixer?: Fixer;
+}
+
 const MARKER = /^<!-- factory:retry retry=(\d+) kind=([a-z-]+) -->\n?/;
 const RUN_LINE = /^Attempt \d+ failed \([a-z-]+\)\. Run: (\S+)$/m;
 /** Fits a GitHub comment (64k) with room for the rest of the body. */
@@ -160,15 +172,23 @@ const fence = (text: string): string => {
   return `${ticks}text\n${text.trim()}\n${ticks}`;
 };
 
-/** The marker comment the failure handler posts on the ticket before the retry starts. */
-export const renderRetryComment = (context: RetryContext): string =>
+/**
+ * The marker comment the failure handler posts on the ticket before the retry
+ * starts. It records the attempt whoever fixes it (#183), so the count is the
+ * same either way and nothing is dropped in silence; only the line saying what
+ * happens next changes, because on a PR the factory did not author the answer
+ * is "nothing of the factory's does".
+ */
+export const renderRetryComment = (context: RetryComment): string =>
   [
     `<!-- factory:retry retry=${context.retry} kind=${context.kind} -->`,
     `### Retry ${context.retry} of ${MAX_RETRIES} requested by the factory`,
     "",
     `Attempt ${context.retry} failed (${context.kind}). Run: ${context.runUrl}`,
     "",
-    "The implementer runs once more on the same branch with this output in its prompt; a second failure escalates to `needs-human`.",
+    context.fixer === "author"
+      ? `The factory did not author the open PR, so no implementer runs on its branch: the fix is its author's. The PR is parked with \`${ESCALATION_LABEL}\` and carries this failure.`
+      : "The implementer runs once more on the same branch with this output in its prompt; a second failure escalates to `needs-human`.",
     "",
     "<details><summary>Failure output</summary>",
     "",
@@ -283,6 +303,51 @@ export const renderHandOffComment = (input: {
     "",
     `Labeled \`${IMPLEMENT_LABEL}\`. Its run merges \`${input.base}\` into the branch, resolves the conflicts, and pushes; the merge gate and the review then judge the new head and auto-merge lands it.`,
   ].join("\n");
+
+/**
+ * The conflict as the PR's own author reads it (#183): the same fact
+ * `CONFLICT_REASON` states, without the clause naming the implementer that is
+ * not coming, and with the base named, since the merge is theirs to make.
+ */
+export const authorConflictReason = (base: string): string =>
+  `the PR conflicts with \`${base}\`, so GitHub started no merge gate on this head`;
+
+/**
+ * The comment on a PR the factory will not put an implementer on (#183), for
+ * the PR's own thread. Both paths that would have labelled it
+ * `agent:implement` post it: the retry after a failing check, and the conflict
+ * hand-off.
+ *
+ * It is the whole of what its author gets, so it carries what failed rather
+ * than a link to it: the retry's own record goes on the ticket, which is not
+ * this author's thread and may not even be theirs to read. It also says what
+ * the labels now say, because a PR whose `agent:*` labels vanished and that
+ * acquired `needs-human` otherwise reads as the factory losing interest.
+ */
+export const renderAuthorFixComment = (input: {
+  /** What the factory found: the failure summary, or the conflict. */
+  readonly reason: string;
+  readonly runUrl: string;
+  /** The ticket carrying the record, when the record went elsewhere; undefined when this thread has it. */
+  readonly issueNumber: string | undefined;
+  /** The failing output, when there is one this thread does not already carry. */
+  readonly output: string;
+}): string => {
+  const lines = [
+    "### The fix is yours: the factory did not author this PR",
+    "",
+    `${input.reason}. Run: ${input.runUrl}`,
+    "",
+    `The factory puts an implementer only on a branch it opened, so nothing of the factory's will commit to this one. Its \`agent:*\` labels are off, \`${ESCALATION_LABEL}\` is on and auto-merge is disarmed, so no factory run picks it up again.`,
+    "",
+    `Push the fix yourself, then take \`${ESCALATION_LABEL}\` off and add \`agent:review\` to have it judged again.`,
+  ];
+  if (input.issueNumber) lines.push("", `The attempt is recorded on #${input.issueNumber}.`);
+  if (input.output.trim().length > 0) {
+    lines.push("", "<details><summary>Failure output</summary>", "", fence(boundOutput(input.output, OUTPUT_LIMITS)), "", "</details>");
+  }
+  return lines.join("\n");
+};
 
 /**
  * The PR that was open when the factory gave up, and what became of it.

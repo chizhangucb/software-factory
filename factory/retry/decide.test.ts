@@ -9,6 +9,8 @@ import {
   decide,
   FAILURE_KINDS,
   REQUEUED_FILE,
+  authorConflictReason,
+  renderAuthorFixComment,
   renderHandOffComment,
   isImplementerFailure,
   RATE_LIMITED_REASON,
@@ -223,6 +225,54 @@ test("the hand-off comment names the conflict, the implementer's label, and that
   assert.match(body, /Run: u/);
   // Not a human's: the blocked label is never named as what moves it next.
   assert.doesNotMatch(body, /agent:blocked/);
+});
+
+test("the comment on a PR the factory did not author says what failed and that the fix is its author's", () => {
+  // #183, acceptance criterion 2. The author never reads the ticket's retry
+  // comment, so what failed has to be on their own thread, with it.
+  const body = renderAuthorFixComment({
+    reason: "verdict: 2 of 5 acceptance criteria unticked",
+    runUrl: "u",
+    issueNumber: "42",
+    output: "## Verdict: fail\n\n- [ ] the helper exists",
+  });
+  assert.match(body, /2 of 5 acceptance criteria unticked/);
+  assert.match(body, /the helper exists/);
+  assert.match(body, /Run: u/);
+  assert.match(body, /#42/);
+  // The one promise it must not make: nothing of the factory's touches this branch.
+  assert.doesNotMatch(body, /`agent:implement`/);
+  assert.match(body, /`needs-human`/);
+  assert.match(body, /`agent:review`/);
+});
+
+test("the hand-back comment leaves out an output the same thread already carries", () => {
+  // With no ticket the retry's own comment lands on this PR, so repeating the
+  // output under it would be the same failure twice on one thread.
+  const body = renderAuthorFixComment({ reason: "verdict: failed", runUrl: "u", issueNumber: undefined, output: "" });
+  assert.doesNotMatch(body, /<details>/);
+  assert.doesNotMatch(body, /#undefined/);
+});
+
+test("a conflict reads the same to the author, minus the implementer that is not coming", () => {
+  const reason = authorConflictReason("main");
+  assert.match(reason, /conflicts with `main`/);
+  assert.match(reason, /no merge gate/);
+  assert.doesNotMatch(reason, /implementer/);
+});
+
+test("the retry comment promises an implementer run only when one is coming", () => {
+  const record = { retry: 1, kind: "verdict" as const, runUrl, output: "out" };
+  const factory = renderRetryComment({ ...record, fixer: "factory" });
+  assert.match(factory, /The implementer runs once more/);
+  const author = renderRetryComment({ ...record, fixer: "author" });
+  assert.doesNotMatch(author, /The implementer runs once more/);
+  assert.match(author, /did not author/);
+  assert.match(author, /`needs-human`/);
+  // Still the record #183's fourth criterion asks for: same marker, same count.
+  assert.match(author, /^<!-- factory:retry retry=1 kind=verdict -->\n/);
+  assert.match(author, /Retry 1 of 1/);
+  assert.equal(parseRetryComment(author)?.output, "out");
 });
 
 test("the requeue comment names the cause in its reason, never a rate limit it did not hit", () => {

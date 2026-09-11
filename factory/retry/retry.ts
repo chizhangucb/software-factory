@@ -42,9 +42,9 @@
  *   a definite conflict (#145), rather than at the deadline. A mergeability
  *   GitHub has not decided yet (UNKNOWN) is never acted on: it keeps waiting,
  *   and at the deadline it stays a requeue.
- * - stand-down (#185): a label from the hold set (`HOLD_LABELS`, the one the
- *   dispatcher reads) is on the ticket or on its open PR. A person has said to
- *   leave the subject alone, so it outranks every action above that would
+ * - stand-down (#185): `hold` (`HOLD_LABELS`, the list the dispatcher reads)
+ *   is on the ticket or on its open PR. A person has said to leave the
+ *   subject alone, so it outranks every action above that would
  *   start an agent or escalate: no `agent:implement`, no `factory:retry-<n>`,
  *   no `needs-human`, and no `agent:*` label taken off. A comment names the
  *   label and the subject it was found on. The subject is left where a
@@ -615,9 +615,9 @@ const requeue = (target: Target, reason: string): void => {
 };
 
 /**
- * A person holds the subject (#185): a label from the hold set is on the
- * ticket or on its open PR, so no agent starts. The retry's label is the one
- * thing that would have started one, and it is not written; neither is
+ * A person holds the subject (#185): `hold` is on the ticket or on its open
+ * PR, so no agent starts. The retry's label is the one thing that would have
+ * started one, and it is not written; neither is
  * `factory:retry-<n>`, since a person stopped the attempt rather than the
  * implementer failing it, nor anything of escalation's, since `needs-human` is
  * the factory giving up and a person taking the wheel is the opposite.

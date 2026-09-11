@@ -10,7 +10,7 @@
 #
 # The caller admits an `unassigned` event whoever dropped the assignee, and an
 # `unlabeled` event for any label outside the factory's own agent:* and factory:*
-# namespaces, so a ticket held back by ready-for-human, needs-human or an assignee
+# namespaces, so a ticket stopped by hold, needs-human or an assignee
 # is dispatched the moment the human lets go of it rather than on the next
 # heartbeat. The two namespace clauses are a loop breaker, not a refinement: the
 # factory writes labels with a PAT so they fire their events, and its own removals

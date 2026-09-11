@@ -4,7 +4,7 @@
  * target, an interactive session or a cloud agent, to do the three things ADR 0003's judged
  * path needs, or its PR sits blocked on `factory/verdict` for good. The subject is text a
  * target copies and pages a reader meets, so the files are the fixture, in the style of
- * `lib/labels.test.ts` over the hold set and `dispatch/triggers.test.ts` over the trigger set.
+ * `lib/labels.test.ts` over the hold and `dispatch/triggers.test.ts` over the trigger set.
  * What `scripts/onboard.sh` prints of it is `onboard.test.ts`'s, beside the rest of its output.
  */
 import assert from "node:assert/strict";

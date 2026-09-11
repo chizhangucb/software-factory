@@ -50,6 +50,7 @@ import {
   leftAlone,
   leftAloneFromListing,
   marksFromTimeline,
+  onMergePath,
   prFromGitHub,
   reconcile,
   roleFromJobs,
@@ -182,7 +183,7 @@ const ticketAuthorOf = (ticket: number): Author | undefined => {
  * and that decision never arms it.
  */
 const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
-  if (leftAloneFromListing(pr) || pr.closes === undefined) return pr;
+  if (leftAlone(pr.labels) || leftAloneFromListing(pr) || pr.closes === undefined) return pr;
   const ticketAuthor = ticketAuthorOf(pr.closes);
   // A PR its ticket's author leaves alone needs no verdict or head read, and a
   // failure of either would abort the sweep over a PR it was never going to touch.
@@ -193,7 +194,7 @@ const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
 };
 
 const withMergeState = (pr: PrState, createdAt: string): PrState => {
-  if (pr.labels.some((l) => l.startsWith("agent:")) || leftAlone(pr.labels)) return pr;
+  if (!onMergePath(pr.labels)) return pr;
   if (!pr.factory) return withUnjudgedState(pr, createdAt);
   // No auto-merge: the reconciler re-arms it against the same deadline (#83), and no
   // verdict can change that, so the verdict is not worth a read here.

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { HOLD_LABELS } from "../lib/labels.ts";
 import {
   DEFAULT_DEADLINES,
   type Decision,
   leftAlone,
+  onMergePath,
   PARKED_LABELS,
   type PrState,
   type Run,
@@ -297,18 +297,13 @@ test("parked tickets (agent:blocked, needs-human) are never touched", () => {
   assert.match(ds[1]!.log, /parked: needs-human/);
 });
 
-test("a held ticket past its stuck deadline is left alone, on every label of the hold set", () => {
+test("a held ticket past its stuck deadline is left alone", () => {
   // #185: re-adding `agent:implement` starts an agent, and a person said not to.
-  // The whole set, not `hold` alone: the retry handler stands down on all three,
-  // and a reconciler that re-stamped on two of them would undo that stand-down
-  // at its next deadline.
-  for (const label of HOLD_LABELS) {
-    for (const state of ["agent:implement", "agent:in-progress"]) {
-      const held = ticket(1, { labels: ["ready-for-agent", state, label], stateSince: minutesAgo(60) });
-      const d = only(reconcile(snapshot({ issues: [held] }), DEFAULT_DEADLINES, POLICY));
-      assert.equal(d.action.type, "none", `${state} + ${label}`);
-      assert.match(d.log, new RegExp(`#1 \\(issue\\) ${state}, deadline 15 min: held: ${label}$`));
-    }
+  for (const state of ["agent:implement", "agent:in-progress"]) {
+    const held = ticket(1, { labels: ["ready-for-agent", state, "hold"], stateSince: minutesAgo(60) });
+    const d = only(reconcile(snapshot({ issues: [held] }), DEFAULT_DEADLINES, POLICY));
+    assert.equal(d.action.type, "none", state);
+    assert.match(d.log, new RegExp(`#1 \\(issue\\) ${state}, deadline 15 min: held: hold$`));
   }
 });
 
@@ -326,14 +321,39 @@ test("a held PR is left alone, and so is a PR whose ticket is held", () => {
   assert.match(ds.find((d) => d.subject.number === 12)!.log, /#12 \(pr\) agent:in-progress, deadline 15 min: held: hold on #2$/);
 });
 
-test("a held factory PR with no agent label is neither judged nor re-armed", () => {
-  // Adding agent:review starts the reviewer; the merge rules are the reconciler's other way to start one.
-  const unjudged = pr(11, { verdict: "none", headSince: minutesAgo(45), labels: ["hold"] });
-  const unarmed = pr(12, { autoMerge: false, headSince: minutesAgo(45), closes: 3 });
-  const ds = reconcile(snapshot({ issues: [ticket(3, { labels: ["ready-for-agent", "needs-triage"] })], prs: [unjudged, unarmed] }), DEFAULT_DEADLINES, POLICY);
+// #210: a hold stops the factory starting work, never a merge. Stopping a
+// started ticket is closing its PR.
+/** Two factory PRs in the same state: #11 held on its own label, #12 through its ticket, #3. */
+const heldPrs = (state: Partial<PrState>): Decision[] =>
+  reconcile(
+    snapshot({ issues: [ticket(3, { labels: ["ready-for-agent", "hold"] })], prs: [pr(11, { ...state, labels: ["hold"] }), pr(12, { ...state, closes: 3 })] }),
+    DEFAULT_DEADLINES,
+    POLICY,
+  );
+
+test("a held factory PR with auto-merge off, past the stuck deadline, is re-armed", () => {
+  const ds = heldPrs({ autoMerge: false, headSince: minutesAgo(45) });
+  assert.deepEqual(ds.map((d) => d.action), [{ type: "arm-auto-merge", pr: 11 }, { type: "arm-auto-merge", pr: 12 }]);
+});
+
+test("a held factory PR with a passing verdict, behind main past the update deadline, gets an update-branch dispatch", () => {
+  assert.deepEqual(heldPrs({ behindBy: 2 }).map((d) => d.action), [
+    { type: "dispatch", eventType: "factory-update-branch", pr: 11 },
+    { type: "dispatch", eventType: "factory-update-branch", pr: 12 },
+  ]);
+});
+
+test("the sweep reads a held PR's merge state: only an agent label or a parked one takes a PR off the merge path", () => {
+  // The sweep and `decidePrMerge` share this, so the snapshot the two tests above hand in is one the sweep builds.
+  assert.equal(onMergePath(["hold"]), true);
+  for (const label of ["agent:review", ...PARKED_LABELS]) assert.equal(onMergePath([label]), false, label);
+});
+
+test("a held factory PR with no verdict, past the verdict deadline, gets no agent:review, and the log names the hold", () => {
+  const ds = heldPrs({ verdict: "none", headSince: minutesAgo(45) });
   assert.deepEqual(repairs(ds), []);
-  assert.match(ds.find((d) => d.subject.number === 11)!.log, /held: hold$/);
-  assert.match(ds.find((d) => d.subject.number === 12)!.log, /held: needs-triage on #3$/);
+  assert.match(ds[0]!.log, /^#11 \(pr\) auto-merge armed, no factory\/verdict on abcdef1 since .*, deadline 30 min: held: hold$/);
+  assert.match(ds[1]!.log, /^#12 \(pr\) .*, deadline 30 min: held: hold on #3$/);
 });
 
 test("removing the hold resumes a held subject through the stuck path, on the first sweep after", () => {
@@ -360,9 +380,9 @@ test("removing the hold resumes a held subject through the stuck path, on the fi
 test("parked stays the factory's own pair: a hold is left alone without becoming parked", () => {
   // CONTEXT.md's **Parked** is "always the factory's own doing, which is what
   // separates it from a hold", and ADR 0005 has PARKED_LABELS as exactly the
-  // pair. The reconciler reads the hold set beside it rather than inside it.
+  // pair. The reconciler reads `hold` beside it rather than inside it.
   assert.deepEqual([...PARKED_LABELS], ["agent:blocked", "needs-human"]);
-  for (const label of [...PARKED_LABELS, ...HOLD_LABELS]) assert.equal(leftAlone(["agent:in-progress", label]), true, label);
+  for (const label of [...PARKED_LABELS, "hold"]) assert.equal(leftAlone(["agent:in-progress", label]), true, label);
   assert.equal(leftAlone(["ready-for-agent", "agent:in-progress", "factory:retry-1"]), false);
 });
 

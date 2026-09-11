@@ -174,9 +174,9 @@ export interface Subject {
 }
 
 /**
- * A label from the hold set on the run's subject, and which subject it was
- * found on (#185): a person has said to leave this alone, and the retry
- * handler says back which label stopped it and where.
+ * `hold` on the run's subject, and which subject it was found on (#185): a
+ * person has said to leave this alone, and the retry handler says back which
+ * label stopped it and where.
  */
 export interface Hold {
   readonly label: string;
@@ -184,10 +184,9 @@ export interface Hold {
 }
 
 /**
- * The first hold-set label on these subjects, and where it was found; the
- * caller passes the ticket first, then its open PR. `HOLD_LABELS` is the
- * dispatcher's set, read from the same module and not restated, so a label
- * that holds a ticket back from dispatch holds it back here too.
+ * The first hold label on these subjects, and where it was found; the caller
+ * passes the ticket first, then its open PR. `HOLD_LABELS` is the dispatcher's
+ * list, so a label that holds a ticket back from dispatch holds it here too.
  *
  * Both subjects and not only the one that records the retry: the label a
  * retry adds goes on the PR whenever one is open, so a hold on the PR is a
@@ -260,7 +259,7 @@ export const decide = (input: {
   readonly mergeable?: Mergeability;
   /** Why another implementer run cannot fix this failure; undefined when it might. */
   readonly unretryable?: string;
-  /** The hold-set label on the ticket or its open PR, from `findHold`; undefined when neither is held. */
+  /** The hold on the ticket or its open PR, from `findHold`; undefined when neither is held. */
   readonly held?: Hold;
 }): Decision => {
   if (input.escalated) {
@@ -441,8 +440,8 @@ export const renderRequeueComment = (input: {
  * The comment on a held subject the retry handler stood down on (#185),
  * posted where the hold was found, since that is the thread the person who
  * added it is reading. It names the label and the subject, because the factory
- * reads the whole hold set on the ticket and on its PR, and "why did nothing
- * happen" has to be answerable without knowing that.
+ * reads the hold on the ticket and on its PR, and "why did nothing happen" has
+ * to be answerable without knowing that.
  *
  * What it leaves behind is a requeue's (#148), and the comment says so: a
  * ticket with no factory label, which the dispatcher skips while it is held

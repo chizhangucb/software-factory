@@ -63,7 +63,7 @@ A PR given back to the implementer because it conflicts with its base: a comment
 _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to the dispatcher, a PR to the reconciler), escalation (the human queue).
 
 **Stand-down**:
-The retry handler's answer to a failed attempt on a **hold** (#185): a label from the hold set on the ticket or its open PR, so no agent is started, no retry is spent and nothing is escalated. A comment names the label and the subject it was found on, and the subject is left where a **requeue** leaves one, so taking the hold off resumes it through the sweep that owns it. Read before every other answer but an escalation already made, the retry cap included.
+The retry handler's answer to a failed attempt on a **hold** (#185): `hold` on the ticket or its open PR, so no agent is started, no retry is spent and nothing is escalated. A comment names the label and the subject it was found on, and the subject is left where a **requeue** leaves one, so taking the hold off resumes it through the sweep that owns it. Read before every other answer but an escalation already made, the retry cap included.
 _Avoid_: requeue (not the ticket's failure, and nobody holding it), escalation (the factory giving up, where here a person has taken the wheel), parked (the factory's own pair).
 
 **Tell-author**:
@@ -81,11 +81,11 @@ A ticket or PR the factory has stopped on and no sweep repairs: the `agent:block
 _Avoid_: held (a hold is a person choosing the timing), stalled, abandoned.
 
 **Hold**:
-A human's instruction to leave a ready ticket alone: the `hold` label, which holds a ticket back whatever else it carries, and the work in flight on it, a PR included. Removing it releases the ticket: on the dispatcher's next sweep, or for work still carrying a state label, the reconciler's first sweep past its stuck deadline. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `HOLD_LABELS` in `factory/lib/labels.ts` is the set the dispatcher, the retry handler and the reconciler read, and `docs/agents/triage-labels.md` is what a triager reads.
+A human's instruction that the factory start no work on a ready ticket: the `hold` label, whatever else the ticket carries. It never stops a merge: to stop a started ticket, close its PR. Removing it releases the ticket: on the dispatcher's next sweep, or for work still carrying a state label, the reconciler's first sweep past its stuck deadline. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `docs/agents/triage-labels.md` is what a triager reads.
 _Avoid_: blocked, on hold as a state the factory sets (the factory never adds or removes it); paused, which since #171 names the whole target's breaker rather than one ticket's timing (**Pause**).
 
 **Ready for human**:
-A ticket a person is to implement rather than the factory: the `ready-for-human` label, one of the five triage roles `docs/agents/triage-labels.md` maps. The factory never writes it, and the dispatcher reads it only as a backstop among the labels that hold a ticket back, since a ticket genuinely somebody's to write by hand does not also carry `ready-for-agent`.
+A ticket a person is to implement rather than the factory: the `ready-for-human` label, one of the five triage roles `docs/agents/triage-labels.md` maps. The factory neither writes nor reads it.
 _Avoid_: human ticket, manual, hold (a **hold** says not yet, this says not the factory).
 
 **Target repo**:

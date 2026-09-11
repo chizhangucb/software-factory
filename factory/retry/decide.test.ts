@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { RATE_LIMITED_FILE } from "../lib/accounts";
 import { whySkipped } from "../dispatch/select.ts";
-import { BLOCKED_LABEL, HOLD_LABELS, IN_PROGRESS_LABEL } from "../lib/labels";
+import { BLOCKED_LABEL, IN_PROGRESS_LABEL } from "../lib/labels";
 import { trustPolicy } from "../lib/trusted-authors.ts";
 import {
   CONFLICT_REASON,
@@ -95,16 +95,12 @@ test("a held subject whose retry is spent stands down rather than escalating", (
   assert.equal(decide({ retriesUsed: 1, kind: "verdict", escalated: true, held: heldTicket }).action, "none");
 });
 
-test("findHold reads the whole hold set, on the ticket first and then on its open PR", () => {
-  // The same set the dispatcher reads, from the same module (#185's first
-  // criterion), so no label holds a ticket back at one seam and not another.
+test("findHold reads the hold on the ticket first and then on its open PR", () => {
   const ticket = (labels: string[]) => ({ kind: "issue" as const, number: "7", labels });
   const pr = (labels: string[]) => ({ kind: "pr" as const, number: "12", labels });
-  for (const label of HOLD_LABELS) {
-    assert.deepEqual(findHold([ticket(["ready-for-agent", label])]), { label, on: { kind: "issue", number: "7" } });
-    // A hold on the PR alone still stops the retry: the retry's label goes on the PR.
-    assert.deepEqual(findHold([ticket(["ready-for-agent"]), pr([label])]), { label, on: { kind: "pr", number: "12" } });
-  }
+  assert.deepEqual(findHold([ticket(["ready-for-agent", "hold"])]), heldTicket);
+  // A hold on the PR alone still stops the retry: the retry's label goes on the PR.
+  assert.deepEqual(findHold([ticket(["ready-for-agent"]), pr(["hold"])]), { label: "hold", on: { kind: "pr", number: "12" } });
   assert.deepEqual(findHold([ticket(["hold"]), pr(["hold"])])?.on, { kind: "issue", number: "7" }, "the ticket is named first");
   assert.equal(findHold([ticket(["ready-for-agent", "agent:in-progress", "factory:retry-1"]), pr(["agent:review"])]), undefined);
   assert.equal(findHold([]), undefined);
@@ -123,8 +119,8 @@ test("the stand-down comment names the label and the subject, and what resumes i
   // Not an escalation and not a note for a human: the person already has it.
   assert.doesNotMatch(onTicket, /needs-human|agent:blocked/);
 
-  const onPr = renderStandDownComment({ ...base, hold: { label: "needs-triage", on: { kind: "pr", number: "12" } }, pr: "12" });
-  assert.match(onPr, /`needs-triage` is on PR #12/);
+  const onPr = renderStandDownComment({ ...base, hold: { label: "hold", on: { kind: "pr", number: "12" } }, pr: "12" });
+  assert.match(onPr, /`hold` is on PR #12/);
   // A PR is left where a requeue leaves one (#148), for the reconciler's stuck path.
   assert.match(onPr, /`agent:in-progress`/);
   assert.match(onPr, /reconciler/);
@@ -251,7 +247,7 @@ const handlerFunction = (name: string): string => {
   return code.slice(start, code.indexOf("\n};", start));
 };
 
-test("the retry handler asks the hold set before it decides, on the ticket and on its open PR", () => {
+test("the retry handler asks for a hold before it decides, on the ticket and on its open PR", () => {
   const main = handlerFunction("main");
   assert.match(main, /findHold\(/, "the handler never looks for a hold");
   assert.match(main, /decide\(\{[^}]*\bheld\b[^}]*\}\)/, "decide is never told about the hold it found");

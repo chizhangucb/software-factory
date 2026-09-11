@@ -14,6 +14,21 @@ import { test } from "node:test";
 /** A file in this repo, by its path from the root. */
 const readRepo = (file: string): string => fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
 
+const SETUP_SKILL = "factory/plugins/mattpocock-skills/skills/engineering/setup-matt-pocock-skills";
+
+/** Each page the skill writes, and the plugin file it is a copy of. */
+const VENDORED_PAGES = [
+  { page: "docs/agents/domain.md", plugin: `${SETUP_SKILL}/domain.md` },
+  { page: "docs/agents/issue-tracker.md", plugin: `${SETUP_SKILL}/issue-tracker-github.md` },
+  { page: "docs/agents/triage-labels.md", plugin: `${SETUP_SKILL}/triage-labels.md` },
+];
+
+test("each page the setup skill writes is the plugin's copy", () => {
+  for (const { page, plugin } of VENDORED_PAGES) {
+    assert.equal(readRepo(page), readRepo(plugin), `${page} has drifted from ${plugin}; prose of the repo's own goes on ${OWN_TRACKER_PAGE}`);
+  }
+});
+
 /** Where the repo's own tracker prose lives, beside the vendored `issue-tracker.md`. */
 const OWN_TRACKER_PAGE = "docs/agents/tracker-conventions.md";
 

@@ -108,6 +108,10 @@ import {
   REQUEUED_FILE,
   retriesUsed,
   retryLabel,
+  type TicketOrPr,
+  ticketOrPr,
+  ticketOrPrFromPr,
+  type Unresolved,
 } from "./decide";
 
 const REPO = required("GH_REPO");
@@ -166,11 +170,7 @@ interface OpenPr {
   readonly facts: FactoryPrFacts;
 }
 
-interface Target {
-  readonly issue: string | undefined;
-  /** An open PR for the branch, when there is one. */
-  readonly pr: OpenPr | undefined;
-}
+type Target = TicketOrPr<OpenPr>;
 
 /**
  * The one thing an action is taken on: a ticket or a PR, named the way the
@@ -194,7 +194,7 @@ interface Subject {
  * the PR and what a human reads; the PR only when no ticket was found.
  */
 const recordOn = (target: Target): Subject =>
-  target.issue ? { kind: "issue", number: target.issue } : { kind: "pr", number: (target.pr as OpenPr).number };
+  target.issue === undefined ? { kind: "pr", number: target.pr.number } : { kind: "issue", number: target.issue };
 
 /**
  * What a label has to go on to move the factory: the open PR when there is
@@ -203,7 +203,12 @@ const recordOn = (target: Target): Subject =>
  * a retry uses both at once.
  */
 const actOn = (target: Target): Subject =>
-  target.pr ? { kind: "pr", number: target.pr.number } : { kind: "issue", number: target.issue as string };
+  // Two PR branches, not one: only `issue === undefined` narrows `pr` to present.
+  target.issue === undefined
+    ? { kind: "pr", number: target.pr.number }
+    : target.pr
+      ? { kind: "pr", number: target.pr.number }
+      : { kind: "issue", number: target.issue };
 
 /**
  * The ticket and its open PR from whichever number the workflow knows.
@@ -212,7 +217,7 @@ const actOn = (target: Target): Subject =>
  * GitHub again later is one more call that can fail, on a step whose failure
  * would fall back to closing.
  */
-const resolveTarget = (): Target => {
+const resolveTarget = (): Target | Unresolved => {
   const openPr = (number: string, pr: { headRefName: string; body: string | null }): OpenPr => ({
     number,
     facts: { headRef: pr.headRefName, body: pr.body ?? "" },
@@ -221,8 +226,13 @@ const resolveTarget = (): Target => {
     const pr = ghJson<{ state: string; body: string | null; headRefName: string }>([
       "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body,headRefName",
     ]);
-    const issue = ISSUE_INPUT ?? linkedIssueNumber(pr.body) ?? undefined;
-    return { issue: issue || undefined, pr: pr.state === "OPEN" ? openPr(PR_INPUT, pr) : undefined };
+    // Unresolved when nothing resolves; `main` fails on that before any write (#133).
+    return ticketOrPrFromPr({
+      number: PR_INPUT,
+      state: pr.state,
+      ticket: ISSUE_INPUT ?? linkedIssueNumber(pr.body),
+      pr: openPr(PR_INPUT, pr),
+    });
   }
   const issue = required("ISSUE_NUMBER");
   // Every open PR, as the dispatcher lists them, and not a body search: GitHub's
@@ -653,7 +663,7 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
       // The PR's own number when no ticket was found, which is the reachable
       // case for a PR the factory did not author: it closes no ticket. The
       // comment renders it as `#N`, which on that PR's thread links to itself.
-      issueNumber: target.issue ?? (target.pr as OpenPr).number,
+      issueNumber: recordOn(target).number,
       reason,
       summary: failure.summary,
       runUrl: RUN_URL,
@@ -685,8 +695,10 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
 };
 
 const main = async (): Promise<void> => {
-  let target = resolveTarget();
-  console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr?.number ?? "(none)"}, branch ${BRANCH}.`);
+  const resolved = resolveTarget();
+  if ("unresolved" in resolved) console.log(`${resolved.unresolved} Branch ${BRANCH}.`);
+  else console.log(`Ticket #${resolved.issue ?? "(none)"}, open PR #${resolved.pr?.number ?? "(none)"}, branch ${BRANCH}.`);
+  const openPr = "unresolved" in resolved ? undefined : resolved.pr;
 
   let failure: Failure | undefined;
   if (FAILURE_KIND === "implement") {
@@ -699,7 +711,7 @@ const main = async (): Promise<void> => {
     }
     failure = implementFailure(outcome);
   } else if (FAILURE_KIND === "checks") {
-    failure = await checksFailure(target.pr);
+    failure = await checksFailure(openPr);
   } else {
     throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_KIND}`);
   }
@@ -707,6 +719,10 @@ const main = async (): Promise<void> => {
     console.log("Every check on the head passed; nothing to retry.");
     return;
   }
+  // Only now is a subject needed: a passing head writes nothing, and a PR with no
+  // ticket that merged as its verdict posted is that case, not a failure (#133).
+  if ("unresolved" in resolved) throw new Error(resolved.unresolved);
+  let target: Target = resolved;
 
   // Only the checks wait can end in a hand-off, and only an open PR can conflict: the
   // wait's last read is used and nothing is read again (#145). A rate limit's requeue
@@ -718,11 +734,12 @@ const main = async (): Promise<void> => {
   if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
     if (!mergeability) {
       console.log(`PR #${target.pr.number} closed or merged as the handler waited; it is no longer the subject.`);
-      target = { ...target, pr: undefined };
-      if (!target.issue) {
+      const ticketOnly = ticketOrPr<OpenPr>(target.issue, undefined);
+      if (!ticketOnly) {
         console.log("No ticket to fall back to; nothing to requeue.");
         return;
       }
+      target = ticketOnly;
     }
   }
   const labels = labelsOf(recordOn(target));

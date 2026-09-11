@@ -44,8 +44,11 @@ label() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --
 label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
 # The hold, and where its meaning is delivered. A triager meets this label in the label
 # picker and nowhere else, so the description has to carry the whole rule; prose in the
-# target's own docs would be a copy this repo cannot see or keep in step. `--force` above
-# means a re-run rewrites it, so every existing target gets it by re-running the script.
+# target's own docs would be a copy this repo cannot see or keep in step. `--force` in
+# label() means a re-run rewrites it, so an existing target gets it by re-running the
+# script with its own checks named again; that run also rewrites the ruleset. `hold` is an
+# ordinary word, so check whether the target already uses the label for something of its
+# own before onboarding: --force rewrites it in place and every issue carrying it is held.
 # `Factory:` here says who reads the label, not who writes it: the label is a human's to
 # add and remove, like `ready-for-agent`, and the prefix is what tells a triager in the
 # picker that this one is addressed to the dispatcher rather than to another human.

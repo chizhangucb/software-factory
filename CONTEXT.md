@@ -85,6 +85,15 @@ The reviewer's pass or fail, delivered as a required status check. Merge needs t
 A PR the factory opened or worked on: a branch under `agent/`, the marker the implement workflow writes in the body, or the reviewer's verdict section in the body. A human can open one and the factory still owns it, so a PR implement-pr worked on counts. One definition, `factory/lib/factory-pr.ts`, read by the audit and the reconciler.
 _Avoid_: agent PR, bot PR.
 
+**Factory-authored PR**:
+A PR the factory itself opened, rather than one it later worked on: a branch under `agent/`, or the marker the implement workflow writes in the body. Narrower than a **Factory PR** and answering a different question. Factory PR decides what the factory *reads and judges*; this decides what it may *do to* a branch. Escalation may close one and never another, and a conflict is the implementer's to resolve only on one.
+_Avoid_: hand-authored, human PR (both name what a PR is not, and an outside agent's is neither).
+
+**Judged path**:
+How a PR the factory did not author reaches a merge on the reviewer's verdict rather than on an admin bypass: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. Open to any producer whose branch is in the target itself, since every other required check already runs on any such PR; a fork PR is refused. A PR closing no ticket has no acceptance criteria to judge, and the bypass stays its only route. Named, not yet in use: ADR 0003's 2026-09-10 amendment forbids telling any producer to take it until #174, #180 and #183 land, since the factory still writes to a PR it did not author.
+_Avoid_: human merge path (ADR 0003 refuses one and still does; what this replaces is the *unjudged* merge, not the absent human).
+_Except_ where ADR 0003 names the option it rejected: "no human merge path" is that file's own phrase for the rejection, and its amendment titles keep it.
+
 **Audit**:
 A re-review of a merged PR against its ticket, read-only, run by an agent on the model the maintainer configured, which should be the strongest the subscription serves. Every merged factory PR for the first 20; a sampled cadence after that (deferred). A miss reverts. Reported in the digest.
 

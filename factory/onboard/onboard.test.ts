@@ -23,9 +23,11 @@ const factoryChecks = ["factory/verdict", "factory/red-green", "factory/test-int
 
 /**
  * A stub `gh`: it answers the reads `onboard.sh` makes and keeps the ruleset payload it
- * is handed, and the label creates it is asked for, one tab-separated argv per line
+ * is handed, and every call it is made at all, one tab-separated argv per line
  * (tab-separated rather than `$*`, because a description is several words and would
- * otherwise be indistinguishable from the arguments around it). `GH_EXISTING_ID` is how
+ * otherwise be indistinguishable from the arguments around it). Every call and not just
+ * the label creates, because "onboarding deletes nothing" is a claim about the calls the
+ * script does *not* make, which only a full record can settle. `GH_EXISTING_ID` is how
  * a test picks the create path (unset) or the update path (an id). `GH_CALLER_ERROR`, when set, makes the caller-presence check fail with
  * that text instead of answering -- real `gh` on a 404 prints "HTTP 404" among other
  * text, which is what tells `onboard.sh` a missing file from any other kind of failure.
@@ -34,8 +36,9 @@ const factoryChecks = ["factory/verdict", "factory/red-green", "factory/test-int
  */
 const stubGh = `#!/usr/bin/env bash
 args="$*"
+printf '%s\\t' "$@" >> "$GH_CALLS"; printf '\\n' >> "$GH_CALLS"
 case "$args" in
-  "label create"*) printf '%s\\t' "$@" >> "$GH_LABELS"; printf '\\n' >> "$GH_LABELS" ;;
+  "label create"*) ;;
   "repo edit"*) ;;
   "api --method POST"*) cat > "$GH_PAYLOAD"; echo 4242 ;;
   "api --method PUT"*)  cat > "$GH_PAYLOAD" ;;
@@ -63,16 +66,16 @@ const sandbox = (options: OnboardOptions = {}) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
-  const labelsFile = path.join(dir, "labels.tsv");
+  const callsFile = path.join(dir, "calls.tsv");
   return {
     dir,
     payloadFile,
-    labelsFile,
+    callsFile,
     env: {
       ...process.env,
       PATH: `${dir}:${process.env.PATH}`,
       GH_PAYLOAD: payloadFile,
-      GH_LABELS: labelsFile,
+      GH_CALLS: callsFile,
       // Pinned rather than omitted: an ambient GH_EXISTING_ID would otherwise put the
       // create-path tests silently on the update path.
       GH_EXISTING_ID: existingRulesetId ?? "",
@@ -90,12 +93,30 @@ const requiredChecks = (payloadFile: string): string[] => {
   return (checks?.parameters.required_status_checks ?? []).map((c: { context: string }) => c.context);
 };
 
+/**
+ * Every `gh` call the script made, as its argv. The stub writes a tab *after* every
+ * argument, so each line ends in one and splitting leaves a trailing empty field: drop
+ * exactly that one, rather than every empty field. An argument that is genuinely empty
+ * has to survive, or a call made with one silently shifts every argument after it and
+ * `createdLabels` reads the wrong thing as a name or a description.
+ */
+const ghCalls = (callsFile: string): string[][] =>
+  fs.existsSync(callsFile)
+    ? fs
+        .readFileSync(callsFile, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split("\t").slice(0, -1))
+    : [];
+
+/** The `gh label create` calls among them, as argv. */
+const labelCreateCalls = (calls: string[][]): string[][] =>
+  calls.filter(([verb, noun]) => verb === "label" && noun === "create");
+
 /** The labels the script asked GitHub to create, by name, with the description it gave each. */
-const createdLabels = (labelsFile: string): Map<string, string> => {
-  if (!fs.existsSync(labelsFile)) return new Map();
+const createdLabels = (calls: string[][]): Map<string, string> => {
   const labels = new Map<string, string>();
-  for (const line of fs.readFileSync(labelsFile, "utf8").split("\n").filter(Boolean)) {
-    const args = line.split("\t");
+  for (const args of labelCreateCalls(calls)) {
     const description = args.indexOf("--description");
     // `gh label create <name>`, so the name is the third argument.
     labels.set(args[2]!, description === -1 ? "" : args[description + 1]!);
@@ -109,6 +130,8 @@ type Run = {
   output: string;
   requiredChecks: string[];
   labels: Map<string, string>;
+  /** Every `gh` call the run made, for the claims that are about what it did not do. */
+  calls: string[][];
 };
 
 /** Onboard the target with these own checks. See `OnboardOptions` for `options`. */
@@ -120,11 +143,13 @@ const onboardWith = (ownChecks: string[], options: OnboardOptions = {}): Run => 
       env: box.env,
     });
     if (result.error) assert.fail(`onboard.sh did not run: ${result.error.message}`);
+    const calls = ghCalls(box.callsFile);
     return {
       code: result.status ?? -1,
       output: result.stdout,
       requiredChecks: requiredChecks(box.payloadFile),
-      labels: createdLabels(box.labelsFile),
+      labels: createdLabels(calls),
+      calls,
     };
   } finally {
     fs.rmSync(box.dir, { recursive: true, force: true });
@@ -249,4 +274,181 @@ test("a caller check that fails for a reason other than 404 aborts, rather than 
     /ruleset factory (created|updated)/,
     "no ruleset should be written off a caller check that never actually answered",
   );
+});
+
+/**
+ * The five canonical triage roles, read out of `docs/agents/triage-labels.md`'s table
+ * rather than repeated here. That page is vendored: `factory/plugins/README.md` keeps it
+ * byte-identical to the `setup-matt-pocock-skills` copy, so it is the one place the roles
+ * and their meanings are written down, and parsing it is what makes the script's
+ * descriptions provably the same words a skill reads.
+ *
+ * So a skills bump that rewords the Meaning column turns a vendor re-copy red here, and the
+ * fix is to follow it in `onboard.sh`. That is the intended direction: the page is upstream
+ * of the picker, and the alternative is a second wording nobody notices going stale.
+ */
+const triageRoles = (): Map<string, string> => {
+  const page = fs.readFileSync(fileURLToPath(new URL("../../docs/agents/triage-labels.md", import.meta.url)), "utf8");
+  const roles = new Map<string, string>();
+  for (const line of page.split("\n")) {
+    // | `role` | `label` | Meaning |, which skips the header and the `---` divider.
+    const row = line.match(/^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|$/);
+    if (row) roles.set(row[2]!, row[3]!);
+  }
+  assert.equal(roles.size, 5, `docs/agents/triage-labels.md should map five roles, parsed ${roles.size}`);
+  return roles;
+};
+
+test("onboarding creates the five triage roles, so no target needs the hand step", () => {
+  // `setup-matt-pocock-skills` writes the mapping and never runs `gh label create`
+  // (mattpocock/skills#616), and `gh issue create --label <missing>` fails outright rather
+  // than creating the label, so a missing role is a triage pass that cannot be recorded.
+  const { labels } = onboardWith(["check"]);
+  for (const role of triageRoles().keys()) {
+    assert.ok(labels.has(role), `onboard.sh creates ${role}, or a triager cannot apply it`);
+  }
+});
+
+test("each triage role's description is the meaning docs/agents/triage-labels.md gives it", () => {
+  // The page is what a skill reads and the picker is what a triager reads. Two wordings
+  // for one role is how the same issue gets triaged two ways, so the script copies the
+  // page rather than paraphrasing it, and this fails the day either side drifts.
+  const { labels } = onboardWith(["check"]);
+  for (const [role, meaning] of triageRoles()) {
+    assert.equal(labels.get(role), meaning, `${role}'s description should be its meaning on the page`);
+  }
+});
+
+test("onboarding asserts the two triage categories rather than trusting GitHub to have made them", () => {
+  // `bug` and `enhancement` exist on most targets only because GitHub creates them on a new
+  // repo, with GitHub's own wording. A repo made from a template, or one whose defaults were
+  // cleared, has neither, and the triage skill hands out exactly these two category roles.
+  const { labels } = onboardWith(["check"]);
+  assert.equal(labels.get("bug"), "Something is broken");
+  assert.equal(labels.get("enhancement"), "New feature or improvement");
+});
+
+/** The map, then the four ticket types the wayfinder skill puts on a child ticket. */
+const wayfinderLabels = ["wayfinder:map", "wayfinder:research", "wayfinder:prototype", "wayfinder:grilling", "wayfinder:task"];
+
+test("onboarding creates the five wayfinder labels, the other set nothing was creating", () => {
+  const { labels } = onboardWith(["check"]);
+  for (const label of wayfinderLabels) {
+    assert.ok(labels.has(label), `onboard.sh creates ${label}, or charting a map fails on the first ticket`);
+  }
+});
+
+test("a wayfinder ticket type says whether it is worked with a human or driven alone", () => {
+  // HITL against AFK is the distinction the skill turns on, and the picker is where the
+  // person labelling the ticket meets it. `wayfinder:map` is the container, not a type,
+  // so it carries no such answer.
+  const { labels } = onboardWith(["check"]);
+  for (const label of wayfinderLabels.filter((name) => name !== "wayfinder:map")) {
+    assert.match(labels.get(label)!, /with a human|AFK/, `${label} should say who drives it`);
+  }
+});
+
+test("no label onboarding writes reaches the picker without a description", () => {
+  const { labels } = onboardWith(["check"]);
+  for (const [name, description] of labels) {
+    assert.notEqual(description, "", `${name} reaches the picker with nothing saying what it is for`);
+  }
+});
+
+/**
+ * The labels the script offered a `gh label delete` command for. Read off the commands
+ * themselves rather than off the prose around them, so the note is free to explain which
+ * labels it is leaving alone without that reading as an offer to delete them.
+ */
+const offeredForDeletion = (output: string): string[] =>
+  output.split("\n").flatMap((line) => {
+    const offer = line.match(/gh label delete "([^"]+)" /);
+    return offer ? [offer[1]!] : [];
+  });
+
+test("the unused GitHub defaults are named, with the command that removes them", () => {
+  // GitHub puts nine labels on a new repo. Four of them are roles the factory or the triage
+  // skill uses; the other five are noise in the picker, and the note is how a maintainer
+  // finds out they can go. It prints rather than deletes: see "onboarding deletes nothing".
+  const { output } = onboardWith(["check"]);
+  assert.deepEqual(offeredForDeletion(output).sort(), [
+    "documentation",
+    "good first issue",
+    "help wanted",
+    "invalid",
+    "question",
+  ]);
+  assert.match(output, /--yes/, "the command should be one a maintainer can paste and have run");
+  assert.match(output, new RegExp(target), "the command should name the target, not a placeholder");
+  // `gh label delete good first issue` is three arguments and an error. The names are
+  // printed quoted, so every line is one a maintainer can paste as it stands.
+  assert.match(output, /gh label delete "good first issue" /, "a multi-word label has to reach the shell quoted");
+});
+
+test("no label the tracker actually uses is ever offered for deletion", () => {
+  // `wontfix` is one of the five triage roles and `duplicate` is a real triage answer;
+  // `bug` and `enhancement` are the two categories. Offering any of them would be this
+  // note telling someone to delete part of the vocabulary the script just asserted.
+  const { output, labels } = onboardWith(["check"]);
+  const offered = offeredForDeletion(output);
+  for (const kept of ["bug", "enhancement", "wontfix", "duplicate"]) {
+    assert.ok(!offered.includes(kept), `${kept} is in use, and must never be offered for deletion`);
+  }
+  for (const created of labels.keys()) {
+    assert.ok(!offered.includes(created), `onboard.sh creates ${created} and must not then offer to delete it`);
+  }
+});
+
+test("the note about unused defaults goes to stderr, next to the other advice", () => {
+  const box = sandbox();
+  try {
+    const result = spawnSync(onboard, [target, "check"], { encoding: "utf8", env: box.env });
+    assert.equal(result.status, 0, `onboard.sh failed: ${result.stderr}`);
+    assert.deepEqual(offeredForDeletion(result.stdout), [], "stdout is the record of what the run did");
+    assert.ok(offeredForDeletion(result.stderr).length > 0);
+    assert.doesNotMatch(result.stderr, /WARNING/, "an unused default is a note, not a warning; nothing is at risk");
+  } finally {
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  }
+});
+
+test("every description fits GitHub's 100 character limit, or the label create fails", () => {
+  // GitHub rejects a longer one outright, and `set -e` would take the whole onboarding
+  // down with it, halfway through the vocabulary.
+  const { labels } = onboardWith(["check"]);
+  for (const [name, description] of labels) {
+    assert.ok(description.length <= 100, `${name}'s description is ${description.length} characters`);
+  }
+});
+
+test("onboarding deletes nothing, which is what makes re-running it safe", () => {
+  // Deleting a label strips it from every issue carrying it, silently and with no undo, so
+  // the script stays purely additive and the unused defaults are printed instead (#176).
+  const { calls } = onboardWith(["check"]);
+  for (const args of calls) {
+    assert.ok(!args.includes("delete"), `onboard.sh should delete nothing, it ran: gh ${args.join(" ")}`);
+    assert.ok(!args.includes("DELETE"), `onboard.sh should delete nothing, it ran: gh ${args.join(" ")}`);
+  }
+});
+
+test("a label create is a rewrite, so a second run updates descriptions rather than failing", () => {
+  const { calls } = onboardWith(["check"]);
+  for (const args of labelCreateCalls(calls)) {
+    assert.ok(args.includes("--force"), `gh label create ${args[2]} without --force fails on a re-run`);
+  }
+});
+
+test("onboarding a target that has been onboarded before writes the same vocabulary, and no delete", () => {
+  // "Re-run onboarding to pick up the new labels" is the advice this ticket gives a target
+  // that is already live, and an already-onboarded target is the one with a `factory`
+  // ruleset, so the re-run goes down the update path. The stub keeps no state, so what this
+  // can prove is that the two paths write the same labels and that neither deletes: a
+  // script that skipped or trimmed the vocabulary once a ruleset existed would fail here.
+  const first = onboardWith(["check"]);
+  const rerun = onboardWith(["check"], { existingRulesetId: "7" });
+  assert.match(rerun.output, /ruleset factory updated/, "an onboarded target takes the update path");
+  assert.deepEqual([...rerun.labels], [...first.labels], "a re-run should assert the same labels and wording");
+  for (const args of rerun.calls) {
+    assert.ok(!args.includes("delete") && !args.includes("DELETE"), `a re-run ran: gh ${args.join(" ")}`);
+  }
 });

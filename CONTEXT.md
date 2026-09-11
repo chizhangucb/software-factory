@@ -76,7 +76,7 @@ _Avoid_: held (a hold is a person choosing the timing), stalled, abandoned.
 
 **Hold**:
 A human's instruction to leave a ready ticket alone: the `hold` label, which holds a ticket back whatever else it carries. Removing it releases the ticket on the next sweep. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `HOLD_LABELS` in `factory/lib/labels.ts` is the set the dispatcher reads, and `docs/agents/hold.md` is what a triager reads.
-_Avoid_: blocked, paused, on hold as a state the factory sets (the factory never adds or removes it).
+_Avoid_: blocked, on hold as a state the factory sets (the factory never adds or removes it); paused, which since #171 names the whole target's breaker rather than one ticket's timing (**Pause**).
 
 **Ready for human**:
 A ticket a person is to implement rather than the factory: the `ready-for-human` label, one of the five triage roles `docs/agents/triage-labels.md` maps. The factory never writes it, and the dispatcher reads it only as a backstop among the labels that hold a ticket back, since a ticket genuinely somebody's to write by hand does not also carry `ready-for-agent`.
@@ -88,6 +88,10 @@ A repo the factory is allowed to work on. First one is chronicle.
 **Caller**:
 The one workflow file a target repo carries, at its own `.github/workflows/factory.yml`. It calls the factory's reusable workflows and holds that target's inputs. Copied from `templates/factory.yml`.
 _Avoid_: client, consumer, the target's workflow.
+
+**Pause**:
+One target's circuit breaker: the repository variable `FACTORY_PAUSED`, whose value is the reason it is paused. While it is set the caller starts and advances no work, and `merge-gate` and `audit` keep judging pull requests, which is what tells it apart from disabling the caller workflow. A property of one target, set by a human and never by the factory, since `FACTORY_PAT` cannot write repo variables. Scoped to the whole repo, which is what tells it from a **Hold**: a hold is a person holding one ticket back and lives on that ticket, a pause stops every ticket at once and lives on the repo.
+_Avoid_: halt, kill switch, freeze; hold (one ticket's, and a human's timing rather than a breaker); disable (GitHub's word for turning a workflow off, and the breaker a pause replaces). Stop is fine as the plain verb for what a pause does to a job, never as the name of the thing.
 
 **Maintainer**:
 The human who owns a target repo and the factory working on it. Sets the trust policy and answers what the factory escalates. The actor every spec's user stories are written for, so a spec stays readable when somebody else holds the role.

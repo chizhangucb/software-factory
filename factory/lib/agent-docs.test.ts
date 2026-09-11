@@ -10,6 +10,7 @@ import { test } from "node:test";
 
 const repoUrl = (file: string): URL => new URL(`../../${file}`, import.meta.url);
 const readRepo = (file: string): string => fs.readFileSync(repoUrl(file), "utf8");
+const linesOf = (file: string): string[] => readRepo(file).split("\n");
 
 /** Named roots rather than a walk from the top: `.claude/` holds other sessions' worktrees. */
 const ROOTS = ["README.md", "CONTEXT.md", "AGENTS.md", "docs", "templates", "scripts", "factory", ".github"];
@@ -31,18 +32,20 @@ test("the removed pages and test are gone, and no file names them", () => {
   }
 });
 
-test("every docs/agents page is a titled page with a body under the title", () => {
-  const pages = filesUnder("docs/agents");
-  assert.ok(pages.length > 0, "the pages are there to read");
+/** The pages AGENTS.md points at, since a pointer to a page that is gone or gutted routes nobody. */
+test("every docs/agents page AGENTS.md names carries a body under its title", () => {
+  const pages = new Set([...readRepo("AGENTS.md").matchAll(/docs\/agents\/[\w-]+\.md/g)].map((hit) => hit[0]));
+  assert.ok(pages.size > 0, "AGENTS.md points at the pages");
   for (const page of pages) {
-    const lines = readRepo(page).split("\n").filter((line) => line.trim() !== "");
-    assert.match(lines[0] ?? "", /^# /, `${page} opens on a title`);
-    assert.ok(lines.length > 1, `${page} carries rules under its title`);
+    assert.ok(fs.existsSync(repoUrl(page)), `${page} is there for AGENTS.md to point at`);
+    const body = linesOf(page).filter((line) => line.trim() !== "");
+    assert.match(body[0] ?? "", /^# /, `${page} opens on a title`);
+    assert.ok(body.length > 1, `${page} carries rules under its title`);
   }
 });
 
 test("hold is one row of triage-labels.md, and the page names it nowhere else", () => {
-  const hold = readRepo("docs/agents/triage-labels.md").split("\n").filter((line) => line.includes("`hold`"));
+  const hold = linesOf("docs/agents/triage-labels.md").filter((line) => line.includes("`hold`"));
   assert.equal(hold.length, 1, "the page names hold on one line");
   assert.match(hold[0]!, /^\| .* \|$/, "and that line is a row of the table");
 });

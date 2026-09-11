@@ -91,6 +91,25 @@ test("a permitted edit passes: a relabelled tracker column, and a flipped PR fla
   assert.ok(matchesPlugin("docs/agents/issue-tracker.md", flipped), "a flipped PR flag is still the plugin's page");
 });
 
+test("any other edit fails: one word of prose on any page, the other two columns, a flag that is not yes or no", () => {
+  const edits = [
+    { page: "docs/agents/domain.md", from: "**proceed silently**", to: "**proceed quietly**", what: "a word of domain.md's prose" },
+    { page: "docs/agents/issue-tracker.md", from: "for all operations", to: "for most operations", what: "a word of issue-tracker.md's prose" },
+    { page: "docs/agents/triage-labels.md", from: "When a skill mentions a role", to: "When a skill names a role", what: "a word of triage-labels.md's prose" },
+    { page: "docs/agents/triage-labels.md", from: "Will not be actioned", to: "Will not be done", what: "a cell of the Meaning column" },
+    { page: "docs/agents/triage-labels.md", from: "| `wontfix`                  |", to: "| `won't-fix`                |", what: "a cell of the plugin's label column" },
+    { page: "docs/agents/issue-tracker.md", from: "request surface: no.**", to: "request surface: maybe.**", what: "a PR flag that is neither yes nor no" },
+    // The drift #197 exists for: a repo rule appended to a vendored bullet.
+    { page: "docs/agents/issue-tracker.md", from: '--comment "..."`\n', to: '--comment "..."`. Close the moment a PR merges.\n', what: "a repo rule appended to the Close bullet" },
+  ];
+  for (const { page, from, to, what } of edits) {
+    const plugin = readRepo(vendored(page).plugin);
+    const edited = plugin.replace(from, to);
+    assert.notEqual(edited, plugin, `${what}: the edit landed`);
+    assert.ok(!matchesPlugin(page, edited), `${what} is drift on ${page}`);
+  }
+});
+
 /** Where the repo's own tracker prose lives, beside the vendored `issue-tracker.md`. */
 const OWN_TRACKER_PAGE = "docs/agents/tracker-conventions.md";
 

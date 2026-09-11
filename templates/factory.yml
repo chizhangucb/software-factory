@@ -7,7 +7,9 @@ on:
   issues:
     # unlabeled and unassigned: a ticket held back by ready-for-human or by an
     # assignee reaches the factory the moment the human removes the blocker,
-    # instead of waiting up to ten minutes for the next heartbeat.
+    # instead of waiting up to ten minutes for the next heartbeat. Which of
+    # those removals the dispatcher actually answers is its own condition's
+    # job, below: the factory's own removals are dropped there.
     types: [closed, labeled, unassigned, unlabeled]
   pull_request_target:
     types: [labeled]
@@ -39,13 +41,29 @@ permissions:
   actions: read # retry handler: failing runs' logs and artifacts
 
 jobs:
+  # An unlabeled event wakes the sweep for any label except the factory's own two
+  # namespaces, agent:* and factory:*. Every label the factory writes goes in with
+  # FACTORY_PAT so it fires its event, which is what lets adding agent:implement start
+  # an implementer, and that cuts both ways: without the two clauses below a removal
+  # the factory made woke a full sweep too. A run's cleanup takes its agent:* label
+  # off, the sweep that removal woke found the ticket takeable again and re-stamped it,
+  # and a cancelled run had a replacement within seconds. Twelve cancels on one target
+  # went to fourteen runs in flight in two minutes (#170).
+  # What still reaches the sweep, on purpose: a human dropping ready-for-human,
+  # needs-triage or needs-human, a human dropping an assignee, and the factory's own
+  # escalation dropping ready-for-agent. That last one labels nothing, because the same
+  # escalation puts needs-human on and the dispatcher refuses a ticket carrying it.
+  # A ticket whose run was killed is not re-dispatched by any of this; the reconciler
+  # picks it up at its stuck deadline (stuck_minutes, default 15) on the next heartbeat.
   dispatch:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'factory-sweep') ||
-      (github.event_name == 'issues' && (github.event.action == 'closed' || github.event.action == 'unlabeled' ||
+      (github.event_name == 'issues' && (github.event.action == 'closed' ||
         github.event.action == 'unassigned' ||
+        (github.event.action == 'unlabeled' && !startsWith(github.event.label.name, 'agent:') &&
+          !startsWith(github.event.label.name, 'factory:')) ||
         (github.event.action == 'labeled' && github.event.label.name == 'ready-for-agent')))
     uses: chizhangucb/software-factory/.github/workflows/dispatch.yml@main
     secrets: inherit

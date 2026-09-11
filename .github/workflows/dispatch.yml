@@ -8,11 +8,16 @@
 # `issues: [closed, labeled, unassigned, unlabeled]`, the schedule,
 # workflow_dispatch, and `repository_dispatch: [factory-sweep]`.
 #
-# The caller admits an `unlabeled` or `unassigned` event whatever was removed,
-# so a ticket held back by ready-for-human or by an assignee is dispatched the
-# moment the human lets go of it rather than on the next heartbeat. Why the
-# caller does not try to name which removals matter: docs/pipeline.md, under
-# Dispatcher.
+# The caller admits an `unassigned` event whoever dropped the assignee, and an
+# `unlabeled` event for any label outside the factory's own agent:* and factory:*
+# namespaces, so a ticket held back by ready-for-human, needs-human or an assignee
+# is dispatched the moment the human lets go of it rather than on the next
+# heartbeat. The two namespace clauses are a loop breaker, not a refinement: the
+# factory writes labels with a PAT so they fire their events, and its own removals
+# used to wake a sweep that re-stamped the ticket, so a cancelled run got a
+# replacement within seconds (#170). Why the caller still does not try to name
+# which of the admitted removals matter, and the one factory write that still wakes
+# a sweep: docs/pipeline.md, under Dispatcher.
 #
 # The schedule is the fallback, not the heartbeat: measured on one private
 # target it fired 6 times against about 129 expected in 21 and a half hours,

@@ -17,9 +17,9 @@
  * GitHub would answer with null, which turns that silence into a failing test.
  *
  * The evaluator understands the subset the caller's conditions are written in:
- * `github.*` paths, single-quoted strings, `==`, `!=`, `&&`, `||` and parens.
- * A condition that outgrows it fails loudly here rather than being waved
- * through.
+ * `github.*` paths, single-quoted strings, `==`, `!=`, `!`, `&&`, `||`, parens,
+ * and the functions in `FUNCTIONS`. A condition that outgrows it fails loudly
+ * here rather than being waved through.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -46,6 +46,16 @@ const typesOf = (yaml: string, event: string): string[] => {
 type Context = { event_name: string; event?: Record<string, unknown> };
 
 /**
+ * The GitHub expression functions a caller condition may call, each answering
+ * as GitHub's does. A bare identifier that is neither `read` nor a name in
+ * here fails the test below rather than reaching `new Function` as a
+ * ReferenceError, so the evaluator still refuses what it cannot answer.
+ */
+const FUNCTIONS: Record<string, (...args: unknown[]) => unknown> = {
+  startsWith: (value, prefix) => String(value).startsWith(String(prefix)),
+};
+
+/**
  * Answer a condition as GitHub would, except that reading through an absent
  * field throws instead of returning null. That is the whole point: a condition
  * must say which action each of its clauses is for.
@@ -64,12 +74,21 @@ const evaluate = (expression: string, context: Context): boolean => {
   const js = expression
     .replace(/github\.([a-z_]+(?:\.[a-z_]+)*)/gi, (_, path: string) => `read(${JSON.stringify(path)})`)
     .replace(/'([^']*)'/g, (_, literal: string) => JSON.stringify(literal));
-  assert.doesNotMatch(
-    js.replace(/"[^"]*"/g, '""'),
-    /[^\s\w".,()!=&|]/,
-    `the condition uses syntax this test cannot evaluate: ${expression}`,
+  const bare = js.replace(/"[^"]*"/g, '""');
+  assert.doesNotMatch(bare, /[^\s\w".,()!=&|]/, `the condition uses syntax this test cannot evaluate: ${expression}`);
+  for (const name of bare.match(/[A-Za-z_]\w*/g) ?? []) {
+    assert.ok(
+      name === "read" || Object.hasOwn(FUNCTIONS, name),
+      `the condition calls ${name}, which this test cannot evaluate: ${expression}`,
+    );
+  }
+  const functions = Object.entries(FUNCTIONS);
+  return Boolean(
+    new Function("read", ...functions.map(([name]) => name), `return (${js});`)(
+      read,
+      ...functions.map(([, fn]) => fn),
+    ),
   );
-  return Boolean(new Function("read", `return (${js});`)(read));
 };
 
 const issueEvent = (action: string, label?: string): Context => ({
@@ -79,10 +98,25 @@ const issueEvent = (action: string, label?: string): Context => ({
 
 /**
  * Every issue event the caller subscribes to, and the jobs it should wake.
- * `unlabeled` and `unassigned` wake the dispatcher whatever was removed: which
- * removals can actually unblock a ticket is select.ts's answer, and a caller
- * that named them would be a second copy of those rules. A scan over a ticket
+ *
+ * An `unlabeled` event wakes the dispatcher for any label outside the
+ * factory's own two namespaces, and `unassigned` wakes it whoever dropped the
+ * assignee. Which of the admitted removals can actually unblock a ticket is
+ * still select.ts's answer and not the caller's, so a sweep over a ticket
  * nothing unblocked labels nothing.
+ *
+ * The namespace clauses are not a refinement of that rule, they are a loop
+ * breaker (#170). The factory writes every label with FACTORY_PAT so the
+ * write fires its event, and that cuts both ways: its own removals woke a
+ * sweep too. This file used to say that removing `agent:implement` is how the
+ * reconciler re-fires a stranded ticket and so must reach the dispatcher. It
+ * had the mechanism backwards. The reconciler removes the label and adds it
+ * straight back itself, and it is the *add* that starts the run; the removal
+ * reaching the dispatcher only ever added a second, racing dispatcher, which
+ * found the ticket takeable in the gap between the two writes. That is what
+ * turned a cancelled run into a replacement within seconds. A ticket left in
+ * a factory state label with no live run is picked up by the reconciler at
+ * its stuck deadline instead, on the next heartbeat.
  */
 const ISSUE_EVENTS: { action: string; label?: string; wakes: string[] }[] = [
   { action: "labeled", label: "ready-for-agent", wakes: ["dispatch"] },
@@ -90,11 +124,14 @@ const ISSUE_EVENTS: { action: string; label?: string; wakes: string[] }[] = [
   { action: "labeled", label: "documentation", wakes: [] },
   { action: "unlabeled", label: "ready-for-human", wakes: ["dispatch"] },
   { action: "unlabeled", label: "needs-triage", wakes: ["dispatch"] },
+  // The documented hand-back of an escalated ticket: a human takes needs-human
+  // off and puts ready-for-agent back. Neither write is the factory's, and both
+  // reach the dispatcher.
+  { action: "unlabeled", label: "needs-human", wakes: ["dispatch"] },
   { action: "unlabeled", label: "ready-for-agent", wakes: ["dispatch"] },
-  // Removing agent:implement is how the reconciler re-fires a stranded ticket.
-  // It must reach the dispatcher and nothing else: an implement job that read
-  // the label without its action would start a run on the label coming off.
-  { action: "unlabeled", label: "agent:implement", wakes: ["dispatch"] },
+  { action: "unlabeled", label: "agent:implement", wakes: [] },
+  { action: "unlabeled", label: "agent:in-progress", wakes: [] },
+  { action: "unlabeled", label: "factory:retry-1", wakes: [] },
   { action: "unassigned", wakes: ["dispatch"] },
   { action: "closed", wakes: ["dispatch"] },
 ];
@@ -138,6 +175,25 @@ test("removing a blocking label or an assignee wakes the dispatcher and nothing 
     const woken = [...conditions].filter(([, condition]) => evaluate(condition, payload)).map(([id]) => id);
     assert.deepEqual(woken, wakes, `issues: ${action}${label ? ` (${label})` : ""} wakes ${wakes.join(", ") || "nothing"}`);
   }
+});
+
+test("a label the factory removed wakes no sweep, and a label a human removed still does", () => {
+  // #170 in one assertion, on the trigger decision itself. A cancelled run
+  // leaves its agent:* label for a cleanup step, and that removal fires
+  // `unlabeled` because the factory writes with a PAT. A dispatcher that
+  // answered it would re-stamp agent:implement and the cancel would have
+  // bought nothing: twelve cancels on one target became fourteen runs in
+  // flight inside two minutes.
+  const dispatch = conditions.get("dispatch")!;
+  for (const label of ["agent:implement", "agent:in-progress", "agent:review", "agent:blocked", "factory:retry-1"]) {
+    assert.equal(evaluate(dispatch, issueEvent("unlabeled", label)), false, `removing ${label} wakes no sweep`);
+  }
+  // The other half, which is why the trigger earns its place at all: a human
+  // letting go of a ticket reaches the factory now, not on the next heartbeat.
+  for (const label of ["ready-for-human", "needs-triage", "needs-human"]) {
+    assert.equal(evaluate(dispatch, issueEvent("unlabeled", label)), true, `removing ${label} wakes the sweep`);
+  }
+  assert.equal(evaluate(dispatch, issueEvent("unassigned")), true, "dropping the assignee wakes the sweep");
 });
 
 test("the prose that names the dispatcher's issue triggers names the caller's set", () => {

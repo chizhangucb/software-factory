@@ -28,26 +28,14 @@ export const READY_LABEL = "ready-for-agent";
 export const ESCALATION_LABEL = "needs-human";
 
 /**
- * A human said no agent starts on this ticket, whatever else it says: the
- * dispatcher does not dispatch it, the retry handler stands down rather than
- * retry it, and the reconciler leaves it and its PR alone rather than re-add a
- * start label (#185). Before #185 only the first of the three read it, so the
- * promise was the dispatcher's alone. Two hand-offs still do not read it. An
- * agent workflow that succeeds labels its PR `agent:review`, so a run already
- * going when the hold lands still gets its review. And update-branch's
- * conflict hand-off (`planConflict`) puts `agent:implement` on a conflicting,
- * armed, factory-authored PR carrying no `agent:*` label, held or not; a PR
- * the retry handler stood down on keeps `agent:in-progress` and is skipped
- * there already, so that gap is a held PR between stages. Unprefixed
- * because it is a human's instruction rather than factory state, so it belongs
- * next to `ready-for-agent` rather than in `agent:*`.
+ * A human said the factory starts no work on this ticket: the dispatcher does
+ * not dispatch it, the retry handler stands down, and the reconciler neither
+ * re-adds a start label nor asks for a verdict on it or its PR (#185). It never
+ * stops a merge (#210): to stop a started ticket, close its PR. Unprefixed
+ * because it is a human's instruction, not factory state.
  *
- * It exists because holding a ready ticket back had no label of its own, so
- * people reached for `needs-triage` and it quietly became a veto: on chronicle
- * 14 tickets carried `needs-triage` + `ready-for-agent`, a triage pass read
- * that pair as drift, cleared it, and released 12 tickets into the factory at
- * once (#169). `hold` + `ready-for-agent` cannot be misread, because the label
- * says what it is for.
+ * Before it, people held tickets with `needs-triage`, and a triage pass that
+ * cleared the pair as drift released 12 tickets at once (#169).
  */
 export const HOLD_LABEL = "hold";
 
@@ -71,22 +59,11 @@ export const BLOCKED_LABEL = "agent:blocked";
 export const IN_PROGRESS_LABEL = "agent:in-progress";
 
 /**
- * Labels that stop an agent starting: read by the dispatcher
- * (`dispatch/select.ts`), the retry handler (`findHold` in `retry/decide.ts`)
- * and the reconciler (`dispatch/reconcile.ts`), from here, so those three cannot
- * disagree on what holds a ticket back. `hold` is the one to use; a human adds
- * it and removes it, and removing it releases the ticket on the next sweep.
- *
- * `ready-for-human` and `needs-triage` stay in the set as a backstop, not as
- * the way to hold something. Given correct labelling neither can fire: the
- * dispatcher only ever looks at tickets carrying `ready-for-agent`, and a
- * ticket that is genuinely somebody's to write by hand or genuinely untriaged
- * does not carry it. They are here so that the tickets already held by that
- * pair keep being held, with no window in which one is unprotected, and so
- * that the next person who reaches for `needs-triage` as a veto still gets
- * one.
+ * Labels that stop an agent starting, read from here by the dispatcher, the
+ * retry handler (`findHold`) and the reconciler so they cannot disagree. `hold`
+ * alone since #210.
  */
-export const HOLD_LABELS: readonly string[] = [HOLD_LABEL, "ready-for-human", "needs-triage"];
+export const HOLD_LABELS: readonly string[] = [HOLD_LABEL];
 
 /** Labels that say an agent already holds the subject (implementer or reviewer, running or queued) or that it is parked. */
 export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, IN_PROGRESS_LABEL, "agent:review", BLOCKED_LABEL];

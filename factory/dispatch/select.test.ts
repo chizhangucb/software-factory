@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { HOLD_LABEL, HOLD_LABELS } from "../lib/labels.ts";
+import { HOLD_LABEL } from "../lib/labels.ts";
 import { trustPolicy } from "../lib/trusted-authors.ts";
 import {
   type DispatchIssue,
@@ -53,16 +53,10 @@ test("a ticket without ready-for-agent is not a dispatch candidate", () => {
   assert.equal(whySkipped(ticket(1, { labels: ["bug"] }), OWNER_ONLY), "no ready-for-agent");
 });
 
-test("every hold label holds a ticket back, however ready it says it is", () => {
-  // The hold set is the label vocabulary's, not the dispatcher's own: #169 put
-  // it in `lib/labels.ts` so a reader of the vocabulary sees what stops a
-  // dispatch without reading `select.ts`. Reading it from there is also what
-  // fails this test if a second copy ever grows back here.
-  for (const label of HOLD_LABELS) {
-    const held = ticket(1, { labels: ["ready-for-agent", label] });
-    assert.deepEqual(numbers([held]), []);
-    assert.equal(whySkipped(held, OWNER_ONLY), `held: ${label}`);
-  }
+test("hold alone holds: a ready-for-agent ticket carrying needs-triage or ready-for-human is dispatched", () => {
+  // #210: those two were a backstop for old needs-triage + ready-for-agent pairs, and none is left.
+  const tickets = ["needs-triage", "ready-for-human"].map((label, i) => ticket(i + 1, { labels: ["ready-for-agent", label] }));
+  assert.deepEqual(numbers(tickets), [1, 2]);
 });
 
 test("the hold is the only thing stopping a ticket that is otherwise ready to go", () => {

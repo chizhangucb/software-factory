@@ -31,13 +31,13 @@
  * - merge-ready PR behind main with no update-branch run in the window:
  *   dispatch factory-update-branch.
  * None of them reaches a parked subject (`agent:blocked`, `needs-human`, the
- * factory's own) or a held one (#185): a label from the hold set on it or, for
- * a PR, on the ticket it closes. Each is reported with a log line and left
- * alone. Every repair above starts an agent or moves a PR toward a merge, and
- * a hold is a person saying not yet. The state label stays on, so taking the
- * hold off lets the next sweep past the stuck deadline resume the subject;
- * that deadline runs from when the label went on, so a subject held longer
- * than it resumes on the first sweep after.
+ * factory's own): it is reported with a log line and left alone. A held one
+ * (#185), `hold` on it or, for a PR, on the ticket it closes, gets no repair
+ * that starts an agent, but is still re-armed and updated: a hold never stops
+ * a merge (#210). The state label stays on, so taking the hold off lets the
+ * next sweep past the stuck deadline resume the subject; that deadline runs
+ * from when the label went on, so a subject held longer than it resumes on
+ * the first sweep after.
  * Every cancel is a lost event and counts as a miss (#149). The per-account
  * slots that cancelled a third run queued for a full one are gone, so there
  * is no longer a cancel the reconciler should forgive, and it no longer reads
@@ -293,22 +293,22 @@ const decideStuck = (input: StuckInput, snap: Snapshot, deadline: number): Decis
   };
 };
 
-/** The first label of the hold set these carry: the dispatcher's set, from the same module (#185). */
+/** The hold label these carry, from the dispatcher's own list (#185). */
 const holdIn = (labels: readonly string[]): string | undefined => HOLD_LABELS.find((l) => labels.includes(l));
 
 /**
- * Parked or held, on the subject's own labels: nothing the reconciler does
- * reaches such a subject. `sweep.ts` reads it to skip the reads it would never
- * use. A PR held only through its ticket is not caught here, since the ticket's
- * labels are not the PR's; the reconciler catches that one itself, and the
- * sweep merely reads a little more than it needs to.
+ * Parked or held, on the subject's own labels: no agent is started on such a
+ * subject. `sweep.ts` reads it to skip the reads only an agent's start would
+ * use. A PR held only through its ticket is not caught here, since the
+ * ticket's labels are not the PR's; the reconciler catches that one itself,
+ * and the sweep merely reads a little more than it needs to.
  */
 export const leftAlone = (labels: readonly string[]): boolean =>
   PARKED_LABELS.some((l) => labels.includes(l)) || holdIn(labels) !== undefined;
 
 /**
- * What holds a subject back, as the log names it, or undefined: a label of the
- * hold set on the subject itself or, for a PR, on the ticket it closes.
+ * What holds a subject back, as the log names it, or undefined: `hold` on the
+ * subject itself or, for a PR, on the ticket it closes.
  *
  * The ticket's hold reaches its PR because the retry handler reads both. It
  * stands down on a held ticket's PR by keeping it in `agent:in-progress`, and
@@ -483,10 +483,6 @@ const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines, held: s
   if (!p.factory) return decideUnjudged(p, snap, deadlines, held, policy);
   const subject: Subject = { kind: "pr", number: p.number };
   const none = (log: string): Decision => ({ subject, action: { type: "none" }, log });
-  // Judging the PR adds agent:review, which starts the reviewer; a held PR gets
-  // no agent (#185), and none of the merge rules below is urgent enough to
-  // override a person. Re-arming and updating wait with it.
-  if (held) return none(`#${p.number} (pr) factory PR with no agent label: held: ${held}`);
   const sha = p.headSha.slice(0, 7);
   const now = Date.parse(snap.now);
 
@@ -507,6 +503,8 @@ const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines, held: s
   if (p.verdict === "none") {
     const { age, head } = sinceHead(p, `auto-merge armed, no factory/verdict on ${sha}`, now, deadlines.verdictMinutes);
     if (age !== undefined && age < deadlines.verdictMinutes) return none(`${head}: within deadline`);
+    // A hold withholds the reviewer, never the merge path above and below (#210).
+    if (held) return none(`${head}: held: ${held}`);
     return { subject, action: { type: "relabel", remove: [], add: "agent:review" }, log: `${head}: add agent:review` };
   }
   if (p.verdict === "pending") return none(`#${p.number} (pr) auto-merge armed, factory/verdict pending on ${sha}, deadline ${deadlines.verdictMinutes} min: reviewer running`);

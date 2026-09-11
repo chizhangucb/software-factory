@@ -21,10 +21,11 @@ const REMOVED = ["docs/agents/hold.md", "docs/agents/tracker-conventions.md", "f
 
 test("the removed pages and test are gone, and no file names them", () => {
   for (const file of REMOVED) assert.ok(!fs.existsSync(repoUrl(file)), `${file} is gone`);
-  const names = REMOVED.map((file) => file.split("/").at(-1)!);
+  // A whole name only, so `threshold.md` is not `hold.md`.
+  const names = REMOVED.map((file) => new RegExp(`(?<![\\w.-])${file.split("/").at(-1)!.replaceAll(".", "\\.")}`));
   for (const file of ROOTS.flatMap(filesUnder).filter((file) => file !== "factory/lib/agent-docs.test.ts")) {
     const text = readRepo(file);
-    for (const name of names) assert.ok(!text.includes(name), `${file} names ${name}`);
+    for (const name of names) assert.doesNotMatch(text, name, `${file} names a removed file`);
   }
 });
 

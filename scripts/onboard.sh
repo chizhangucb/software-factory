@@ -6,8 +6,21 @@
 #   scripts/onboard.sh owner/repo [own-check ...]
 # Each extra argument is a status check the target's own CI already posts
 # (the job name, e.g. `check`); it is required next to the factory's three.
-# Give none and onboarding still runs, loudly: see warn_no_own_check.
+# Give none and the script discovers them instead, off what GitHub reports as having
+# posted on the last 5 commits of the default branch. Five is the sample size, and the
+# reason is the intersection rule below: a name is required only if it posted on every
+# sampled commit, so the sample has to be big enough that a path-filtered check misses at
+# least one of them. One commit cannot tell an always-on check from a path-filtered one
+# that happened to run; five is enough that a docs-only or one-directory commit is usually
+# among them, and short enough that a job added a week ago still posted on all five.
+# Larger and a recently added check reads as path-filtered, because the oldest commits in
+# the sample predate it, and it silently stops being required. Smaller and a path-filtered
+# check reads as always-on, which is the failure this whole thing exists to avoid. Cost is
+# two API calls per sampled commit, check runs and commit statuses, plus one for the listing.
+# Discover nothing, or name nothing, and onboarding still runs, loudly: see warn_no_own_check.
 set -euo pipefail
+# The sample size the header explains. onboard.test.ts reads both and fails on drift.
+check_sample=5
 repo="${1:?usage: onboard.sh owner/repo [own-check ...]}"
 shift
 
@@ -24,18 +37,31 @@ warn_no_own_check() {
   {
     echo "############################################################"
     if [ "$has_caller" = "true" ]; then
-      echo "## WARNING: no own check given for $repo."
+      echo "## WARNING: no own check for $repo: none discovered, none named."
       echo "## The factory ruleset gates on the factory's checks alone:"
       echo "##   factory/verdict, factory/red-green, factory/test-integrity."
       echo "## The target's own CI is not required, so a PR that breaks the"
       echo "## target's build still merges."
     else
-      echo "## WARNING: no own check given for $repo, and it carries no caller."
+      echo "## WARNING: no own check for $repo, and it carries no caller."
       echo "## The ruleset requires nothing at all: no factory checks, since"
       echo "## no caller posts them, and no own check either. A PR merges"
       echo "## with nothing having run on it."
     fi
-    echo "## Fix: re-run naming the checks the target's CI posts, e.g."
+    # Said only when discovery actually ran, and off what it actually sampled. A run that
+    # named checks on the command line turned discovery off, and a brand new target has no
+    # commits to read: telling either of them that five commits were read and came back
+    # empty is a sentence about a thing that never happened, in the one block a maintainer
+    # is meant to act on.
+    if [ "$discovery_ran" = "true" ] && [ "$sampled_commits" -gt 0 ]; then
+      echo "## Discovery read $sampled_commits recent commits of the default branch"
+      echo "## and found no check posted on every one of them."
+    elif [ "$discovery_ran" = "true" ]; then
+      echo "## Discovery had nothing to read: no commits on the default"
+      echo "## branch yet. Re-run once the target's CI has posted on some."
+    fi
+    echo "## Fix: name the checks the target's CI posts, which turns"
+    echo "## discovery off and requires exactly what you list, e.g."
     echo "##   scripts/onboard.sh $repo check"
     echo "############################################################"
   } >&2
@@ -46,7 +72,7 @@ label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
 # picker and nowhere else, so the description has to carry the whole rule; prose in the
 # target's own docs would be a copy this repo cannot see or keep in step. `--force` in
 # label() means a re-run rewrites it, so an existing target gets it by re-running the
-# script with its own checks named again; that run also rewrites the ruleset. `hold` is an
+# script; that run also rewrites the ruleset, off discovery unless checks are named. `hold` is an
 # ordinary word, so check whether the target already uses the label for something of its
 # own before onboarding: --force rewrites it in place and every issue carrying it is held.
 # `Factory:` here says who reads the label, not who writes it: the label is a human's to
@@ -158,6 +184,124 @@ elif [[ "$caller_error" == *"HTTP 404"* ]]; then
 else
   echo "onboard.sh: could not tell whether $repo carries a caller: $caller_error" >&2
   exit 1
+fi
+# Discovery. Onboarding a repo you were handed an hour ago should not need its job names, and
+# GitHub already knows them: it reports what actually posted on a commit, which is stronger
+# evidence than anything typed by hand. So with no names on the command line, sample the last
+# $check_sample commits of the default branch and read the check runs off each.
+# The intersection, and not the union, is what gets required. A check with a path filter does
+# not post on every commit, and requiring one leaves a PR that touches none of those paths
+# waiting forever on a check that will never arrive, with auto-merge waiting with it. That is
+# the worst thing this script can do to a target, and it is silent. A name on some commits but
+# not all is therefore reported and not required; a maintainer who knows better names it on the
+# command line. The other direction, a check missed and not required, is the warning case:
+# loud, and a re-run fixes it.
+# The factory's own three are dropped here rather than discovered: whether they are required is
+# read off the caller above, and a target that carried a caller and then lost it would
+# otherwise have them rediscovered out of history and required with nothing left to post them.
+sampled_commits=0
+# Whether discovery ran at all, as opposed to having run and found nothing. warn_no_own_check
+# reads it: checks named on the command line turn discovery off, and the warning must not
+# then describe a read that never happened.
+discovery_ran=false
+discovered_required=""
+discovered_partial=""
+discover_own_checks() {
+  local sha names runs statuses counted recent listing_error listing_error_file
+  local listing_status=0
+  local seen=""
+  # Held in a variable rather than looped over straight out of `$(...)`, because a command
+  # substitution in a `for` list has its exit status thrown away: a rate limit would arrive as
+  # an empty list and read as a target whose CI has posted nothing, which is a wrong warning
+  # and a ruleset written off an answer nobody got.
+  # And caught by hand rather than left to set -e, the way the caller check above is, because
+  # one failure here is an answer. GitHub lists a repo with no commits yet as a 409, "Git
+  # Repository is empty", where the caller check gets a 404 for the same repo and reads it as
+  # no caller. Before discovery such a repo onboarded with the loud warning, and it still does:
+  # the 409 is zero sampled commits. Matched on status and message both, narrowly, because the
+  # point of the strictness is that a rate limit must never read as an empty history; anything
+  # else is re-raised with gh's own words. stderr goes to a file because stdout carries the
+  # shas, and gh prints its error body there on a failure.
+  listing_error_file=$(mktemp)
+  recent=$(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha' 2>"$listing_error_file") ||
+    listing_status=$?
+  listing_error=$(cat "$listing_error_file")
+  rm -f "$listing_error_file"
+  if [ "$listing_status" -ne 0 ]; then
+    if [[ "$listing_error" == *"HTTP 409"* && "$listing_error" == *"Git Repository is empty"* ]]; then
+      recent=""
+    else
+      echo "onboard.sh: could not read $repo's recent commits: $listing_error" >&2
+      exit 1
+    fi
+  fi
+  while IFS= read -r sha; do
+    # An empty listing still feeds a herestring one empty line, and a sha of "" would count as
+    # a commit that posted nothing and take the intersection down to nothing with it.
+    if [ -z "$sha" ]; then continue; fi
+    sampled_commits=$((sampled_commits + 1))
+    # Both report styles, because a ruleset context matches either and a target's CI may use
+    # either: GitHub Actions posts check runs, while external CI (CircleCI, Jenkins) and the
+    # factory's own three post commit statuses (ADR 0003: "Commit statuses are always posted
+    # with GITHUB_TOKEN"). Reading one style only would send half the targets to the "your CI
+    # posted nothing" warning with their CI sitting right there in the API.
+    # One assignment per endpoint, and not both inside one `{ ...; ...; } | ...`, for the same
+    # reason the listing above is held in a variable: a group's exit status is its last
+    # command's, so a check-runs call that failed on a rate limit would be swallowed whole by
+    # the status call succeeding after it, and the commit would read as having posted only its
+    # statuses. That is the intersection silently losing a real check. A bare assignment fails
+    # loudly under set -e instead.
+    runs=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --jq '.check_runs[].name')
+    statuses=$(gh api "repos/$repo/commits/$sha/status?per_page=100" --jq '.statuses[].context')
+    # `sort -u` because a re-run posts a second check run under the same name, and one name
+    # posted twice on one commit must not count as two commits. awk and not grep -v, which
+    # exits 1 on a commit whose only checks are the factory's and would take set -e with it.
+    names=$(printf '%s\n%s\n' "$runs" "$statuses" | awk 'NF && $0 !~ /^factory\//' | sort -u)
+    seen="$seen$names"$'\n'
+  done <<<"$recent"
+  [ "$sampled_commits" -gt 0 ] || return 0
+  # One line per name, "<commits it posted on> <name>". Line-based throughout, because a job
+  # name is routinely several words: `test (20.x)`, `build / lint`.
+  counted=$(printf '%s' "$seen" | awk 'NF' | sort | uniq -c)
+  # Nothing discovered is not one nameless check. A herestring hands awk one empty record even
+  # for an empty string, which printed a note block whose single entry was "(posted on  of 5)":
+  # a warning about path filters on the run that found no checks at all.
+  if [ -z "$counted" ]; then return 0; fi
+  discovered_required=$(awk -v n="$sampled_commits" '{ count = $1; sub(/^ *[0-9]+ /, ""); if (count + 0 == n) print }' <<<"$counted")
+  discovered_partial=$(awk -v n="$sampled_commits" '{ count = $1; sub(/^ *[0-9]+ /, ""); if (count + 0 != n) print $0 " (posted on " count " of " n ")" }' <<<"$counted")
+}
+# What discovery saw but will not require, and the one way to override it. Printed to stderr
+# with the rest of the advice, because it is a thing to decide about rather than a thing the
+# run did. Named, because a maintainer who knows the check posts on every PR that matters is
+# the only one who can say so, and the positional arguments are how they say it.
+note_path_filtered() {
+  {
+    echo "############################################################"
+    echo "## NOTE: these posted on some of the $sampled_commits sampled commits of"
+    echo "## $default_branch, but not all, so they read as path-filtered"
+    echo "## and are NOT required:"
+    while IFS= read -r partial; do
+      if [ -n "$partial" ]; then echo "##   $partial"; fi
+    done <<<"$discovered_partial"
+    echo "## Requiring one would leave a PR that touches none of its paths"
+    echo "## waiting forever for a check that never posts."
+    echo "## If one really does post on every PR, name it by hand:"
+    echo "##   scripts/onboard.sh $repo <check> ..."
+    echo "############################################################"
+  } >&2
+}
+if [ "$#" -eq 0 ]; then
+  discovery_ran=true
+  discover_own_checks
+  while IFS= read -r discovered; do
+    if [ -n "$discovered" ]; then set -- "$@" "$discovered"; fi
+  done <<<"$discovered_required"
+  if [ "$#" -gt 0 ]; then
+    echo "discovered on $sampled_commits recent commits of $default_branch: $*"
+  fi
+  if [ -n "$discovered_partial" ]; then note_path_filtered; fi
+else
+  echo "own checks named on the command line, discovery skipped: $*"
 fi
 # Empty arguments name no check, and a name handed back twice is still one check; both would
 # otherwise reach GitHub as a bogus context in the ruleset, so drop them here. First mention

@@ -8,6 +8,10 @@
  * is held by a label a human reads about somewhere other than in the code, and
  * a page that lists two of the three tells that human the third is safe to
  * clear. Nothing else in the tree can see a doc going stale, so this does.
+ *
+ * The last test is the other half of the same subject and the reason this file
+ * is not only about prose: which strings the dispatcher is allowed to decide
+ * on at all (ADR 0005).
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -88,11 +92,8 @@ test("the hold label is unprefixed, so it reads as a human's instruction rather 
 
 /**
  * The nine labels GitHub creates on every new repository, whether anyone asks
- * for them or not. Their meanings are GitHub's and are published to everyone
- * who has ever used the site: `help wanted` means an outside contributor is
- * welcome here, which is recruiting rather than routing. A repo the factory
- * onboards carries all nine before `scripts/onboard.sh` writes one label of
- * the factory's own.
+ * for them or not. A target carries all nine before `scripts/onboard.sh`
+ * writes one label of the factory's own.
  */
 const GITHUB_DEFAULT_LABELS = [
   "bug",
@@ -107,14 +108,13 @@ const GITHUB_DEFAULT_LABELS = [
 ];
 
 test("every label the dispatcher decides on is one this repo defines, never one GitHub ships", () => {
-  // ADR 0005. The dispatcher decides on exact strings, so a default in any of
-  // these lists would give a public meaning the factory does not control a
-  // private effect on a target's queue: anyone using `help wanted` in its
-  // ordinary sense would silently stop the factory, which is #169 with a wider
-  // blast radius. `wontfix` is how close this runs: a GitHub default and one of
-  // the five triage roles in `docs/agents/triage-labels.md`, and the dispatcher
-  // reads it nowhere. The accident is a decision now, and nothing undoes it
-  // quietly.
+  // ADR 0005 is the reasoning; this is the part of it a test can hold. A
+  // default in any of these lists would give a meaning GitHub publishes and
+  // this repo does not control a private effect on a target's queue, so the
+  // people using that label as it reads would be stopping the factory without
+  // knowing. `wontfix` is how close it already runs: a GitHub default and one
+  // of the five triage roles in `docs/agents/triage-labels.md`, which the
+  // dispatcher happens not to read.
   for (const label of [READY_LABEL, ...HOLD_LABELS, DISPATCH_LABEL, ...FACTORY_STATE_LABELS]) {
     assert.ok(
       !GITHUB_DEFAULT_LABELS.includes(label),

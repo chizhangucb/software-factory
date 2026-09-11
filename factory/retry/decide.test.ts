@@ -30,6 +30,7 @@ import {
   retryPromptSection,
   ticketOrPr,
   ticketOrPrFromPr,
+  ticketOrPrFromTicket,
 } from "./decide";
 
 test("retriesUsed counts the highest factory:retry-<n> label, zero without one", () => {
@@ -666,4 +667,58 @@ test("a PR input no longer open, whose body links no ticket, fails naming both f
   assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "CLOSED", ticket: "7", pr }), { issue: "7", pr: undefined });
   assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "OPEN", ticket: "", pr }), { issue: undefined, pr });
   assert.deepEqual(ticketOrPrFromPr({ number: "12", state: "OPEN", ticket: "7", pr }), { issue: "7", pr });
+});
+
+/** The branch `agent-implement.yml` cut for ticket 7's run (#204). */
+const RUN_BRANCH = "agent/issue-7-add-a-widget";
+
+/** An open PR the way the retry handler lists one on the ticket-only path. */
+const listed = (number: string, headRef: string, body: string, fromFork = false) => ({ number, facts: { headRef, body }, fromFork });
+
+test("a person's PR that links the ticket from another branch is not the ticket's open PR", () => {
+  // #204: opened while the factory's run on #7 was in flight. The failure used
+  // to become a tell-author on it, `agent:blocked` and a comment blaming them.
+  const stranger = listed("12", "someone/fix-7", "Closes #7");
+  const resolved = ticketOrPrFromTicket({ ticket: "7", branch: RUN_BRANCH, open: [stranger] });
+  // Exactly what no open PR resolves to, so every write after it (the retry's
+  // record, its label, a hold, an escalation) lands on the ticket alone.
+  assert.deepEqual(resolved, ticketOrPrFromTicket({ ticket: "7", branch: RUN_BRANCH, open: [] }));
+  assert.deepEqual(resolved, { issue: "7", pr: undefined });
+});
+
+test("the run's own PR is the ticket's open PR, however many others link the ticket ahead of it", () => {
+  const stranger = listed("12", "someone/fix-7", "Closes #7");
+  const own = listed("13", RUN_BRANCH, "Implemented by the software factory.\n\nCloses #7");
+  const other = listed("14", "agent/issue-8-other", "Closes #8");
+  assert.deepEqual(ticketOrPrFromTicket({ ticket: "7", branch: RUN_BRANCH, open: [stranger, other, own] }), { issue: "7", pr: own });
+  // `#007` is ticket 7, as every other reader of the link counts it (#132).
+  const padded = listed("13", RUN_BRANCH, "Closes #007");
+  assert.deepEqual(ticketOrPrFromTicket({ ticket: "7", branch: RUN_BRANCH, open: [padded] }).pr, padded);
+});
+
+test("a PR on the run's branch that links no ticket, or another one, is not the ticket's open PR either", () => {
+  const unlinked = listed("13", RUN_BRANCH, "no closing keyword");
+  const elsewhere = listed("13", RUN_BRANCH, "Closes #8");
+  assert.equal(ticketOrPrFromTicket({ ticket: "7", branch: RUN_BRANCH, open: [unlinked] }).pr, undefined);
+  assert.equal(ticketOrPrFromTicket({ ticket: "7", branch: RUN_BRANCH, open: [elsewhere] }).pr, undefined);
+});
+
+test("a fork's PR on a branch named like the run's is not the ticket's open PR", () => {
+  // GitHub names a fork's head by its branch alone, so the branch test by itself would pass it.
+  const fork = listed("12", RUN_BRANCH, "Closes #7", true);
+  const own = listed("13", RUN_BRANCH, "Implemented by the software factory.\n\nCloses #7");
+  assert.equal(ticketOrPrFromTicket({ ticket: "7", branch: RUN_BRANCH, open: [fork] }).pr, undefined);
+  assert.equal(ticketOrPrFromTicket({ ticket: "7", branch: RUN_BRANCH, open: [fork, own] }).pr, own);
+});
+
+test("the retry handler picks a ticket's open PR by the run's branch, and takes a PR it is handed on whatever branch it is", () => {
+  const resolve = handlerFunction("resolveTarget");
+  const prPath = resolve.slice(resolve.indexOf("if (PR_INPUT)"), resolve.indexOf('required("ISSUE_NUMBER")'));
+  const ticketPath = resolve.slice(resolve.indexOf('required("ISSUE_NUMBER")'));
+  assert.match(ticketPath, /ticketOrPrFromTicket\(\{[^}]*\bbranch: BRANCH\b[^}]*\}\)/, "the ticket-only path does not ask for the run's own PR");
+  assert.match(ticketPath, /fromFork: p\.isCrossRepository/, "the ticket-only path cannot tell a fork's PR from the run's own");
+  assert.ok(!ticketPath.includes(".find("), "the ticket-only path still picks a PR of its own, beside the seam");
+  // Out of scope for #204: a PR handed over is named, not searched for, and is the subject whatever its branch.
+  assert.match(prPath, /ticketOrPrFromPr\(/);
+  assert.ok(!prPath.includes("BRANCH"), "the PR-number path now reads the run's branch");
 });

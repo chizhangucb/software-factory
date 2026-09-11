@@ -339,14 +339,8 @@ test("a caller check that fails for a reason other than 404 aborts, rather than 
 
 /**
  * The five canonical triage roles, read out of `docs/agents/triage-labels.md`'s table
- * rather than repeated here. That page is vendored: `factory/plugins/README.md` keeps it
- * byte-identical to the `setup-matt-pocock-skills` copy, so it is the one place the roles
- * and their meanings are written down, and parsing it is what makes the script's
- * descriptions provably the same words a skill reads.
- *
- * So a skills bump that rewords the Meaning column turns a vendor re-copy red here, and the
- * fix is to follow it in `onboard.sh`. That is the intended direction: the page is upstream
- * of the picker, and the alternative is a second wording nobody notices going stale.
+ * rather than repeated here, so the script's descriptions are provably the words a skill
+ * reads. A row with no role, `hold`'s, is not one of them.
  */
 const triageRoles = (): Map<string, string> => {
   const page = fs.readFileSync(fileURLToPath(new URL("../../docs/agents/triage-labels.md", import.meta.url)), "utf8");
@@ -512,6 +506,13 @@ test("onboarding a target that has been onboarded before writes the same vocabul
   for (const args of rerun.calls) {
     assert.ok(!args.includes("delete") && !args.includes("DELETE"), `a re-run ran: gh ${args.join(" ")}`);
   }
+});
+
+test("every label comes from one unbroken block of label lines, so the vocabulary reads at a glance", () => {
+  const lines = fs.readFileSync(onboard, "utf8").split("\n");
+  const block = lines.flatMap((line, index) => (line.startsWith('label "') ? [index] : []));
+  assert.equal(block.at(-1)! - block[0]! + 1, block.length, "no other line sits inside the block");
+  assert.equal(block.length, onboardWith(["check"]).labels.size, "and the block is every label the run creates");
 });
 
 /**

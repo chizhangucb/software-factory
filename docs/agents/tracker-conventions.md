@@ -1,8 +1,0 @@
-# Tracker conventions of our own
-
-`issue-tracker.md` beside this page is how this repo drives GitHub Issues with `gh`. This page is what the repo adds on top of it: when a ticket closes, and what a PR body and a ticket body have to say.
-
-These rules have a page of their own rather than bullets in `issue-tracker.md` because that page is vendored verbatim: `factory/plugins/README.md` keeps it byte-identical to the `setup-matt-pocock-skills` copy so a re-run of the skill is a no-op and a bump can re-copy it, and only its PR flag may be edited. Prose added there is prose the next bump silently deletes, and `factory/lib/vendored-agent-docs.test.ts` fails on it (#197). So the repo's own tracker prose goes here.
-
-- **Close**: `gh issue close <number> --comment "..."`. Close the moment a PR merges, before starting anything the ticket blocks, since `blocked_by` only clears on that close; the merge does it for you only when the PR's body carries a closing keyword for the ticket. A PR whose author is doing a ticket's work carries one (`Closes #N`): the reviewer finds a PR's ticket only by it, so ADR 0003's judged path needs it, and the dispatcher standing down from that ticket meanwhile is right. Writing one is a trap in exactly one case, when the factory is meant to build the ticket: the dispatcher skips any ticket an open PR's body claims, a passing mention included (`closes #N`, `resolves #N`), so the factory never builds it while that PR is open.
-- **Removals**: a ticket whose work removes something says so plainly in its body, because the reviewer and the audit judge every deleted test against what the ticket says it removes.

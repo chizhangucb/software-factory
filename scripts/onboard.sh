@@ -48,8 +48,15 @@ warn_no_own_check() {
       echo "## no caller posts them, and no own check either. A PR merges"
       echo "## with nothing having run on it."
     fi
-    echo "## Discovery read the last $check_sample commits of the default branch"
-    echo "## and found no check posted on every one of them."
+    # Said only when discovery actually ran, and off what it actually sampled. A run that
+    # named checks on the command line turned discovery off, and a brand new target has no
+    # commits to read: telling either of them that five commits were read and came back
+    # empty is a sentence about a thing that never happened, in the one block a maintainer
+    # is meant to act on.
+    if [ "$discovery_ran" = "true" ]; then
+      echo "## Discovery read $sampled_commits recent commits of the default branch"
+      echo "## and found no check posted on every one of them."
+    fi
     echo "## Fix: name the checks the target's CI posts, which turns"
     echo "## discovery off and requires exactly what you list, e.g."
     echo "##   scripts/onboard.sh $repo check"
@@ -190,10 +197,14 @@ fi
 # read off the caller above, and a target that carried a caller and then lost it would
 # otherwise have them rediscovered out of history and required with nothing left to post them.
 sampled_commits=0
+# Whether discovery ran at all, as opposed to having run and found nothing. warn_no_own_check
+# reads it: checks named on the command line turn discovery off, and the warning must not
+# then describe a read that never happened.
+discovery_ran=false
 discovered_required=""
 discovered_partial=""
 discover_own_checks() {
-  local sha names counted recent
+  local sha names runs statuses counted recent
   local seen=""
   # Held in a variable rather than looped over straight out of `$(...)`, because a command
   # substitution in a `for` list has its exit status thrown away: a rate limit would arrive as
@@ -211,13 +222,18 @@ discover_own_checks() {
     # factory's own three post commit statuses (ADR 0003: "Commit statuses are always posted
     # with GITHUB_TOKEN"). Reading one style only would send half the targets to the "your CI
     # posted nothing" warning with their CI sitting right there in the API.
+    # One assignment per endpoint, and not both inside one `{ ...; ...; } | ...`, for the same
+    # reason the listing above is held in a variable: a group's exit status is its last
+    # command's, so a check-runs call that failed on a rate limit would be swallowed whole by
+    # the status call succeeding after it, and the commit would read as having posted only its
+    # statuses. That is the intersection silently losing a real check. A bare assignment fails
+    # loudly under set -e instead.
+    runs=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --jq '.check_runs[].name')
+    statuses=$(gh api "repos/$repo/commits/$sha/status?per_page=100" --jq '.statuses[].context')
     # `sort -u` because a re-run posts a second check run under the same name, and one name
     # posted twice on one commit must not count as two commits. awk and not grep -v, which
     # exits 1 on a commit whose only checks are the factory's and would take set -e with it.
-    names=$( {
-      gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --jq '.check_runs[].name'
-      gh api "repos/$repo/commits/$sha/status?per_page=100" --jq '.statuses[].context'
-    } | awk 'NF && $0 !~ /^factory\//' | sort -u)
+    names=$(printf '%s\n%s\n' "$runs" "$statuses" | awk 'NF && $0 !~ /^factory\//' | sort -u)
     seen="$seen$names"$'\n'
   done <<<"$recent"
   [ "$sampled_commits" -gt 0 ] || return 0
@@ -252,6 +268,7 @@ note_path_filtered() {
   } >&2
 }
 if [ "$#" -eq 0 ]; then
+  discovery_ran=true
   discover_own_checks
   while IFS= read -r discovered; do
     if [ -n "$discovered" ]; then set -- "$@" "$discovered"; fi

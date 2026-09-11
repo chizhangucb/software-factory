@@ -71,6 +71,7 @@ case "$args" in
       echo "c$commit"
     done < "$GH_HISTORY" ;;
   *"/check-runs"*)
+    if [ -n "\${GH_CHECK_RUNS_ERROR:-}" ]; then echo "$GH_CHECK_RUNS_ERROR" >&2; exit 1; fi
     commit=\${args#*/commits/c}; commit=\${commit%%/check-runs*}
     known_commit "$commit"
     sed -n "\${commit}p" "$GH_HISTORY" | tr '\\t' '\\n' | grep -v '^$' | grep -v '^status:' || true ;;
@@ -97,18 +98,20 @@ exit 0
  * the target's recent default-branch commits, newest first, each the check names that
  * posted on it; the default is a repo whose CI has posted nothing, which is the case every
  * pre-discovery test was written against. `commitsError`, when set, makes the commit listing
- * discovery reads fail with that text, the way a rate limit does. */
+ * discovery reads fail with that text, the way a rate limit does. `checkRunsError` does the
+ * same for the per-commit check-runs read, which is the other half of the same answer. */
 type OnboardOptions = {
   existingRulesetId?: string;
   hasCaller?: boolean;
   callerError?: string;
   history?: string[][];
   commitsError?: string;
+  checkRunsError?: string;
 };
 
 /** A temp directory holding the stub `gh`, and the environment that reaches it. */
 const sandbox = (options: OnboardOptions = {}) => {
-  const { existingRulesetId, hasCaller = true, callerError, history = [], commitsError } = options;
+  const { existingRulesetId, hasCaller = true, callerError, history = [], commitsError, checkRunsError } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
@@ -131,6 +134,7 @@ const sandbox = (options: OnboardOptions = {}) => {
       GH_CALLER_ERROR: callerError ?? "",
       GH_HISTORY: historyFile,
       GH_COMMITS_ERROR: commitsError ?? "",
+      GH_CHECK_RUNS_ERROR: checkRunsError ?? "",
     },
   };
 };
@@ -714,4 +718,30 @@ test("a repo with no commits on its default branch onboards and warns, rather th
   assert.equal(run.code, 0, `a target with no history still onboards: ${run.output}`);
   assert.deepEqual(run.requiredChecks, factoryChecks);
   assert.match(run.output, /WARNING/);
+});
+
+test("a check-runs read that fails aborts too, rather than leaving that commit's checks out", () => {
+  // The listing is not the only read that can come back as a rate limit. A commit whose
+  // check-runs call failed while its status call succeeded would read as having posted only
+  // its statuses, which takes every check run out of the intersection: an always-on `check`
+  // silently stops being required, and nothing on screen says why.
+  const run = onboardWith([], {
+    history: postedOnEvery(5, ["check"]),
+    checkRunsError: "gh: API rate limit exceeded (HTTP 403)",
+  });
+  assert.notEqual(run.code, 0, "a read that never answered must not be read as a commit that posted nothing");
+  assert.match(run.output, /rate limit/i);
+  assert.doesNotMatch(run.output, /ruleset factory (created|updated)/, "and no ruleset written off it");
+});
+
+test("the warning only says discovery came back empty when discovery actually ran", () => {
+  // A name on the command line turns discovery off, even one that turns out to name nothing
+  // of the target's own. Telling that run that commits were read and came back empty would
+  // describe a read that never happened, in the one block a maintainer is meant to act on.
+  const named = onboardWith(["factory/verdict"], { history: postedOnEvery(5, ["check"]) });
+  assert.match(named.output, /WARNING/);
+  assert.doesNotMatch(named.output, /Discovery read/, "no discovery ran, so the warning must not describe one");
+
+  const discovered = onboardWith([], { history: postedOnEvery(3, []) });
+  assert.match(discovered.output, /Discovery read 3 recent commits/, "and says how many it read when it did");
 });

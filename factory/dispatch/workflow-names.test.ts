@@ -84,10 +84,10 @@ const jobIdsOf = (yaml: string): string[] => jobsOf(yaml).map((job) => job.id);
  * with an inline value is still seen.
  */
 const triggersOf = (yaml: string): string[] => {
-  const head = "\non:\n";
-  const start = yaml.indexOf(head);
-  assert.ok(start >= 0, "the workflow's `on:` is a block-style mapping, so its triggers can be read");
-  const rest = yaml.slice(start + head.length);
+  // Matched at any line start, first line included, so hoisting `on:` above `name:` is not a failure.
+  const head = /^on:\n/m.exec(yaml);
+  assert.ok(head, "the workflow's `on:` is a block-style mapping, so its triggers can be read");
+  const rest = yaml.slice(head.index + head[0].length);
   const next = rest.search(/^\S/m);
   const block = next < 0 ? rest : rest.slice(0, next);
   return [...block.matchAll(/^ {2}([a-z][a-z0-9_-]*):/gm)].map((m) => m[1]!).sort();

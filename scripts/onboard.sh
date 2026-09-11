@@ -6,8 +6,21 @@
 #   scripts/onboard.sh owner/repo [own-check ...]
 # Each extra argument is a status check the target's own CI already posts
 # (the job name, e.g. `check`); it is required next to the factory's three.
-# Give none and onboarding still runs, loudly: see warn_no_own_check.
+# Give none and the script discovers them instead, off what GitHub reports as having
+# posted on the last 5 commits of the default branch. Five is the sample size, and the
+# reason is the intersection rule below: a name is required only if it posted on every
+# sampled commit, so the sample has to be big enough that a path-filtered check misses at
+# least one of them. One commit cannot tell an always-on check from a path-filtered one
+# that happened to run; five is enough that a docs-only or one-directory commit is usually
+# among them, and short enough that a job added a week ago still posted on all five.
+# Larger and a recently added check reads as path-filtered, because the oldest commits in
+# the sample predate it, and it silently stops being required. Smaller and a path-filtered
+# check reads as always-on, which is the failure this whole thing exists to avoid. Cost is
+# one API call per sampled commit, plus one for the listing.
+# Discover nothing, or name nothing, and onboarding still runs, loudly: see warn_no_own_check.
 set -euo pipefail
+# The sample size the header explains. onboard.test.ts reads both and fails on drift.
+check_sample=5
 repo="${1:?usage: onboard.sh owner/repo [own-check ...]}"
 shift
 
@@ -158,6 +171,74 @@ elif [[ "$caller_error" == *"HTTP 404"* ]]; then
 else
   echo "onboard.sh: could not tell whether $repo carries a caller: $caller_error" >&2
   exit 1
+fi
+# Discovery. Onboarding a repo you were handed an hour ago should not need its job names, and
+# GitHub already knows them: it reports what actually posted on a commit, which is stronger
+# evidence than anything typed by hand. So with no names on the command line, sample the last
+# $check_sample commits of the default branch and read the check runs off each.
+# The intersection, and not the union, is what gets required. A check with a path filter does
+# not post on every commit, and requiring one leaves a PR that touches none of those paths
+# waiting forever on a check that will never arrive, with auto-merge waiting with it. That is
+# the worst thing this script can do to a target, and it is silent. A name on some commits but
+# not all is therefore reported and not required; a maintainer who knows better names it on the
+# command line. The other direction, a check missed and not required, is the warning case:
+# loud, and a re-run fixes it.
+# The factory's own three are dropped here rather than discovered: whether they are required is
+# read off the caller above, and a target that carried a caller and then lost it would
+# otherwise have them rediscovered out of history and required with nothing left to post them.
+sampled_commits=0
+discovered_required=""
+discovered_partial=""
+discover_own_checks() {
+  local sha names counted
+  local seen=""
+  for sha in $(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha'); do
+    sampled_commits=$((sampled_commits + 1))
+    # `sort -u` because a re-run posts a second check run under the same name, and one name
+    # posted twice on one commit must not count as two commits. awk and not grep -v, which
+    # exits 1 on a commit whose only checks are the factory's and would take set -e with it.
+    names=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --jq '.check_runs[].name' |
+      awk 'NF && $0 !~ /^factory\//' | sort -u)
+    seen="$seen$names"$'\n'
+  done
+  [ "$sampled_commits" -gt 0 ] || return 0
+  # One line per name, "<commits it posted on> <name>". Line-based throughout, because a job
+  # name is routinely several words: `test (20.x)`, `build / lint`.
+  counted=$(printf '%s' "$seen" | awk 'NF' | sort | uniq -c)
+  discovered_required=$(awk -v n="$sampled_commits" '{ count = $1; sub(/^ *[0-9]+ /, ""); if (count + 0 == n) print }' <<<"$counted")
+  discovered_partial=$(awk -v n="$sampled_commits" '{ count = $1; sub(/^ *[0-9]+ /, ""); if (count + 0 != n) print $0 " (posted on " count " of " n ")" }' <<<"$counted")
+}
+# What discovery saw but will not require, and the one way to override it. Printed to stderr
+# with the rest of the advice, because it is a thing to decide about rather than a thing the
+# run did. Named, because a maintainer who knows the check posts on every PR that matters is
+# the only one who can say so, and the positional arguments are how they say it.
+note_path_filtered() {
+  {
+    echo "############################################################"
+    echo "## NOTE: these posted on some of the $sampled_commits sampled commits of"
+    echo "## $default_branch, but not all, so they read as path-filtered"
+    echo "## and are NOT required:"
+    while IFS= read -r partial; do
+      if [ -n "$partial" ]; then echo "##   $partial"; fi
+    done <<<"$discovered_partial"
+    echo "## Requiring one would leave a PR that touches none of its paths"
+    echo "## waiting forever for a check that never posts."
+    echo "## If one really does post on every PR, name it by hand:"
+    echo "##   scripts/onboard.sh $repo <check> ..."
+    echo "############################################################"
+  } >&2
+}
+if [ "$#" -eq 0 ]; then
+  discover_own_checks
+  while IFS= read -r discovered; do
+    if [ -n "$discovered" ]; then set -- "$@" "$discovered"; fi
+  done <<<"$discovered_required"
+  if [ "$#" -gt 0 ]; then
+    echo "discovered on $sampled_commits recent commits of $default_branch: $*"
+  fi
+  if [ -n "$discovered_partial" ]; then note_path_filtered; fi
+else
+  echo "own checks named on the command line, discovery skipped: $*"
 fi
 # Empty arguments name no check, and a name handed back twice is still one check; both would
 # otherwise reach GitHub as a bogus context in the ruleset, so drop them here. First mention

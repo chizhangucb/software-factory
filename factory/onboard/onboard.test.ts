@@ -33,6 +33,13 @@ const factoryChecks = ["factory/verdict", "factory/red-green", "factory/test-int
  * text, which is what tells `onboard.sh` a missing file from any other kind of failure.
  * A call it does not recognise fails, so a reshaped `gh` line breaks the test loudly
  * instead of degrading into an empty answer.
+ *
+ * `GH_HISTORY` is the target's default-branch history for discovery: one line per commit,
+ * newest first, holding that commit's check-run names tab-separated. Commit n is `cn`, so
+ * a test never has to invent a sha. The commit listing honours the `per_page` the script
+ * asks for, which is what lets a test prove the sample size off the calls themselves.
+ * The stub reports the names raw, factory checks included: filtering them is the script's
+ * job and a stub that did it would be testing itself.
  */
 const stubGh = `#!/usr/bin/env bash
 args="$*"
@@ -42,6 +49,17 @@ case "$args" in
   "repo edit"*) ;;
   "api --method POST"*) cat > "$GH_PAYLOAD"; echo 4242 ;;
   "api --method PUT"*)  cat > "$GH_PAYLOAD" ;;
+  *"/commits?sha="*)
+    per_page=$(printf '%s' "$args" | sed -n 's/.*per_page=\\([0-9][0-9]*\\).*/\\1/p')
+    commit=0
+    while IFS= read -r _names; do
+      commit=$((commit + 1))
+      if [ "$commit" -gt "\${per_page:-0}" ]; then break; fi
+      echo "c$commit"
+    done < "$GH_HISTORY" ;;
+  *"/check-runs"*)
+    commit=\${args#*/commits/c}; commit=\${commit%%/check-runs*}
+    sed -n "\${commit}p" "$GH_HISTORY" | tr '\\t' '\\n' | grep -v '^$' || true ;;
   *"contents/.github/workflows/factory.yml"*)
     if [ -n "\${GH_CALLER_ERROR:-}" ]; then echo "$GH_CALLER_ERROR" >&2; exit 1
     elif [ "$GH_HAS_CALLER" = "true" ]; then exit 0
@@ -57,16 +75,26 @@ exit 0
 /** `existingRulesetId` picks the update path over the create path. `hasCaller` defaults to
  * true, since most tests exercise a target that carries one; false drops the factory's
  * three checks, the way a real caller-less target does. `callerError`, when set, makes
- * the caller-presence check itself fail (not a 404), overriding `hasCaller`. */
-type OnboardOptions = { existingRulesetId?: string; hasCaller?: boolean; callerError?: string };
+ * the caller-presence check itself fail (not a 404), overriding `hasCaller`. `history` is
+ * the target's recent default-branch commits, newest first, each the check names that
+ * posted on it; the default is a repo whose CI has posted nothing, which is the case every
+ * pre-discovery test was written against. */
+type OnboardOptions = {
+  existingRulesetId?: string;
+  hasCaller?: boolean;
+  callerError?: string;
+  history?: string[][];
+};
 
 /** A temp directory holding the stub `gh`, and the environment that reaches it. */
 const sandbox = (options: OnboardOptions = {}) => {
-  const { existingRulesetId, hasCaller = true, callerError } = options;
+  const { existingRulesetId, hasCaller = true, callerError, history = [] } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
   const callsFile = path.join(dir, "calls.tsv");
+  const historyFile = path.join(dir, "history.tsv");
+  fs.writeFileSync(historyFile, history.map((names) => names.join("\t")).join("\n") + (history.length ? "\n" : ""));
   return {
     dir,
     payloadFile,
@@ -81,6 +109,7 @@ const sandbox = (options: OnboardOptions = {}) => {
       GH_EXISTING_ID: existingRulesetId ?? "",
       GH_HAS_CALLER: hasCaller ? "true" : "false",
       GH_CALLER_ERROR: callerError ?? "",
+      GH_HISTORY: historyFile,
     },
   };
 };
@@ -451,4 +480,125 @@ test("onboarding a target that has been onboarded before writes the same vocabul
   for (const args of rerun.calls) {
     assert.ok(!args.includes("delete") && !args.includes("DELETE"), `a re-run ran: gh ${args.join(" ")}`);
   }
+});
+
+/**
+ * Discovery (#177). Onboarding a target should be `scripts/onboard.sh owner/repo`, so with
+ * no names on the command line the script reads what the target's CI actually posted on
+ * recent default-branch commits. The hazard is the opposite of a missing check: requiring
+ * a path-filtered one produces a target whose PRs wait on a check that never posts.
+ */
+
+/** A default branch where the same names posted on each of `commits` recent commits. */
+const postedOnEvery = (commits: number, names: string[]): string[][] => Array.from({ length: commits }, () => names);
+
+test("with no arguments, a check that posted on every sampled commit is discovered and required", () => {
+  const run = onboardWith([], { history: postedOnEvery(5, ["check"]) });
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "check"], "the same ruleset a hand-written `onboard.sh repo check` writes");
+  assert.doesNotMatch(run.output, /WARNING/, "a target whose own CI is required has nothing to warn about");
+});
+
+/**
+ * The names the run reported as possibly path-filtered, read off the note's own lines
+ * rather than the prose around them, so the note can explain itself without that reading
+ * as a name.
+ */
+const reportedPathFiltered = (output: string): string[] =>
+  output.split("\n").flatMap((line) => {
+    const reported = line.match(/^##\s+(.+?) \(posted on \d+ of \d+\)$/);
+    return reported ? [reported[1]!] : [];
+  });
+
+/** The sample size the script actually uses, and the header comment that should explain it. */
+const script = fs.readFileSync(onboard, "utf8");
+const sampleSize = Number(/^check_sample=(\d+)$/m.exec(script)![1]);
+const headerComment = script.slice(0, script.indexOf("set -euo pipefail"));
+
+/** The `check-runs` reads the run made, one per commit it sampled. */
+const checkRunCalls = (calls: string[][]): string[][] =>
+  calls.filter((args) => args.some((argument) => argument.includes("/check-runs")));
+
+test("a check on some sampled commits but not all is reported as path-filtered, never required", () => {
+  // The hazard the sample exists for: `docs` posts only on commits that touch docs, so a PR
+  // that touches none of its paths would wait forever for a check that never arrives.
+  const run = onboardWith([], {
+    history: [["check", "docs"], ["check"], ["check", "docs"], ["check"], ["check"]],
+  });
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "check"], "only the intersection is required");
+  assert.deepEqual(reportedPathFiltered(run.output), ["docs"], "and the one left out is named, not silently dropped");
+  assert.match(run.output, /never posts|waiting forever/i, "the note has to say what requiring it would cost");
+});
+
+test("a check that posted on the newest commit alone is not required off that one commit", () => {
+  const run = onboardWith([], { history: [["check", "release"], ["check"], ["check"], ["check"], ["check"]] });
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "check"]);
+  assert.deepEqual(reportedPathFiltered(run.output), ["release"]);
+});
+
+test("discovery samples more than one commit, and asks GitHub for exactly the header's sample size", () => {
+  const run = onboardWith([], { history: postedOnEvery(sampleSize + 3, ["check"]) });
+  assert.ok(sampleSize > 1, "a sample of one cannot tell an always-on check from a path-filtered one");
+  assert.equal(checkRunCalls(run.calls).length, sampleSize, `discovery should read the check runs of ${sampleSize} commits`);
+  const listing = run.calls.find((args) => args.some((argument) => argument.includes("/commits?sha=")));
+  assert.ok(
+    listing?.some((argument) => argument.includes(`per_page=${sampleSize}`)),
+    `the commit listing should ask for ${sampleSize} commits, it ran: gh ${listing?.join(" ")}`,
+  );
+});
+
+test("the header comment states the sample size and the reason, for whoever runs the script", () => {
+  // The number alone is a magic constant; the reason is what stops the next person moving it
+  // in the direction that makes a path-filtered check look always-on.
+  assert.match(headerComment, new RegExp(`\\b${sampleSize}\\b`), "the header should name the sample size it uses");
+  assert.match(headerComment, /reason|because/i, "and say why that number");
+  assert.match(headerComment, /path-filter/i, "which is the hazard the sample size answers");
+});
+
+test("naming checks on the command line overrides discovery, which is then never asked for", () => {
+  // Discovery gets it wrong sometimes, and the positional arguments are the way out. A run
+  // that read the history anyway would be a run whose override is only half an override.
+  const run = onboardWith(["only-this"], { history: postedOnEvery(5, ["check", "lint"]) });
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "only-this"]);
+  assert.deepEqual(checkRunCalls(run.calls), [], "no history is read when the maintainer named the checks");
+  assert.doesNotMatch(run.output, /WARNING/);
+});
+
+test("with no caller, discovery still runs and the factory's three stay out of the ruleset", () => {
+  const run = onboardWith([], { history: postedOnEvery(5, ["check"]), hasCaller: false });
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, ["check"], "no caller means the factory's three are never posted");
+  assert.doesNotMatch(run.output, /WARNING/);
+});
+
+test("the factory's own checks in a target's history are never rediscovered as its own CI", () => {
+  // A target that carried a caller and then lost it still has `factory/verdict` all over its
+  // history. Requiring it off that history would be a ruleset waiting on a check nothing posts.
+  const run = onboardWith([], { history: postedOnEvery(5, factoryChecks), hasCaller: false });
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, [], "whether the factory's three are required is read off the caller, not history");
+  assert.match(run.output, /requires nothing at all/i);
+});
+
+test("a name posted twice on one commit is one commit's worth of evidence, not two", () => {
+  // A re-run posts a second check run under the same name. Counting it twice would push the
+  // name past the sample size and drop it out of the intersection.
+  const run = onboardWith([], { history: [["check", "check"], ["check"], ["check"], ["check"], ["check"]] });
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "check"]);
+  assert.deepEqual(reportedPathFiltered(run.output), []);
+});
+
+test("a repo with fewer commits than the sample takes the intersection over the ones it has", () => {
+  const run = onboardWith([], { history: [["check"], ["check"]] });
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "check"]);
+  assert.match(run.output, /2 recent commits/, "the run should say how many commits it actually read");
+});
+
+test("a target whose CI posted nothing on any sampled commit still onboards, and still warns", () => {
+  const run = onboardWith([], { history: postedOnEvery(5, []) });
+  assert.equal(run.code, 0, "a target with no CI can still be onboarded; the warning is the point");
+  assert.deepEqual(run.requiredChecks, factoryChecks);
+  assert.match(run.output, /WARNING/);
+  assert.deepEqual(reportedPathFiltered(run.output), [], "nothing posted is nothing to report either");
 });

@@ -65,12 +65,13 @@ test("every hold label holds a ticket back, however ready it says it is", () => 
   }
 });
 
-test("hold holds a ticket nothing else would stop, which is the whole point of it", () => {
-  // `needs-triage` + `ready-for-agent` was the only way to say this, and it
-  // read as label drift: a triage pass cleared it off 14 chronicle tickets and
-  // released 12 of them at once. `hold` + `ready-for-agent` says it out loud.
-  const held = ticket(7, { labels: ["ready-for-agent", HOLD_LABEL] });
-  assert.equal(whySkipped(ticket(7), OWNER_ONLY), undefined, "the same ticket without the hold is dispatchable");
+test("the hold is the only thing stopping a ticket that is otherwise ready to go", () => {
+  // One ticket, one label apart, so what the hold does is the only difference
+  // between the two answers. That is the case the label exists for: a ticket
+  // with nothing wrong with it that a human is holding anyway.
+  const ready = ticket(7, { labels: ["ready-for-agent"] });
+  const held = { ...ready, labels: [...ready.labels, HOLD_LABEL] };
+  assert.equal(whySkipped(ready, OWNER_ONLY), undefined);
   assert.equal(whySkipped(held, OWNER_ONLY), `held: ${HOLD_LABEL}`);
 });
 

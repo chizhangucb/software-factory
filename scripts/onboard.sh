@@ -46,6 +46,9 @@ label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
 # picker and nowhere else, so the description has to carry the whole rule; prose in the
 # target's own docs would be a copy this repo cannot see or keep in step. `--force` above
 # means a re-run rewrites it, so every existing target gets it by re-running the script.
+# `Factory:` here says who reads the label, not who writes it: the label is a human's to
+# add and remove, like `ready-for-agent`, and the prefix is what tells a triager in the
+# picker that this one is addressed to the dispatcher rather than to another human.
 label "hold"              "d4c5f9" "Factory: never dispatched while this is set"
 label "ready-for-human"   "c2e0c6" "Requires human implementation"
 label "needs-triage"      "ededed" "Maintainer needs to evaluate this issue"

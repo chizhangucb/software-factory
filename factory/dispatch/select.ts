@@ -6,7 +6,8 @@
  * `ready-for-agent`; `agent:*` and `needs-human` are factory state. A ticket
  * is dispatched when a human said it is ready, no label from `HOLD_LABELS`
  * holds it back, nothing open blocks it (GitHub native dependencies, open
- * blockers only), nobody holds it, and the factory is not already on it.
+ * blockers only), nobody is assigned to it, and the factory is not already on
+ * it.
  *
  * Imports use explicit `.ts` so the dispatch job can run on bare `node
  * --experimental-strip-types` without installing the engine.

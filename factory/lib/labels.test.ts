@@ -16,23 +16,44 @@ import { test } from "node:test";
 import { HOLD_LABEL, HOLD_LABELS } from "./labels.ts";
 
 /**
- * Every page that names the hold set, and the form it names it in: the words
- * "hold set" followed by the labels in backticks, in parentheses. A literal
- * form rather than a loose scan, so the test reads one sentence per page and
- * cannot be satisfied by the labels happening to appear nearby.
+ * The pages that have to name the hold set. Every other page in `docs/` is
+ * checked too, if it names the set at all: the list below is the floor, not
+ * the whole guard, so a new page that names the set wrongly fails here rather
+ * than waiting for someone to add it to a list.
  */
 const HOLD_SET_SITES = ["docs/pipeline.md", "docs/agents/triage-labels.md"];
 
-/** The labels a page names as the hold set, once per occurrence, in the order written. */
-const namedSets = (text: string): string[][] =>
-  [...text.matchAll(/hold set \(([^)]*)\)/g)].map((match) =>
-    match[1]!.split(",").map((label) => label.trim().replace(/`/g, "")),
+/**
+ * The form a page names the set in: the words "hold set" then the labels in
+ * backticks, in parentheses. A literal form rather than a loose scan, so the
+ * test reads one sentence per page and cannot be satisfied by the labels
+ * happening to appear near each other.
+ */
+const HOLD_SET = /hold set \(([^)]*)\)/g;
+
+/** Every markdown file under `docs/`, repo-relative. */
+const docPages = (dir = "docs"): string[] =>
+  fs.readdirSync(new URL(`../../${dir}`, import.meta.url), { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory() ? docPages(`${dir}/${entry.name}`) : entry.name.endsWith(".md") ? [`${dir}/${entry.name}`] : [],
   );
 
-test("the docs that name the hold set name the set the dispatcher enforces", () => {
+/** The labels a page names as the hold set, once per occurrence, in the order written. */
+const namedSets = (text: string): string[][] =>
+  [...text.matchAll(HOLD_SET)].map((match) => match[1]!.split(",").map((label) => label.trim().replace(/`/g, "")));
+
+test("every doc page that names the hold set names the set the dispatcher enforces", () => {
+  const pages = docPages();
   for (const site of HOLD_SET_SITES) {
-    const text = fs.readFileSync(new URL(`../../${site}`, import.meta.url), "utf8");
-    const named = namedSets(text);
+    assert.ok(pages.includes(site), `${site} is still a page, and still the one a reader is sent to`);
+  }
+  const naming = pages.filter((page) => namedSets(fs.readFileSync(new URL(`../../${page}`, import.meta.url), "utf8")).length > 0);
+  assert.deepEqual(
+    naming.sort(),
+    [...HOLD_SET_SITES].sort(),
+    "the pages naming the hold set are the ones meant to, and no others",
+  );
+  for (const site of naming) {
+    const named = namedSets(fs.readFileSync(new URL(`../../${site}`, import.meta.url), "utf8"));
     assert.equal(named.length, 1, `${site} names the hold set exactly once`);
     // In order, not as a set: `hold` leads because it is the one to reach for,
     // and the other two follow as the backstop they are.

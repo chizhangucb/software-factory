@@ -144,7 +144,10 @@ test("the hold label's description states the veto, because that is where a tria
   // docs would be a second copy this repo cannot see.
   const { labels } = onboardWith(["check"]);
   assert.match(labels.get(HOLD_LABEL)!, /never dispatched/i);
-  assert.match(labels.get(HOLD_LABEL)!, /^Factory:/, "the factory's own labels say whose they are");
+  // `Factory:` says who reads the label, not who writes it. A hold is a human's
+  // to add and remove, and the prefix is what tells a triager choosing it that
+  // this label is addressed to the dispatcher rather than to another human.
+  assert.match(labels.get(HOLD_LABEL)!, /^Factory:/);
 });
 
 const warningLines = (output: string): number[] =>

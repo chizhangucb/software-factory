@@ -9,7 +9,8 @@ on:
     # assignee reaches the factory the moment the human removes the blocker,
     # instead of waiting up to ten minutes for the next heartbeat. Which of
     # those removals the dispatcher actually answers is its own condition's
-    # job, below: the factory's own removals are dropped there.
+    # job, below: the factory's own removals are dropped there, and so is any
+    # removal on a closed ticket.
     types: [closed, labeled, unassigned, unlabeled]
   pull_request_target:
     types: [labeled]
@@ -102,6 +103,9 @@ jobs:
   # off, the sweep that removal woke found the ticket takeable again and re-stamped it,
   # and a cancelled run had a replacement within seconds. Twelve cancels on one target
   # went to fourteen runs in flight in two minutes (#170).
+  # Both removals are admitted on an open ticket only: a closed one can never be
+  # dispatched, so the sweep would find nothing and bill a minute for it (#213). A close
+  # still wakes the sweep, because closing one ticket can unblock another.
   # What still reaches the sweep, on purpose: a human dropping hold or
   # needs-human, a human dropping an assignee, and the factory's own
   # escalation dropping ready-for-agent. That last one labels nothing, because the label
@@ -120,8 +124,9 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'factory-sweep') ||
       (github.event_name == 'issues' && (github.event.action == 'closed' ||
-        github.event.action == 'unassigned' ||
-        (github.event.action == 'unlabeled' && !startsWith(github.event.label.name, 'agent:') &&
+        (github.event.action == 'unassigned' && github.event.issue.state != 'closed') ||
+        (github.event.action == 'unlabeled' && github.event.issue.state != 'closed' &&
+          !startsWith(github.event.label.name, 'agent:') &&
           !startsWith(github.event.label.name, 'factory:')) ||
         (github.event.action == 'labeled' && github.event.label.name == 'ready-for-agent'))))
     uses: chizhangucb/software-factory/.github/workflows/dispatch.yml@main

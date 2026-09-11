@@ -50,7 +50,7 @@ A changed test file whose process died before any test reported a result, which 
 _Avoid_: skipped, skip (the placeholder's word), ignored (it is named in the status, never passed over in silence).
 
 **Escalation**:
-A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read. `needs-human` also parks a PR the factory has **stood down** on, which spends no retry and says nothing about the ticket.
+A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read. `needs-human` also parks a PR the factory has **stood down** on, which is a fact about that PR and not about the ticket: the ticket keeps whatever the path that stood the PR down left on it, a spent retry on the retry path and nothing at all on the conflict one.
 _Avoid_: failure, blocked (the tracker's dependency word).
 
 **Requeue**:

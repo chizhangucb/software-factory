@@ -18,9 +18,7 @@ test("every target on the list is one owner/repo, named once", () => {
 });
 
 test("the fixture repo is off the list, and the list still records it", () => {
-  // Off since 2026-09-11: private, so every sweep bills a whole Actions minute
-  // and an idle fixture ate most of the month's included minutes (#221). Taking
-  // the record out with it would lose why, so the file keeps naming it.
+  // Off since 2026-09-11 (#221), and taking the record out with it would lose why.
   assert.ok(!TARGET_REPOS.includes("chizhangucb/factory-fixture"), "the fixture is not woken");
   assert.match(source, /factory-fixture/, "the list records the fixture and why it is off");
 });

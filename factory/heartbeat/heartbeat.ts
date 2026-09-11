@@ -1,17 +1,14 @@
 /**
  * The heartbeat (#222): one `factory-sweep` dispatch per target, every
- * interval, from outside GitHub because a caller's own `schedule` does not
- * reliably fire. This module is the decision and nothing else: given the
- * targets, a way to wake one and a way to report, it answers what happened to
- * each. `send.ts` is the runnable that wires the real waker and reporter.
+ * interval. The decision and nothing else, so `send.ts` is where the real
+ * waker and reporter are wired.
  *
  * A target that cannot be woken is reported and costs the targets behind it
  * nothing: a heartbeat that died on its first bad target would stop the
- * factory everywhere behind it, which is worse than one target missing a
- * sweep.
+ * factory everywhere behind it.
  *
- * Builtins only, imported with explicit `.ts`, so a host runs `send.ts` on
- * bare `node --experimental-strip-types` with no `npm ci`.
+ * Builtins only and explicit `.ts`, so `send.ts` runs on bare
+ * `node --experimental-strip-types`.
  */
 import { errorMessage } from "../lib/errors.ts";
 
@@ -26,11 +23,14 @@ export type Pass = {
   readonly targets: readonly string[];
   /** Wake one target. Throwing fails that target and no other. */
   readonly wake: (target: string) => void;
-  /** Where a maintainer sees what happened, called once per target. */
+  /**
+   * Where a maintainer sees what happened. Called as each target is answered,
+   * not once at the end, so a pass that dies later has still reported what it
+   * did.
+   */
   readonly report: (outcome: TargetOutcome) => void;
 };
 
-/** What happened to one target: woken, or failed with what the waker said. */
 const wakeOne = (target: string, wake: Pass["wake"]): TargetOutcome => {
   try {
     wake(target);

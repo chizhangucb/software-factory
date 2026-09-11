@@ -24,8 +24,6 @@ test("every target on the list is woken, and each gets one outcome", () => {
 });
 
 test("a target that cannot be woken is reported, and the targets behind it are still woken", () => {
-  // The case the entry point exists for: a heartbeat that died on its first
-  // bad target would stop the factory everywhere behind it.
   const woken: string[] = [];
   const reported: TargetOutcome[] = [];
   const outcomes = sendHeartbeat({
@@ -42,7 +40,7 @@ test("a target that cannot be woken is reported, and the targets behind it are s
     { target: "owner/two", outcome: "woken" },
     { target: "owner/three", outcome: "woken" },
   ]);
-  // Reported where a maintainer sees it, not swallowed into a return value
-  // nobody reads: the failure is on the report, whatever else the pass says.
+  // Reported as the pass runs, so the failure is on the report whether or not
+  // anything reads the outcomes back.
   assert.deepEqual(reported, outcomes);
 });

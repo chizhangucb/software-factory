@@ -49,4 +49,7 @@ const outcomes = sendHeartbeat({
 
 const failed = outcomes.filter((outcome) => outcome.outcome === "failed");
 console.log(`${at()} ${outcomes.length} target(s), ${outcomes.length - failed.length} woken, ${failed.length} failed${dryRun ? " (dry run)" : ""}.`);
-if (failed.length > 0) process.exit(1);
+// `exitCode`, not `process.exit`: stdout is a pipe when a host logs the pass,
+// pipe writes are asynchronous, and exiting in place can drop the lines that
+// say which target failed.
+if (failed.length > 0) process.exitCode = 1;

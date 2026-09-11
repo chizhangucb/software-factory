@@ -28,6 +28,9 @@ const TOKEN_ENV = "GH_TOKEN";
 /** The pages a maintainer onboards a target from, named as `dispatch/triggers.test.ts` names its own sites. */
 const DOC_PAGES = ["README.md", "docs/pipeline.md"];
 
+/** A literal as a regex: a target or a path is matched whole, never as a pattern. */
+const literal = (text: string): RegExp => new RegExp(text.replaceAll(/[.*+?^${}()|[\]\\/]/g, "\\$&"));
+
 /** `import "x"`, on its own with no bindings. */
 const SIDE_EFFECT_IMPORT = /^\s*import\s+["']([^"']+)["']/gm;
 /** The `from "x"` of any import or re-export, including the `} from "x"` that closes a multi-line one. */
@@ -50,8 +53,9 @@ const walkFrom = (entrypoint: string): { file: string; specifier: string }[] => 
     reached.add(file);
     const onDisk = new URL(file, repoRoot);
     assert.ok(fs.existsSync(onDisk), `${entrypoint} reaches ${file}, which does not exist`);
+    const source = fs.readFileSync(onDisk, "utf8");
     for (const pattern of [SIDE_EFFECT_IMPORT, FROM_IMPORT, DYNAMIC_IMPORT]) {
-      for (const match of fs.readFileSync(onDisk, "utf8").matchAll(pattern)) {
+      for (const match of source.matchAll(pattern)) {
         const specifier = match[1]!;
         imports.push({ file, specifier });
         if (specifier.startsWith(".")) queue.push(path.posix.join(path.posix.dirname(file), specifier));
@@ -70,8 +74,8 @@ test("the command a host runs completes a pass on bare node, with nothing instal
     encoding: "utf8",
     env: { DRY_RUN: "1", PATH: "" },
   });
-  for (const target of TARGET_REPOS) assert.match(stdout, new RegExp(`factory-sweep dispatched to ${target} \\(dry run\\)`));
-  assert.match(stdout, new RegExp(`${TARGET_REPOS.length} target\\(s\\), ${TARGET_REPOS.length} woken, 0 failed`));
+  for (const target of TARGET_REPOS) assert.match(stdout, literal(`factory-sweep dispatched to ${target} (dry run)`));
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), ${TARGET_REPOS.length} woken, 0 failed`));
 });
 
 test("the runnable reaches only builtins and .ts files, so it runs with no npm install", () => {
@@ -98,7 +102,7 @@ test("every import form the cone test reads is read here too", () => {
 test("both pages a maintainer onboards from name the command and the token", () => {
   for (const page of DOC_PAGES) {
     const text = fs.readFileSync(new URL(page, repoRoot), "utf8");
-    assert.match(text, new RegExp(ENTRYPOINT.replaceAll("/", "\\/")), `${page} names the runnable`);
+    assert.match(text, literal(ENTRYPOINT), `${page} names the runnable`);
     assert.match(text, new RegExp(`\\b${TOKEN_ENV}\\b`), `${page} names the env var the token travels in`);
   }
 });

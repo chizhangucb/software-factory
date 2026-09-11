@@ -21,8 +21,9 @@ on:
     # factory-update-branch: sent by the review workflow on a passing verdict.
     # factory-sweep: the heartbeat, and what actually drives the sweep. Required, not optional.
     # Send it every 10 minutes from outside GitHub, with a token that has contents write on the
-    # target and nothing else. One sender covers any number of targets:
-    #   gh api repos/<owner>/<repo>/dispatches -f event_type=factory-sweep
+    # targets and nothing else. One sender covers any number of targets, from the factory repo:
+    # add this repo to factory/heartbeat/targets.ts and run
+    #   GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts
     types: [factory-update-branch, factory-sweep]
   schedule:
     # The fallback, not the heartbeat: measured on one private target over 21 and a half hours this

@@ -29,7 +29,7 @@ const assertFactoryReviewKept = (context: PullRequestContext): void => {
 const BOT = "github-actions[bot]";
 
 /**
- * One PR as the four reads see it. Four voices on every channel: the owner, a
+ * One PR as the five reads see it. Four voices on every channel: the owner, a
  * stranger, a collaborator the default policy excludes, and the Actions bot.
  * The bot's words are the interesting ones, because the same login carries the
  * factory's own review output on two channels and a stranger's echo on the

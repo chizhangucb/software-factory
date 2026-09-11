@@ -8,8 +8,9 @@
  * - the linked issue read through `--json` and rendered by `lib/ticket-context.ts`:
  *   the text view carries no `author_association`, so nothing on it could be
  *   filtered, and gh 2.95 prints only the comments under `--comments` anyway, so
- *   a ticket with none arrived empty. One read now, body and comments together
- *   (story 27, ADR 0002 amendment).
+ *   a ticket with none arrived empty. One `--json` read for body and comments
+ *   together (story 27, ADR 0002 amendment), with the author's association
+ *   beside it, per the bullet below.
  * - the `gh issue view --json` read throws instead of falling back to "", so an
  *   API error can never read as "this ticket has no criteria": story 5.
  * - a required `TrustPolicy`, and the assembly split out of the fetch as the pure
@@ -95,8 +96,17 @@ export interface PullRequestContext {
   readonly prTitle: string;
   readonly prBody: string;
   readonly issueNumber: string;
+  /**
+   * The linked issue's title, or a placeholder saying it was not included when
+   * an untrusted author opened the ticket. Empty only when the PR links none.
+   */
   readonly issueTitle: string;
-  /** The linked issue's body alone, for parsing its acceptance criteria. */
+  /**
+   * The linked issue's body alone, for parsing its acceptance criteria. Empty
+   * when an untrusted author opened the ticket, so a refused ticket reaches the
+   * same mechanical fail as one with no criteria; `dropped.issueBody` and
+   * `noCriteriaReason` tell the two apart (#179).
+   */
   readonly issueBody: string;
   /**
    * The linked ticket's label names, empty when the PR links none. The

@@ -5,7 +5,6 @@ import * as path from "node:path";
 import { test } from "node:test";
 
 import { PROJECTIONS, STATUSES_PROJECTION, parseItems } from "./gh-read.ts";
-import { trustPolicy } from "../lib/trusted-authors.ts";
 import { commentFromGitHub, marksFromTimeline, roleFromJobs, runFromGitHub, stateSinceFromTimeline, ticketFromGitHub, toldNoTicketIn } from "./reconcile.ts";
 
 const pagesDir = path.join(import.meta.dirname, "fixtures", "pages");
@@ -53,8 +52,8 @@ test("timeline projection keeps label events and the sweep mark at the head of a
 test("comments projection carries the body's marker and who wrote it, so a forged marker is dropped (#230)", () => {
   const comments = project("comments", "comments").map(commentFromGitHub);
   assert.deepEqual(comments.map((c) => c.author.login), ["chizhangucb", "passer-by"]);
-  assert.equal(toldNoTicketIn(comments, trustPolicy(undefined)), true);
-  assert.equal(toldNoTicketIn(comments.slice(1), trustPolicy(undefined)), false);
+  assert.equal(toldNoTicketIn(comments, "chizhangucb"), true);
+  assert.equal(toldNoTicketIn(comments.slice(1), "chizhangucb"), false);
 });
 
 test("jobs projection feeds roleFromJobs", () => {

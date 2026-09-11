@@ -540,13 +540,24 @@ test("a PR whose comments were not read is told nothing: the sweep never comment
 // marker counts only from an author the target's trust policy acts on. The
 // factory posts it with FACTORY_PAT, which arrives as the owner, exactly as the
 // retry marker does (#52); a stranger on a public target is NONE and is dropped.
-test("only the factory's own comment suppresses the next one: a stranger cannot forge the marker", () => {
-  const factory = { body: `${"<!-- factory:no-ticket -->"}\nPR left alone`, author: { association: "OWNER", login: "maintainer" } };
-  const forged = { body: `${"<!-- factory:no-ticket -->"}\nnothing to see`, author: { association: "NONE", login: "passer-by" } };
-  const unrelated = { body: "nice work", author: { association: "OWNER", login: "maintainer" } };
-  assert.equal(toldNoTicketIn([forged, unrelated], POLICY), false);
-  assert.equal(toldNoTicketIn([forged, factory], POLICY), true);
-  assert.equal(toldNoTicketIn([], POLICY), false);
+test("only the factory's own account suppresses the next comment: nobody else can forge the marker", () => {
+  const marked = (login: string, association: string) => ({ body: "<!-- factory:no-ticket -->\nLeft alone", author: { association, login } });
+  const chatter = { body: "nice work", author: { association: "OWNER", login: "factory-bot" } };
+  assert.equal(toldNoTicketIn([marked("factory-bot", "MEMBER"), chatter], "factory-bot"), true);
+  // A stranger, and the two the association alone would have let through: a
+  // collaborator on a target that widened its trust policy, and the repo owner.
+  for (const forged of [marked("passer-by", "NONE"), marked("collaborator", "COLLABORATOR"), marked("maintainer", "OWNER")]) {
+    assert.equal(toldNoTicketIn([forged, chatter], "factory-bot"), false);
+  }
+  assert.equal(toldNoTicketIn([], "factory-bot"), false);
+  // GitHub spells an app's login two ways; the marker is the factory's either way.
+  assert.equal(toldNoTicketIn([marked("Factory-Bot[bot]", "NONE")], "factory-bot"), true);
+});
+
+test("an unknown factory identity tells nothing: the sweep would not recognise its own comment", () => {
+  const d = only(reconcile(snapshot({ prs: [noTicket(21, { toldNoTicket: undefined })] }), DEFAULT_DEADLINES, POLICY));
+  assert.deepEqual(d.action, { type: "none" });
+  assert.equal(toldNoTicketIn([{ body: "<!-- factory:no-ticket -->", author: { association: "OWNER", login: "maintainer" } }], undefined), true);
 });
 
 test("a PR fixed after being told proceeds normally: the earlier comment is no obstacle", () => {

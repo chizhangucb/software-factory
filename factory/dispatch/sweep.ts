@@ -28,7 +28,8 @@
  * where a failure leaves the author unknown and the PR alone (#182). A third
  * since #230: the comments on a PR that closes no ticket, where a failure
  * leaves it unknown whether the factory has spoken already and the sweep says
- * nothing rather than risk repeating itself.
+ * nothing rather than risk repeating itself, and the same for the read of the
+ * account it writes as, which is what tells its own marker from a forged one.
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine.
@@ -180,13 +181,25 @@ const ticketAuthorOf = (ticket: number): Author | undefined => {
 };
 
 /**
- * A PR that is not a factory PR (#182): who opened its ticket, and the
- * verdict on its head, read only past the reasons to leave it alone that the
- * listing already answers, which `leftAloneFromListing` decides for the
- * reconciler too. Auto-merge is not
- * asked about: the reconciler asks for a verdict on such a PR armed or not,
- * and that decision never arms it.
+ * The account GH_TOKEN belongs to, which is the account this sweep comments
+ * under and so the only one whose #230 marker means the factory has spoken.
+ * Read once per sweep, and only if a PR needs it. Unknown on a failed read,
+ * which leaves the factory unable to recognise its own comment and therefore
+ * silent, as `toldNoTicketIn` says.
  */
+let login: { known: string | undefined } | undefined;
+const factoryLogin = (): string | undefined => {
+  if (login) return login.known;
+  try {
+    login = { known: gh(["api", "user", "--jq", ".login"]).trim() || undefined };
+  } catch (error) {
+    if (!(error instanceof GhError)) throw error;
+    console.log(`::warning::Could not read the account this sweep writes as; saying nothing about a PR's missing closing keyword: ${error.message}`);
+    login = { known: undefined };
+  }
+  return login.known;
+};
+
 /**
  * Whether the factory has already told this PR it closes no ticket (#230).
  * Its own comments, with their authors, since a marker suppresses the next
@@ -198,7 +211,7 @@ const ticketAuthorOf = (ticket: number): Author | undefined => {
  */
 const toldNoTicketOn = (pr: number): boolean | undefined => {
   try {
-    return toldNoTicketIn(paginate(`repos/${repo}/issues/${pr}/comments?per_page=100`, "comments").map(commentFromGitHub), policy);
+    return toldNoTicketIn(paginate(`repos/${repo}/issues/${pr}/comments?per_page=100`, "comments").map(commentFromGitHub), factoryLogin());
   } catch (error) {
     if (!(error instanceof GhError)) throw error;
     console.log(`::warning::Could not read the comments on PR #${pr}; saying nothing about its missing closing keyword: ${error.message}`);
@@ -206,6 +219,13 @@ const toldNoTicketOn = (pr: number): boolean | undefined => {
   }
 };
 
+/**
+ * A PR that is not a factory PR (#182): who opened its ticket, and the
+ * verdict on its head, read only past the reasons to leave it alone that the
+ * listing already answers, which `leftAloneFromListing` decides for the
+ * reconciler too. Auto-merge is not asked about: the reconciler asks for a
+ * verdict on such a PR armed or not, and that decision never arms it.
+ */
 const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
   if (leftAlone(pr.labels)) return pr;
   const listed = leftAloneFromListing(pr);

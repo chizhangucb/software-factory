@@ -429,19 +429,46 @@ export const leftAloneFromListing = (p: PrState): LeftAlone | undefined => {
   return undefined;
 };
 
+/** A comment on a PR, as much of it as the marker read needs: `gh-read.ts` projects exactly this. */
+export type PrComment = { body: string; author: Author };
+
+/**
+ * GitHub spells an app's login two ways, `name[bot]` on REST and `name` on
+ * gh's JSON and GraphQL, so both sides of the comparison are normalised.
+ * `trusted-authors.ts` normalises the same way and for the same reason.
+ */
+const normaliseLogin = (login: string | null | undefined): string => String(login ?? "").toLowerCase().replace(/\[bot\]$/, "");
+
 /**
  * Has the factory already told this PR it closes no ticket (#230)?
  *
  * The marker alone is not the answer. Suppression is worth forging: a faked
- * comment would switch the factory off on that PR for good, and on a public
- * target anyone can comment on one. So a marker counts only from an author
- * the target's trust policy acts on, asked on the `pr-comment` channel, which
- * is judged on the association alone and carries no login exemption. The
- * factory posts its own with FACTORY_PAT, so it arrives as the owner and the
- * default `OWNER` policy keeps it, exactly as the retry marker does (#52).
+ * comment switches the factory off on that PR for good, and on a public
+ * target anyone can comment on one. So the marker counts only from the
+ * factory's own account, `factoryLogin`, whoever that is on the target: the
+ * account the sweep's own write token belongs to. Nothing else can post as
+ * it, so nothing else can switch it off.
+ *
+ * The author's association is deliberately not what is asked. It is a
+ * property of a person's standing on the repo rather than of the identity,
+ * and it answers wrongly in both directions: a target that widens
+ * `trusted_author_associations` would let a collaborator forge the
+ * suppression, and on an org-owned target the factory's own comments arrive
+ * as MEMBER under a default OWNER policy, so the factory would not recognise
+ * its own marker and would repeat itself every sweep. ADR 0002's exemption
+ * for the shared `github-actions` identity does not apply and is not wanted:
+ * that login is every workflow in the target, and this comment is posted
+ * with FACTORY_PAT precisely so it is not.
+ *
+ * An unknown login is treated as told, like every other fact the sweep did
+ * not read: a factory that cannot name itself cannot recognise its own
+ * marker, and repeating the comment forever is the worse way to be wrong.
  */
-export const toldNoTicketIn = (comments: readonly { body: string; author: Author }[], policy: TrustPolicy): boolean =>
-  comments.some((c) => NO_TICKET_MARK.test(c.body) && policy.trusts("pr-comment", c.author));
+export const toldNoTicketIn = (comments: readonly PrComment[], factoryLogin: string | undefined): boolean => {
+  if (factoryLogin === undefined) return true;
+  const factory = normaliseLogin(factoryLogin);
+  return comments.some((c) => NO_TICKET_MARK.test(c.body) && normaliseLogin(c.author.login) === factory);
+};
 
 /**
  * What a producer is told, in the register of `agent-review.yml`'s fork
@@ -456,10 +483,10 @@ const noTicketComment = (why: string, url?: string): string =>
     `Left alone: ${why}, so the factory is not asking for a verdict on this PR.`,
     "",
     "Add `Closes #<ticket>` to the description, naming the ticket this PR implements, and the next sweep picks it up.",
-    url ? `\nSweep: ${url}` : "",
-  ]
-    .filter((line) => line !== "")
-    .join("\n");
+    // Spread, not a filtered "": the blank line above is a paragraph break the
+    // filter would eat along with the absent link.
+    ...(url ? [`\nSweep: ${url}`] : []),
+  ].join("\n");
 
 /**
  * The fourth reason, and #179's definition rather than a second one: the
@@ -686,7 +713,7 @@ export const prFromGitHub = (raw: Record<string, any>): PrState => {
 };
 
 /** From the `comments` projection in `gh-read.ts`: the marker's line, and who wrote it. */
-export const commentFromGitHub = (raw: Record<string, any>): { body: string; author: Author } => ({
+export const commentFromGitHub = (raw: Record<string, any>): PrComment => ({
   body: String(raw.body ?? ""),
   author: { association: raw.association, login: raw.login },
 });

@@ -1,9 +1,12 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  # No push trigger: `check` is required on a head up to date with main, so a merge
+  # lands the tree the pull request already checked. Run by hand after a bypass (#223).
+  # `check` therefore posts on no main commit, so onboard.sh here must be given it:
+  # `scripts/onboard.sh chizhangucb/software-factory check`, or a re-run requires nothing.
+  workflow_dispatch:
 
 jobs:
   check:

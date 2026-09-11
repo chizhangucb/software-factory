@@ -81,6 +81,10 @@ test("README's onboarding names the instruction in the step that names the calle
   assert.equal(copying.length, 1, "one step names the routing test command");
   assert.ok(copying[0]!.includes("templates/factory.yml"), "and it is the step that names the caller");
   assert.ok(copying[0]!.includes(JUDGED_PATH_TEMPLATE), `the same step names ${JUDGED_PATH_TEMPLATE}`);
+  // The prose is a paraphrase, not a copy, so the literal above does not hold it and it would
+  // otherwise drift uncaught. It names the fork precondition beside the three steps, or a
+  // maintainer reading only the README under-describes the line they are about to copy.
+  assert.match(copying[0]!, /fork/, "and its prose names the fork precondition");
 });
 
 test("the Close convention is still one bullet of docs/agents/issue-tracker.md", () => {

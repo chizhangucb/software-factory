@@ -15,7 +15,7 @@
  * implementer run reads back. Pure functions here; `retry.ts` does the API
  * calls.
  */
-import { BLOCKED_LABEL, ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
+import { BLOCKED_LABEL, ESCALATION_LABEL, HOLD_LABELS, IMPLEMENT_LABEL, IN_PROGRESS_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { boundOutput } from "../lib/verdict";
 import type { PrFixAction } from "./escalation.ts";
 
@@ -71,7 +71,8 @@ export const RATE_LIMITED_REASON = "rate limited on every account; not the ticke
  * sweeps, so it is what gets the start label re-added at the stuck deadline;
  * a PR with no `agent:*` label is swept by nothing. A requeued ticket writes
  * no marker, having the opposite need: no factory label is what the
- * dispatcher picks up.
+ * dispatcher picks up. A PR stood down on for a hold (#185) writes it too,
+ * for the same reason: it is left where a requeue leaves one.
  */
 export const REQUEUED_FILE = "requeued.txt";
 
@@ -117,7 +118,42 @@ export const ticketOrPrFromPr = <Pr>(input: {
 /** A PR's mergeability as GitHub reports it (`gh pr view --json mergeable`); UNKNOWN while it is still computing. */
 export type Mergeability = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 
+/**
+ * A label from the hold set on the run's subject, and which subject it was
+ * found on (#185): a person has said to leave this alone, and the retry
+ * handler says back which label stopped it and where.
+ */
+export interface Hold {
+  readonly label: string;
+  readonly on: { readonly kind: "issue" | "pr"; readonly number: string };
+}
+
+/**
+ * The first hold-set label on these subjects, and where it was found; the
+ * caller passes the ticket first, then its open PR. `HOLD_LABELS` is the
+ * dispatcher's set, read from the same module and not restated, so a label
+ * that holds a ticket back from dispatch holds it back here too.
+ *
+ * Both subjects and not only the one that records the retry: the label a
+ * retry adds goes on the PR whenever one is open, so a hold on the PR is a
+ * hold on exactly what the retry would start.
+ */
+export const findHold = (
+  subjects: readonly (Hold["on"] & { readonly labels: readonly string[] })[],
+): Hold | undefined => {
+  for (const { kind, number, labels } of subjects) {
+    const label = HOLD_LABELS.find((held) => labels.includes(held));
+    if (label) return { label, on: { kind, number } };
+  }
+  return undefined;
+};
+
+/** A subject the way a comment names it: `ticket #7`, `PR #12`. */
+const subjectName = (on: Hold["on"]): string => `${on.kind === "issue" ? "ticket" : "PR"} #${on.number}`;
+
 export type Decision =
+  /** A person holds the subject: no agent starts, nothing is spent, nothing is escalated. */
+  | { readonly action: "stand-down"; readonly hold: Hold; readonly reason: string }
   | { readonly action: "retry"; readonly retry: number }
   | { readonly action: "escalate"; readonly reason: string }
   /** Not the ticket's failure: hand it back to the queue without counting an attempt. */
@@ -148,6 +184,16 @@ export const CONFLICT_REASON =
  * real failure outranks the conflict, as a failed check outranks a pending
  * one. A failure a retry cannot fix (the ticket has no acceptance criteria)
  * escalates at once.
+ *
+ * A held subject stands down (#185), and that is read before everything but
+ * an escalation already made. Before the retry, since a retry starts an
+ * agent. Before the requeue and the hand-off, since a hand-off starts one too
+ * and a requeue would say the wrong thing about why nothing moved. And before
+ * both escalations, the retry cap and the unretryable failure, because
+ * escalating takes every `agent:*` label and `ready-for-agent` off: the
+ * factory would be reclaiming a subject a person has just taken, and removing
+ * the hold could no longer resume it. Whatever is wrong with the attempt is
+ * still wrong once the hold comes off, and the next failure finds it.
  */
 export const decide = (input: {
   readonly retriesUsed: number;
@@ -159,9 +205,14 @@ export const decide = (input: {
   readonly mergeable?: Mergeability;
   /** Why another implementer run cannot fix this failure; undefined when it might. */
   readonly unretryable?: string;
+  /** The hold-set label on the ticket or its open PR, from `findHold`; undefined when neither is held. */
+  readonly held?: Hold;
 }): Decision => {
   if (input.escalated) {
     return { action: "none", reason: `already escalated: ${ESCALATION_LABEL} is on the ticket` };
+  }
+  if (input.held) {
+    return { action: "stand-down", hold: input.held, reason: `\`${input.held.label}\` is on ${subjectName(input.held.on)}` };
   }
   if (input.requeue) {
     if (input.mergeable === "CONFLICTING") return { action: "hand-off", reason: CONFLICT_REASON };
@@ -330,6 +381,42 @@ export const renderRequeueComment = (input: {
       ? "This PR stays in `agent:in-progress` and nothing else is labeled. The reconciler re-adds `agent:review` at its stuck deadline, and the run starts again; the retry count is unchanged."
       : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the schedule) once `agent:in-progress` is gone.",
   ].join("\n");
+
+/**
+ * The comment on a held subject the retry handler stood down on (#185),
+ * posted where the hold was found, since that is the thread the person who
+ * added it is reading. It names the label and the subject, because the factory
+ * reads the whole hold set on the ticket and on its PR, and "why did nothing
+ * happen" has to be answerable without knowing that.
+ *
+ * What it leaves behind is a requeue's (#148), and the comment says so: a
+ * ticket with no factory label, which the dispatcher skips while it is held
+ * and picks up once it is not, and a PR in `agent:in-progress`, which the
+ * reconciler leaves alone while it is held and re-labels at its stuck
+ * deadline once it is not. No retry is spent, since a person stopped the
+ * attempt rather than the implementer failing it, and nothing is escalated:
+ * `needs-human` is the factory giving up, and here a person has taken the
+ * wheel, so there is nothing for a human to be asked.
+ */
+export const renderStandDownComment = (input: {
+  readonly hold: Hold;
+  /** What ended the attempt, one line. */
+  readonly summary: string;
+  readonly runUrl: string;
+  /** The open PR the retry would have labeled, kept in `agent:in-progress`; undefined when the ticket stands alone. */
+  readonly pr: string | undefined;
+}): string => {
+  const { label, on } = input.hold;
+  return [
+    `### Stood down: \`${label}\` is on ${subjectName(on)}`,
+    "",
+    `The attempt ended (${input.summary}), and the factory would have started another agent on it now. \`${label}\` on ${subjectName(on)} says a person has this one, so nothing was labeled and nothing was escalated. No retry was spent. Run: ${input.runUrl}`,
+    "",
+    input.pr
+      ? `Take \`${label}\` off to resume. PR #${input.pr} stays in \`${IN_PROGRESS_LABEL}\`, which the reconciler leaves alone while it is held; once the hold is off, its next sweep past the stuck deadline re-adds \`agent:review\`, and the retry count is unchanged.`
+      : `Take \`${label}\` off to resume. The ticket is left with no factory label, so the dispatcher picks it up again once the hold is off, with the retry count unchanged.`,
+  ].join("\n");
+};
 
 /**
  * The comment on a PR handed to the implementer because it conflicts with

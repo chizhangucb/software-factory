@@ -18,14 +18,15 @@
  *
  * The evaluator understands the subset the caller's conditions are written in:
  * `github.*` paths, single-quoted strings, `==`, `!=`, `!`, `&&`, `||`, parens,
- * and the functions in `FUNCTIONS`. A condition that outgrows it fails loudly
- * here rather than being waved through.
+ * and the names in `CALLABLE`. A condition that outgrows it fails loudly here
+ * rather than being waved through.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { test } from "node:test";
 
 import { AGENT_LABEL_PREFIX, FACTORY_LABEL_PREFIX } from "../lib/labels.ts";
+import { RETRY_LABEL_PREFIX } from "../retry/decide.ts";
 
 const template = fs.readFileSync(new URL("../../templates/factory.yml", import.meta.url), "utf8");
 
@@ -47,9 +48,15 @@ const typesOf = (yaml: string, event: string): string[] => {
 /** A webhook payload as a condition sees it: whatever GitHub sends, and nothing else. */
 type Context = { event_name: string; event?: Record<string, unknown> };
 
-/** GitHub's `startsWith`, including its coercion: null reads as the empty string, not "null". */
+/**
+ * GitHub's `startsWith`, including the two ways it differs from JavaScript's:
+ * null coerces to the empty string rather than "null", and the comparison is
+ * not case sensitive. A label named `Agent:foo` is dropped by the real caller,
+ * so a double that answered it case sensitively would let the table below say
+ * a removal wakes the sweep where the caller silently drops it.
+ */
 const startsWith = (value: unknown, prefix: unknown): boolean =>
-  String(value ?? "").startsWith(String(prefix ?? ""));
+  String(value ?? "").toLowerCase().startsWith(String(prefix ?? "").toLowerCase());
 
 /**
  * What a caller condition may call, beyond reading a `github.*` path. An
@@ -217,6 +224,19 @@ test("the caller's namespace clauses name the prefixes the factory actually writ
     .map(([, prefix]) => prefix)
     .sort();
   assert.deepEqual(named, [AGENT_LABEL_PREFIX, FACTORY_LABEL_PREFIX].sort());
+});
+
+test("every label prefix the factory writes falls inside a namespace the caller drops", () => {
+  // The clauses above are only worth anything if the factory's own labels all
+  // sit in one of the two namespaces. `factory:retry-<n>` is written by the
+  // retry handler, which spells its prefix out for itself. Moved outside the
+  // namespace it would wake a sweep on one of the factory's own writes again,
+  // which is #170 coming back quietly. Asserted here rather than fixed in
+  // decide.ts, whose prefix is that module's to own.
+  assert.ok(
+    RETRY_LABEL_PREFIX.startsWith(FACTORY_LABEL_PREFIX),
+    `${RETRY_LABEL_PREFIX} is written by the factory but falls outside ${FACTORY_LABEL_PREFIX}`,
+  );
 });
 
 test("the prose that names the dispatcher's issue triggers names the caller's set", () => {

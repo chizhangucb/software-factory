@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   describeDropped,
+  noCriteriaReason,
   pullRequestContext,
   type PullRequestContext,
   type PullRequestReads,
@@ -162,6 +163,68 @@ test("the ticket text says the body was dropped, and the title goes with it", ()
   // The ticket is still named by number, and its trusted comments still show.
   assert.match(context.linkedIssue, /#4/);
   assert.match(context.linkedIssue, /Owner on the ticket\./);
+});
+
+/**
+ * The case #179 exists for is a clean PR pointing at a stranger's ticket:
+ * nothing else is dropped, so the payload's dropped block has to appear for the
+ * body alone, or the one place the reviewer reads about dropped things would
+ * say nothing at all.
+ */
+test("a body dropped on its own still gets the payload's dropped block", () => {
+  const raw = strangersTicket();
+  const context = pullRequestContext(
+    {
+      ...raw,
+      pr: { ...raw.pr, comments: [] },
+      reviews: [],
+      threads: [],
+      issue: { ...raw.issue!, view: { ...raw.issue!.view, comments: [] } },
+    },
+    OWNER_ONLY,
+  );
+  const block = (
+    JSON.parse(context.prCommentsJson) as {
+      dropped_untrusted?: { linked_issue_body?: number; note?: string };
+    }
+  ).dropped_untrusted;
+  assert.equal(block?.linked_issue_body, 1);
+  assert.match(block?.note ?? "", /body and title/);
+  assert.match(block?.note ?? "", /acts only on OWNER/);
+});
+
+/**
+ * The verdict is a required check and its summary is what the maintainer reads.
+ * A refused ticket used to be reported there as a ticket with no checklist,
+ * which sends them looking for a heading that is already on the ticket (#179).
+ */
+test("the verdict says which of the three no-criteria cases this is", () => {
+  const raw = reads();
+  assert.match(
+    noCriteriaReason(pullRequestContext(strangersTicket(), OWNER_ONLY)),
+    /#4 was opened by an untrusted author/,
+  );
+  assert.match(
+    noCriteriaReason(
+      pullRequestContext(
+        {
+          ...raw,
+          issue: { ...raw.issue!, view: { ...raw.issue!.view, body: "No checklist here." } },
+        },
+        OWNER_ONLY,
+      ),
+    ),
+    /has no checklist under an "Acceptance criteria" heading/,
+  );
+  assert.match(
+    noCriteriaReason(
+      pullRequestContext(
+        { ...raw, pr: { ...raw.pr, body: "No keyword here" }, issue: undefined },
+        OWNER_ONLY,
+      ),
+    ),
+    /links no ticket/,
+  );
 });
 
 /**

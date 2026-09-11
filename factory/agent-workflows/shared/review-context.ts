@@ -83,7 +83,7 @@ export interface PullRequestReviewThread {
  * channel; the ticket's body is one thing or nothing, so `issueBody` is 1 or 0
  * and it counts the title with it, which goes the same way (#179).
  */
-export interface DroppedUntrusted {
+export interface DroppedCounts {
   readonly prComments: number;
   readonly reviewSummaries: number;
   readonly reviewThreadComments: number;
@@ -110,7 +110,7 @@ export interface PullRequestContext {
   readonly diffLines: Map<string, Set<number>>;
   readonly validReplyIds: Set<string>;
   /** What the trust policy kept out of all of the above (story 27). */
-  readonly dropped: DroppedUntrusted;
+  readonly dropped: DroppedCounts;
 }
 
 /**
@@ -177,7 +177,7 @@ query($owner:String!,$repo:String!,$number:Int!) {
  * count: it is not a comment, and a run that loses it loses its criteria, which
  * is the thing a reader of the log is trying to explain (#179).
  */
-export const describeDropped = (dropped: DroppedUntrusted): string => {
+export const describeDropped = (dropped: DroppedCounts): string => {
   const total =
     dropped.prComments +
     dropped.reviewSummaries +
@@ -192,17 +192,38 @@ export const describeDropped = (dropped: DroppedUntrusted): string => {
     : `${comments} The linked ticket's own body and title were dropped: an untrusted author opened it, so this run reads no acceptance criteria from it.`;
 };
 
+/**
+ * Why a run has no acceptance criteria, in the words the verdict shows a human.
+ *
+ * Three different things reach the same mechanical fail, and the PR has to say
+ * which: no ticket at all, a ticket the factory refused to read, or a ticket
+ * with no checklist. The refused case used to read as the last one, which is
+ * false and sends the maintainer looking for a heading that is already there
+ * (#179). The job log says the same thing through `describeDropped`; this is
+ * the half that reaches the PR.
+ */
+export const noCriteriaReason = (context: PullRequestContext): string => {
+  if (!context.issueNumber) return "The PR body links no ticket (no `Closes #N`).";
+  if (context.dropped.issueBody > 0) {
+    return `#${context.issueNumber} was opened by an untrusted author, so the factory did not read its body or any criteria in it.`;
+  }
+  return `#${context.issueNumber} has no checklist under an "Acceptance criteria" heading.`;
+};
+
 /** What stands where an untrusted ticket's title was, so the ticket still reads as a ticket. */
 const UNTRUSTED_TICKET_TITLE = "(title not included: untrusted author)";
 
+/** What a dropped ticket body and title are called, wherever they are counted. */
+const TICKET_BODY = "ticket body and title";
+
 /**
- * What stands where an untrusted ticket's body was. A dropped comment leaves a
- * note saying the thread was cut; this is the same note for the body, in the
- * policy's own words, so an agent reads a missing checklist as refused rather
- * than as a ticket that never had one (#179).
+ * What stands where an untrusted ticket's body was: the policy's own sentence
+ * about what it dropped and whose words it acts on, which is what stands in for
+ * a dropped comment, plus what that means here. Composed rather than written
+ * out, so the wording lives in the policy and not in this file (#80, #179).
  */
 const untrustedTicketNote = (policy: TrustPolicy): string =>
-  `This ticket was opened by an untrusted author, so neither its title nor its body is included: the factory acts only on ${policy.associations.join(", ")}. There are no acceptance criteria to judge here. If this ticket is genuine, a maintainer must restate it in a place the factory reads.`;
+  `${policy.droppedNote(1, TICKET_BODY)} So there are no acceptance criteria to judge on this PR.`;
 
 /**
  * The context an agent gets, from the reads, under one trust policy. Pure, so
@@ -218,24 +239,30 @@ export const pullRequestContext = (
 ): PullRequestContext => {
   const issueNumber = linkedIssueNumber(reads.pr.body);
   // The ticket's body is the reviewer's ACCEPTANCE_CRITERIA and the audit's, so
-  // it goes through the policy like every other channel here (#179).
-  const ticketAuthorTrusted = reads.issue
-    ? policy.trusts("ticket-author", reads.issue.author)
-    : true;
-  // The title goes with the body: a title is the same untrusted channel as a
+  // it goes through the policy like every other channel here (#179). One
+  // decision, taken once: what the agent reads, what the criteria are parsed
+  // from, and what is counted as dropped cannot disagree about the same ticket.
+  // The title goes with the body, a title being the same untrusted channel as a
   // body, which is how an untrusted parent spec is already handled (#52).
-  const view =
-    reads.issue && !ticketAuthorTrusted
-      ? {
-          ...reads.issue.view,
-          title: UNTRUSTED_TICKET_TITLE,
-          body: untrustedTicketNote(policy),
-        }
-      : reads.issue?.view;
+  const ticket =
+    !reads.issue || policy.trusts("ticket-author", reads.issue.author)
+      ? { view: reads.issue?.view, criteria: reads.issue?.view.body ?? "", dropped: 0 }
+      : {
+          view: {
+            ...reads.issue.view,
+            title: UNTRUSTED_TICKET_TITLE,
+            body: untrustedTicketNote(policy),
+          },
+          // Empty, not the note above: an untrusted ticket must reach the same
+          // outcome as a ticket with no acceptance criteria, which review.ts
+          // and audit.ts already turn into a mechanical fail.
+          criteria: "",
+          dropped: 1,
+        };
   // One application of the policy to the ticket, not two: the rendered text and
   // the count come back together, so they cannot drift apart.
-  const issue = view
-    ? renderIssue(view, policy)
+  const issue = ticket.view
+    ? renderIssue(ticket.view, policy)
     : { text: "(no linked issue found)", droppedComments: 0 };
 
   // Each read names its channel and reports what it has. Whether the factory's
@@ -277,18 +304,19 @@ export const pullRequestContext = (
     }),
   );
 
-  const dropped: DroppedUntrusted = {
+  const dropped: DroppedCounts = {
     prComments: prComments.dropped,
     reviewSummaries: reviewSummaries.dropped,
     reviewThreadComments: threadComments.dropped,
     issueComments: issue.droppedComments,
-    issueBody: ticketAuthorTrusted ? 0 : 1,
+    issueBody: ticket.dropped,
   };
   const droppedInAll =
     dropped.prComments +
     dropped.reviewSummaries +
     dropped.reviewThreadComments +
-    dropped.issueComments;
+    dropped.issueComments +
+    dropped.issueBody;
 
   const payload = {
     issue_comments: prComments.kept.map((comment) => ({
@@ -316,7 +344,14 @@ export const pullRequestContext = (
             review_thread_comments: dropped.reviewThreadComments,
             // The ticket's own count, also written into LINKED ISSUE above.
             linked_issue_comments: dropped.issueComments,
-            note: policy.droppedNote(droppedInAll, "comment(s) on this PR and its ticket"),
+            // The body is not a comment, so it is counted only when it went.
+            ...(dropped.issueBody > 0 ? { linked_issue_body: dropped.issueBody } : {}),
+            note: policy.droppedNote(
+              droppedInAll,
+              dropped.issueBody > 0
+                ? "item(s) on this PR and its ticket, the ticket's own body and title among them,"
+                : "comment(s) on this PR and its ticket",
+            ),
           },
         }
       : {}),
@@ -329,12 +364,12 @@ export const pullRequestContext = (
     // The placeholder rather than "": implement-pr renders an empty title as
     // "(no linked issue)", and there is a linked ticket, it is just not one the
     // factory reads (#179).
-    issueTitle: view?.title ?? "",
-    // Empty, not the note above: an untrusted ticket must reach the same
-    // outcome as a ticket with no acceptance criteria, which `review.ts` and
-    // `audit.ts` already turn into a mechanical fail (#179).
-    issueBody: ticketAuthorTrusted ? (reads.issue?.view.body ?? "") : "",
-    issueLabels: (reads.issue?.view.labels ?? []).map((label) => label.name),
+    issueTitle: ticket.view?.title ?? "",
+    issueBody: ticket.criteria,
+    // The labels stay whoever opened the ticket: writing one takes triage on
+    // the repo, so they are not the author's channel, and the implementer's
+    // model is resolved from them (#10, #119).
+    issueLabels: (ticket.view?.labels ?? []).map((label) => label.name),
     linkedIssue: issue.text,
     diff: reads.diff,
     prCommentsJson: JSON.stringify(payload, null, 2),

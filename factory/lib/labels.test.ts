@@ -18,7 +18,7 @@ import * as fs from "node:fs";
 import { test } from "node:test";
 
 import { DISPATCH_LABEL, FACTORY_STATE_LABELS } from "../dispatch/select.ts";
-import { HOLD_LABEL, HOLD_LABELS, READY_LABEL } from "./labels.ts";
+import { ESCALATION_LABEL, HANDED_OFF_LABELS, HOLD_LABEL, HOLD_LABELS, READY_LABEL } from "./labels.ts";
 
 /**
  * The pages that have to name the hold set. Every other page in `docs/` is
@@ -115,9 +115,28 @@ test("every label the dispatcher decides on is one this repo defines, never one 
   // knowing. `wontfix` is how close it already runs: a GitHub default and one
   // of the five triage roles in `docs/agents/triage-labels.md`, which the
   // dispatcher happens not to read.
-  for (const label of [READY_LABEL, ...HOLD_LABELS, DISPATCH_LABEL, ...FACTORY_STATE_LABELS]) {
+  // Both homes of the factory state strings, not just one: `dispatch/select.ts`
+  // still keeps its own `DISPATCH_LABEL` and `FACTORY_STATE_LABELS` while
+  // `lib/labels.ts` is where they land (#122), and update-branch and the retry
+  // handler read `HANDED_OFF_LABELS` and `ESCALATION_LABEL` rather than either
+  // of those. Naming all of them means the guard holds whichever list a new
+  // label is added to, and survives the repointing that deletes the duplicates.
+  const read = [
+    READY_LABEL,
+    ...HOLD_LABELS,
+    ...HANDED_OFF_LABELS,
+    ESCALATION_LABEL,
+    DISPATCH_LABEL,
+    ...FACTORY_STATE_LABELS,
+  ];
+  // Case-insensitively: GitHub's label names are unique without regard to case,
+  // so `Bug` is not a second label beside the default `bug`, it is that label
+  // reached by a different spelling, and `onboard.sh --force` would rewrite the
+  // default in place exactly as the lowercase spelling would.
+  const defaults = new Set(GITHUB_DEFAULT_LABELS.map((label) => label.toLowerCase()));
+  for (const label of read) {
     assert.ok(
-      !GITHUB_DEFAULT_LABELS.includes(label),
+      !defaults.has(label.toLowerCase()),
       `${label} is one of GitHub's default labels, so a target carries it whether or not anyone means it as an instruction`,
     );
   }

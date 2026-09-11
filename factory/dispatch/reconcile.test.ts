@@ -5,6 +5,7 @@ import {
   DEFAULT_DEADLINES,
   type Decision,
   leftAlone,
+  NO_TICKET_MARK,
   onMergePath,
   PARKED_LABELS,
   type PrState,
@@ -20,6 +21,7 @@ import {
   runsFor,
   stateSinceFromTimeline,
   ticketFromGitHub,
+  toldNoTicketIn,
 } from "./reconcile.ts";
 import { trustPolicy } from "../lib/trusted-authors.ts";
 
@@ -72,6 +74,10 @@ const unjudged = (number: number, overrides: Partial<PrState> = {}): PrState =>
     ticketAuthor: { association: "OWNER", login: "maintainer" },
     ...overrides,
   });
+
+/** One of those whose body names no ticket, which is the one reason #230 tells its author about. */
+const noTicket = (number: number, overrides: Partial<PrState> = {}): PrState =>
+  unjudged(number, { closes: undefined, ticketAuthor: undefined, ...overrides });
 
 const run = (id: number, overrides: Partial<Run> = {}): Run => ({
   id,
@@ -489,9 +495,75 @@ test("a PR from a fork is left alone rather than labelled for agent-review.yml t
 });
 
 test("a PR closing no ticket is left alone, since its verdict would be a mechanical fail, and the log says so by name", () => {
-  const d = only(reconcile(snapshot({ prs: [unjudged(21, { closes: undefined, ticketAuthor: undefined })] }), DEFAULT_DEADLINES, POLICY));
+  const d = only(reconcile(snapshot({ prs: [noTicket(21, { toldNoTicket: true })] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.action, { type: "none" });
   assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone \(no-ticket\): /);
+});
+
+// #230: the one left-alone reason the producer can fix, and the one nobody can
+// supply on their behalf, so the sweep says so on the PR instead of only in its log.
+test("a PR closing no ticket, not told yet, is told on the PR: what happened and the one thing to do", () => {
+  const d = only(reconcile(snapshot({ prs: [noTicket(21, { toldNoTicket: false })] }), DEFAULT_DEADLINES, POLICY));
+  assert.deepEqual(d.action, { type: "comment", pr: 21 });
+  assert.match(d.log, /^#21 \(pr\) not a factory PR, deadline 30 min: left alone \(no-ticket\): .*: comment$/);
+  assert.match(d.comment!, NO_TICKET_MARK);
+  assert.match(d.comment!, /Closes #/);
+});
+
+test("the other three left-alone reasons comment on nothing, told or not", () => {
+  const prs = [
+    unjudged(21, { draft: true, toldNoTicket: false }),
+    unjudged(22, { fork: true, toldNoTicket: false }),
+    unjudged(23, { closes: 5, ticketAuthor: { association: "CONTRIBUTOR", login: "passer-by" }, toldNoTicket: false }),
+  ];
+  for (const d of reconcile(snapshot({ prs }), DEFAULT_DEADLINES, POLICY)) {
+    assert.deepEqual(d.action, { type: "none" });
+    assert.equal(d.comment, undefined);
+  }
+});
+
+test("a second sweep over the same unfixed PR comments nothing, and so does the tenth", () => {
+  // The factory's own earlier comment is what `toldNoTicket` reports, so every
+  // sweep after the first sees it and stays quiet.
+  const told = noTicket(21, { toldNoTicket: true });
+  for (let sweep = 0; sweep < 10; sweep++) {
+    assert.deepEqual(only(reconcile(snapshot({ prs: [told] }), DEFAULT_DEADLINES, POLICY)).action, { type: "none" });
+  }
+});
+
+test("a PR whose comments were not read is told nothing: the sweep never comments on a fact it did not read", () => {
+  const d = only(reconcile(snapshot({ prs: [noTicket(21, { toldNoTicket: undefined })] }), DEFAULT_DEADLINES, POLICY));
+  assert.deepEqual(d.action, { type: "none" });
+});
+
+// Faking the marker would switch the factory off on that PR for good, so the
+// marker counts only from an author the target's trust policy acts on. The
+// factory posts it with FACTORY_PAT, which arrives as the owner, exactly as the
+// retry marker does (#52); a stranger on a public target is NONE and is dropped.
+test("only the factory's own account suppresses the next comment: nobody else can forge the marker", () => {
+  const marked = (login: string, association: string) => ({ body: "<!-- factory:no-ticket -->\nLeft alone", author: { association, login } });
+  const chatter = { body: "nice work", author: { association: "OWNER", login: "factory-bot" } };
+  assert.equal(toldNoTicketIn([marked("factory-bot", "MEMBER"), chatter], "factory-bot"), true);
+  // A stranger, and the two the association alone would have let through: a
+  // collaborator on a target that widened its trust policy, and the repo owner.
+  for (const forged of [marked("passer-by", "NONE"), marked("collaborator", "COLLABORATOR"), marked("maintainer", "OWNER")]) {
+    assert.equal(toldNoTicketIn([forged, chatter], "factory-bot"), false);
+  }
+  assert.equal(toldNoTicketIn([], "factory-bot"), false);
+  // GitHub spells an app's login two ways; the marker is the factory's either way.
+  assert.equal(toldNoTicketIn([marked("Factory-Bot[bot]", "NONE")], "factory-bot"), true);
+});
+
+test("an unknown factory identity tells nothing: the sweep would not recognise its own comment", () => {
+  const d = only(reconcile(snapshot({ prs: [noTicket(21, { toldNoTicket: undefined })] }), DEFAULT_DEADLINES, POLICY));
+  assert.deepEqual(d.action, { type: "none" });
+  assert.equal(toldNoTicketIn([{ body: "<!-- factory:no-ticket -->", author: { association: "OWNER", login: "maintainer" } }], undefined), true);
+});
+
+test("a PR fixed after being told proceeds normally: the earlier comment is no obstacle", () => {
+  const fixed = unjudged(21, { closes: 5, toldNoTicket: true, ticketAuthor: { association: "OWNER", login: "owner" } });
+  const d = only(reconcile(snapshot({ prs: [fixed] }), DEFAULT_DEADLINES, POLICY));
+  assert.deepEqual(d.action, { type: "relabel", remove: [], add: "agent:review" });
 });
 
 // #179's definition, not a second one: the trust policy the target configured,

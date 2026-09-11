@@ -16,7 +16,7 @@
  * and the reviewer take), RUN_URL, OUTPUT_DIR for sweep.json, DRY_RUN=1 to
  * decide without writing.
  *
- * Every list read (issues, timelines, runs, jobs) is `gh api --paginate`
+ * Every list read (issues, timelines, comments, runs, jobs) is `gh api --paginate`
  * with a `--jq` projection to the fields the reconciler maps
  * (`gh-read.ts`): a full run payload is 10 KB and a page of them
  * overflowed the spawn buffer on the fixture. A failed read aborts the
@@ -25,7 +25,11 @@
  * whose failure can only make the reconciler do less: a run's jobs, where a
  * failure leaves the run's role unknown (it then counts as covering while
  * live), and the author of a ticket closed by a PR that is not a factory PR,
- * where a failure leaves the author unknown and the PR alone (#182).
+ * where a failure leaves the author unknown and the PR alone (#182). A third
+ * since #230: the comments on a PR that closes no ticket, where a failure
+ * leaves it unknown whether the factory has spoken already and the sweep says
+ * nothing rather than risk repeating itself, and the same for the read of the
+ * account it writes as, which is what tells its own marker from a forged one.
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine.
@@ -47,6 +51,7 @@ import {
   type Snapshot,
   type TicketState,
   type VerdictState,
+  commentFromGitHub,
   leftAlone,
   leftAloneFromListing,
   marksFromTimeline,
@@ -58,6 +63,7 @@ import {
   runsFor,
   stateSinceFromTimeline,
   ticketFromGitHub,
+  toldNoTicketIn,
   whyLeftAlone,
 } from "./reconcile.ts";
 
@@ -175,15 +181,58 @@ const ticketAuthorOf = (ticket: number): Author | undefined => {
 };
 
 /**
+ * The account GH_TOKEN belongs to, which is the account this sweep comments
+ * under and so the only one whose #230 marker means the factory has spoken.
+ * Read once per sweep, and only if a PR needs it. Unknown on a failed read,
+ * which leaves the factory unable to recognise its own comment and therefore
+ * silent, as `toldNoTicketIn` says.
+ */
+let login: { known: string | undefined } | undefined;
+const factoryLogin = (): string | undefined => {
+  if (login) return login.known;
+  try {
+    login = { known: gh(["api", "user", "--jq", ".login"]).trim() || undefined };
+  } catch (error) {
+    if (!(error instanceof GhError)) throw error;
+    console.log(`::warning::Could not read the account this sweep writes as; saying nothing about a PR's missing closing keyword: ${error.message}`);
+    login = { known: undefined };
+  }
+  return login.known;
+};
+
+/**
+ * Whether the factory has already told this PR it closes no ticket (#230).
+ * Its own comments, with their authors, since a marker suppresses the next
+ * comment only when the trust policy acts on whoever wrote it: `reconcile.ts`
+ * makes that judgement, as it makes every other. A failed read leaves the
+ * answer unknown rather than aborting, and unknown means told, so the sweep
+ * stays quiet rather than repeating itself on a PR whose comments it could
+ * not see.
+ */
+const toldNoTicketOn = (pr: number): boolean | undefined => {
+  try {
+    return toldNoTicketIn(paginate(`repos/${repo}/issues/${pr}/comments?per_page=100`, "comments").map(commentFromGitHub), factoryLogin());
+  } catch (error) {
+    if (!(error instanceof GhError)) throw error;
+    console.log(`::warning::Could not read the comments on PR #${pr}; saying nothing about its missing closing keyword: ${error.message}`);
+    return undefined;
+  }
+};
+
+/**
  * A PR that is not a factory PR (#182): who opened its ticket, and the
  * verdict on its head, read only past the reasons to leave it alone that the
  * listing already answers, which `leftAloneFromListing` decides for the
- * reconciler too. Auto-merge is not
- * asked about: the reconciler asks for a verdict on such a PR armed or not,
- * and that decision never arms it.
+ * reconciler too. Auto-merge is not asked about: the reconciler asks for a
+ * verdict on such a PR armed or not, and that decision never arms it.
  */
 const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
-  if (leftAlone(pr.labels) || leftAloneFromListing(pr) || pr.closes === undefined) return pr;
+  if (leftAlone(pr.labels)) return pr;
+  const listed = leftAloneFromListing(pr);
+  // The one left-alone reason the sweep speaks about, so the one whose PR needs
+  // a comment read. The other two the listing answers need no read at all.
+  if (listed) return listed.reason === "no-ticket" ? { ...pr, toldNoTicket: toldNoTicketOn(pr.number) } : pr;
+  if (pr.closes === undefined) return pr;
   const ticketAuthor = ticketAuthorOf(pr.closes);
   // A PR its ticket's author leaves alone needs no verdict or head read, and a
   // failure of either would abort the sweep over a PR it was never going to touch.
@@ -309,6 +358,13 @@ const apply = (d: Decision): void => {
           `PR #${subject.number} was escalated by the reconciler: ${d.log}\n\nLabels here: ${ticketLabels.remove.length > 0 ? `\`${ticketLabels.remove.join("`, `")}\` removed, ` : ""}\`${ticketLabels.add}\` added. To hand it back, remove \`${ticketLabels.add}\` and add \`ready-for-agent\` again.${runUrl ? `\n\nSweep: ${runUrl}` : ""}`,
         );
       }
+      return;
+    case "comment":
+      // The comment is the whole repair (#230). It is posted with GH_TOKEN, the
+      // factory's own PAT, rather than the GITHUB_TOKEN identity every workflow in
+      // a target shares, so nothing but the factory can write the marker that turns
+      // it off: ADR 0002 keeps that trust exemption narrow for exactly this reason.
+      if (d.comment) comment(subject, d.comment);
       return;
     case "dispatch":
       gh(["api", "--method", "POST", `repos/${repo}/dispatches`, "-f", `event_type=${action.eventType}`, "-F", `client_payload[pr]=${action.pr}`, "--silent"]);

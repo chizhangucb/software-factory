@@ -21,6 +21,13 @@ export const PROJECTIONS = {
   issues: ".[] | {number, title, pull_request: (.pull_request != null), labels: [.labels[] | {name}]}",
   /** The sweep mark sits at the head of a comment; 64 chars cover `<!-- factory:sweep miss=n tries=m -->`. */
   timeline: ".[] | {event, created_at, label: (if .label == null then null else {name: .label.name} end), body: ((.body // \"\") | .[0:64])}",
+  /**
+   * A PR's own comments, for #230's marker. The marker sits at the head, as
+   * the sweep mark does, so the same 64 chars cover it; the author travels
+   * with it because a marker only suppresses the next comment when the trust
+   * policy acts on whoever wrote it.
+   */
+  comments: '.[] | {body: ((.body // "") | .[0:64]), association: .author_association, login: .user.login}',
   jobs: ".jobs[] | {name, conclusion}",
 } as const;
 

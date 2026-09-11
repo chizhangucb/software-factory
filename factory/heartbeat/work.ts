@@ -48,11 +48,17 @@ export const openWorkArgs = (target: string): string[] => [
   PROJECTIONS.issues,
 ];
 
-/** `PROJECTIONS.issues` output, one item per line, reduced to the subjects. */
+/**
+ * `PROJECTIONS.issues` output, one item per line, reduced to the subjects. The
+ * flag is read for truth rather than against `true`, as `sweep.ts` reads it:
+ * the projection prints a boolean, GitHub's own JSON puts an object there, and
+ * a reader that took the object for a ticket would skip a target whose only
+ * work is a pull request.
+ */
 export const fromGitHub = (raw: readonly unknown[]): OpenSubject[] =>
   raw.map((item) => {
     const r = item as Record<string, any>;
-    return { pullRequest: r.pull_request === true, labels: (r.labels ?? []).map((label: { name: string }) => label.name) };
+    return { pullRequest: Boolean(r.pull_request), labels: (r.labels ?? []).map((label: { name: string }) => label.name) };
   });
 
 /** Would a sweep act on this subject? */

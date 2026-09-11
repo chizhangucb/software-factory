@@ -3,8 +3,10 @@
  *
  *   GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts
  *
- * every 10 minutes, with a token that has contents write on every target in
- * `targets.ts` and nothing else. `DRY_RUN=1` reports the pass without touching a
+ * every 10 minutes, with a token that has contents write and issues and pull
+ * requests read on every target in `targets.ts` and nothing else, the reads
+ * being what says whether a target has anything waiting. `DRY_RUN=1` reports
+ * the pass without touching a
  * target at all, as `dispatch/sweep.ts` reads the same var: no dispatch, and no
  * read either, so every target answers as one with work and the pass reports the
  * shape a busy interval takes.
@@ -22,7 +24,7 @@
 import { parseItems } from "../dispatch/gh-read.ts";
 import { gh } from "../lib/gh.ts";
 import { READY_LABEL } from "../lib/labels.ts";
-import { sendHeartbeat } from "./heartbeat.ts";
+import { type TargetOutcome, sendHeartbeat } from "./heartbeat.ts";
 import { TARGET_REPOS } from "./targets.ts";
 import { type OpenSubject, fromGitHub, openWorkArgs } from "./work.ts";
 
@@ -60,7 +62,9 @@ const outcomes = sendHeartbeat({
   },
 });
 
-const count = (outcome: string): number => outcomes.filter((each) => each.outcome === outcome).length;
+// Typed against the outcomes themselves: a member renamed in `heartbeat.ts`
+// fails here rather than reporting none of it.
+const count = (outcome: TargetOutcome["outcome"]): number => outcomes.filter((each) => each.outcome === outcome).length;
 const failed = count("failed");
 console.log(`${at()} ${outcomes.length} target(s), ${count("woken")} woken, ${count("skipped")} skipped, ${failed} failed${dryRun ? " (dry run)" : ""}.`);
 // `exitCode`, not `process.exit`: stdout is a pipe when a host logs the pass,

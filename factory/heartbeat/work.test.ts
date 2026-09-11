@@ -40,6 +40,14 @@ test("a projected item becomes the subject the rules read, pull requests include
   ]);
 });
 
+test("GitHub's own shape reads the same, where the flag is an object rather than a boolean", () => {
+  // Unprojected, `pull_request` is an object of URLs. Read against `true` it
+  // would make every pull request a ticket, and a target whose only open work
+  // is one would be skipped.
+  const raw = [{ number: 8, title: "a PR", pull_request: { url: "https://api.github.com/repos/owner/repo/pulls/8" }, labels: [] }];
+  assert.deepEqual(fromGitHub(raw), [{ pullRequest: true, labels: [] }]);
+});
+
 test("nothing open is nothing waiting", () => {
   assert.equal(needsSweep([]), false);
 });

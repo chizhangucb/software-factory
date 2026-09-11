@@ -2,7 +2,8 @@
 # Onboard a target repo: the triage and factory labels, auto-merge on the repo, and a
 # ruleset on the default branch that requires a PR plus the factory's checks
 # (up to date with main) before anything merges. Secrets and the caller
-# workflow are the other two steps; see README.md. Idempotent.
+# workflow are the other two steps; see README.md. Idempotent. It ends by
+# printing the line a target's sessions need in its AGENTS.md; see note_judged_path.
 #   scripts/onboard.sh owner/repo [own-check ...]
 # Each extra argument is a status check the target's own CI already posts
 # (the job name, e.g. `check`); it is required next to the factory's three.
@@ -156,6 +157,32 @@ note_unused_defaults() {
     done
     echo "## Not in that list, and not to be deleted: bug, enhancement,"
     echo "## wontfix and duplicate. Those are triage vocabulary."
+    echo "############################################################"
+  } >&2
+}
+# The one line a target's sessions need (#181). A session that opens a PR on the target itself
+# has to put `Closes #N` in the body, `agent:review` on the PR and auto-merge on it, or the PR
+# sits blocked on factory/verdict for good, and it should do all three without being asked. So
+# the line goes in the target's AGENTS.md, which every session there reads. This script writes
+# no file in the target: landing the line is the target's own PR, so it is printed, not written.
+# Read off templates/ rather than spelled out here, so what this shows is the copy every target
+# takes, byte for byte, with no second copy in this file to drift from it. Printed bare rather
+# than behind `## `, so it pastes into AGENTS.md as it stands.
+# A NOTE and not a WARNING: a session nobody told gets a PR that sits blocked, which is where
+# it was before, so nothing is at risk. And only on a repo with a caller: without one nothing
+# answers `agent:review` and no factory check is required, so the line's last sentence, the
+# factory judges it and merges it, would be false there.
+judged_path_template="$(dirname "${BASH_SOURCE[0]}")/../templates/agents-md-judged-path.md"
+note_judged_path() {
+  {
+    echo "############################################################"
+    echo "## NOTE: a session opening a PR on $repo itself needs"
+    echo "## the line below in the target's AGENTS.md (or CLAUDE.md),"
+    echo "## as it stands, or that PR stays blocked. It is the whole of"
+    echo "## templates/agents-md-judged-path.md:"
+    cat "$judged_path_template"
+    echo "## Landing it is $repo's own PR: this script writes no"
+    echo "## file there."
     echo "############################################################"
   } >&2
 }
@@ -353,7 +380,10 @@ else
   echo "ruleset factory created (id $id)"
 fi
 echo "required on $default_branch: $(jq -r '[.[].context] | join(", ")' <<<"$checks")"
-# Last, so it is on screen when the run ends rather than buried under the ruleset output,
-# and above the warning, which is the more important of the two and gets the last word.
+# Last, so it is on screen when the run ends rather than buried under the ruleset output.
+# The instruction first, beside the required checks, since it is what a PR the factory did not
+# write needs to meet them; then the unused labels; then the warning, which is the most
+# important of the three and gets the last word.
+if [ "$has_caller" = "true" ]; then note_judged_path; fi
 note_unused_defaults
 if [ "$own_checks" -eq 0 ]; then warn_no_own_check; fi

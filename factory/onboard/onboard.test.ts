@@ -16,6 +16,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { HOLD_LABEL, HOLD_LABELS } from "../lib/labels.ts";
+import { issuesClosedBy, linkedIssueNumber } from "../lib/linked-issue.ts";
 
 const onboard = fileURLToPath(new URL("../../scripts/onboard.sh", import.meta.url));
 const target = "chizhangucb/factory-fixture";
@@ -769,4 +770,143 @@ test("the warning only says discovery came back empty when discovery actually ra
 
   const discovered = onboardWith([], { history: postedOnEvery(3, []) });
   assert.match(discovered.output, /Discovery read 3 recent commits/, "and says how many it read when it did");
+});
+
+/**
+ * The instruction a target's sessions read (#181): the three things a session opening a PR
+ * itself has to do, or the PR sits blocked on `factory/verdict` for good. These bytes are the
+ * ticket's own, copied out of #181 programmatically rather than retyped, and they are the pin.
+ * The template and every other copy are compared against this literal, never against each
+ * other: a copy compared with another copy of itself agrees by construction and proves nothing.
+ */
+const JUDGED_PATH_INSTRUCTION = "- **Opening a pull request yourself**: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. All three, or it stays blocked. The factory judges it and merges it.";
+const JUDGED_PATH_TEMPLATE = "templates/agents-md-judged-path.md";
+
+/**
+ * Where a copy of the instruction could live: the pages a maintainer or a session reads, what
+ * a target copies, and the code and prompts. Named roots rather than a walk from the top,
+ * because a checkout of this repo holds other sessions' worktrees under `.claude/`, and the
+ * test files are left out because the pin above lives in one.
+ */
+const INSTRUCTION_ROOTS = ["README.md", "CONTEXT.md", "AGENTS.md", "CLAUDE.md", "docs", "templates", "scripts", "factory", ".github"];
+const repoFiles = (entry: string): string[] => {
+  const url = new URL(`../../${entry}`, import.meta.url);
+  if (!fs.existsSync(url)) return [];
+  if (!fs.statSync(url).isDirectory()) return entry.endsWith(".test.ts") ? [] : [entry];
+  return fs.readdirSync(url).flatMap((name) => (name === "node_modules" ? [] : repoFiles(`${entry}/${name}`)));
+};
+
+test("the template a target copies is the agreed instruction, byte for byte", () => {
+  // One line and its newline, nothing else, so copying the whole file is copying the line.
+  assert.equal(fs.readFileSync(new URL(`../../${JUDGED_PATH_TEMPLATE}`, import.meta.url), "utf8"), `${JUDGED_PATH_INSTRUCTION}\n`);
+});
+
+test("every copy of the instruction in the tree is the agreed one, not a near miss", () => {
+  // Anchored on the bullet's own name, so a copy reworded anywhere after it is still found,
+  // and then held to the whole literal rather than to the anchor.
+  const anchor = "Opening a pull request yourself";
+  const carrying = INSTRUCTION_ROOTS.flatMap(repoFiles).filter((file) =>
+    fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8").includes(anchor),
+  );
+  assert.ok(carrying.includes(JUDGED_PATH_TEMPLATE), `${JUDGED_PATH_TEMPLATE} carries the instruction`);
+  for (const file of carrying) {
+    const lines = fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8").split("\n");
+    for (const line of lines.filter((text) => text.includes(anchor))) {
+      assert.ok(line.includes(JUDGED_PATH_INSTRUCTION), `${file} carries a copy of the instruction that has drifted: ${line}`);
+    }
+  }
+});
+
+/** The line index of every exact copy of the instruction in a run's output. */
+const instructionLines = (output: string): number[] =>
+  output.split("\n").flatMap((line, i) => (line === JUDGED_PATH_INSTRUCTION ? [i] : []));
+
+test("a run ends by printing the instruction, a whole line that pastes as it stands", () => {
+  // Line equality, not a substring: a maintainer copies this line into the target's AGENTS.md,
+  // so a prefix in front of it would be a prefix in the target's file.
+  const { output } = onboardWith(["check"]);
+  assert.equal(instructionLines(output).length, 1, "the instruction, exactly once and exactly as agreed");
+});
+
+test("the instruction sits beside the required checks, and the warning still has the last word", () => {
+  const { output } = onboardWith([]);
+  const lines = output.split("\n");
+  const required = lines.findIndex((line) => line.startsWith("required on main:"));
+  const [instruction] = instructionLines(output);
+  assert.ok(required >= 0 && instruction !== undefined);
+  assert.ok(instruction > required, "after the ruleset is written, since it is what a PR needs to meet it");
+  assert.ok(Math.max(...warningLines(output)) > instruction, "the warning is the more urgent of the two");
+});
+
+test("the instruction is printed in the script's banner idiom, as a note rather than a warning", () => {
+  // A target missing the line fails closed: a session that has not been told gets a PR that
+  // sits blocked, which is where it was before. Nothing is at risk, so it is a NOTE, and the
+  // WARNING stays reserved for a ruleset that lets a broken build merge.
+  const { output } = onboardWith(["check"]);
+  const lines = output.split("\n");
+  const [instruction] = instructionLines(output);
+  const open = lines.slice(0, instruction).lastIndexOf("#".repeat(60));
+  const close = lines.indexOf("#".repeat(60), instruction!);
+  assert.ok(open >= 0 && close > instruction!, "fenced by the same banner the other notes use");
+  assert.match(lines[open + 1]!, /^## NOTE: /);
+  assert.ok(
+    lines.slice(open + 1, close).every((line, i) => open + 1 + i === instruction || line.startsWith("## ")),
+    "every other line of the banner is the script's own `## ` prose",
+  );
+  assert.match(lines.slice(open, close).join("\n"), new RegExp(JUDGED_PATH_TEMPLATE), "and it names the file to copy");
+});
+
+test("the instruction goes to stderr with the rest of the advice", () => {
+  const box = sandbox();
+  try {
+    const result = spawnSync(onboard, [target, "check"], { encoding: "utf8", env: box.env });
+    assert.equal(result.status, 0, `onboard.sh failed: ${result.stderr}`);
+    assert.equal(instructionLines(result.stderr).length, 1);
+    assert.equal(instructionLines(result.stdout).length, 0, "stdout is the record of what the run did");
+  } finally {
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  }
+});
+
+test("a target with no caller is not told the factory judges its PRs, since nothing there would", () => {
+  // No caller means no reviewer to answer `agent:review` and no factory check in the ruleset,
+  // so the line's last sentence would be false there. The factory's own repo is one such.
+  const { output, code } = onboardWith(["check"], { hasCaller: false });
+  assert.equal(code, 0);
+  assert.doesNotMatch(output, /Opening a pull request yourself/);
+});
+
+test("README's onboarding names the instruction in the step that names the caller and the routing test command", () => {
+  // The step where a maintainer copies files into the target is where one more file to copy
+  // gets seen. Read as that one step, not the whole page, so naming it anywhere else fails.
+  const readme = fs.readFileSync(new URL("../../README.md", import.meta.url), "utf8");
+  const onboarding = readme.split(/^## /m).find((section) => section.startsWith("Onboard a target repo"));
+  assert.ok(onboarding, "README still has its onboarding section");
+  const steps = onboarding.split(/^(?=\d+\. )/m).slice(1);
+  // Found by the routing test command, which only the copying step names; the caller turns up
+  // in a later step too, where its permissions are checked.
+  const copying = steps.filter((step) => step.includes("templates/routing-test-command.sh"));
+  assert.equal(copying.length, 1, "one step names the routing test command");
+  assert.ok(copying[0]!.includes("templates/factory.yml"), "and it is the step that names the caller");
+  assert.ok(copying[0]!.includes(JUDGED_PATH_TEMPLATE), `the same step names ${JUDGED_PATH_TEMPLATE}`);
+});
+
+test("the instruction's keyword is one the reviewer reads, and its placeholder claims no ticket", () => {
+  // Read by the same regex the dispatcher, the reviewer and the merge gate share. `#N` is not a
+  // number, so the line can sit in an AGENTS.md or be quoted in a PR body without the dispatcher
+  // skipping any ticket over it; with a real number in place it is the PR's ticket, which is the
+  // whole of what the instruction asks the keyword to do.
+  assert.deepEqual(issuesClosedBy(JUDGED_PATH_INSTRUCTION), []);
+  assert.equal(linkedIssueNumber(JUDGED_PATH_INSTRUCTION.replace("#N", "#42")), "42");
+});
+
+test("the tracker page requires the keyword when the PR's author does the work, and names the one trap", () => {
+  // Rewritten in place, not dropped (#181): the bullet that banned the keyword outright is the
+  // one that now says when writing it is a trap, in ADR 0003's words for that case.
+  const page = fs.readFileSync(new URL("../../docs/agents/issue-tracker.md", import.meta.url), "utf8");
+  const close = page.split("\n").filter((line) => line.startsWith("- **Close**"));
+  assert.equal(close.length, 1, "the Close convention is still one bullet");
+  assert.doesNotMatch(close[0]!, /Never put a closing keyword/, "the blanket ban is gone");
+  assert.match(close[0]!, /whose author is doing/, "the keyword is required of a PR whose author does the work");
+  assert.match(close[0]!, /the factory is meant to build/, "and the one trap is a ticket the factory is meant to build");
 });

@@ -5,9 +5,13 @@
  * - retry: post the failing output as a marker comment on the ticket, add
  *   `factory:retry-<n>`, and label `agent:implement` (on the PR when one is
  *   open, so implement-pr runs on the branch; on the ticket otherwise).
- * - escalate: agent:* and ready-for-agent off the ticket, needs-human on,
- *   the PR closed with its agent:* labels off, the branch kept, a comment on
- *   the ticket linking the run and its log.
+ * - escalate: agent:* and ready-for-agent off the ticket, needs-human on, the
+ *   open PR's agent:* labels off, the branch kept, a comment on the ticket
+ *   linking the run and its log. The PR is closed only when the factory
+ *   authored it (#174): closing a factory PR is free, since the ticket still
+ *   holds the work and a later run opens a fresh one, but closing a PR a
+ *   person or an outside agent wrote throws away work nothing can recreate.
+ *   One left open still escalates in every other respect.
  * - requeue (rate limited on every account (#17), or a check still pending
  *   when the wait runs out): no retry spent, and one meaning on both sides
  *   (#148). The subject gets a comment and nothing is labeled for a human: a
@@ -72,9 +76,11 @@ import {
   waitOver,
 } from "./checks";
 import { ESCALATION_LABEL, IMPLEMENT_LABEL, IN_PROGRESS_LABEL } from "../lib/labels.ts";
-import { escalationLabels, prCloseLabels } from "./escalation.ts";
+import { type FactoryPrFacts } from "../lib/factory-pr.ts";
+import { escalationLabels, prEscalation } from "./escalation.ts";
 import {
   decide,
+  type EscalatedPr,
   type FailureKind,
   isImplementerFailure,
   MAX_RETRIES,
@@ -137,6 +143,13 @@ interface Target {
   readonly issue: string | undefined;
   /** An open PR for the branch, when there is one. */
   readonly pr: string | undefined;
+  /**
+   * The open PR's branch and body, read with its number so escalation can ask
+   * `prEscalation` whether the factory authored it (#174). Undefined exactly
+   * when `pr` is: the two are read together and travel together, so no call
+   * site can decide what to do to a PR it has no facts about.
+   */
+  readonly prFacts: FactoryPrFacts | undefined;
 }
 
 /**
@@ -172,21 +185,33 @@ const recordOn = (target: Target): Subject =>
 const actOn = (target: Target): Subject =>
   target.pr ? { kind: "pr", number: target.pr } : { kind: "issue", number: target.issue as string };
 
-/** The ticket and its open PR from whichever number the workflow knows. */
+/**
+ * The ticket and its open PR from whichever number the workflow knows.
+ * `headRefName` comes back on both reads, because the facts escalation judges
+ * the PR on have to be the ones from the read that found it (#174): asking
+ * GitHub again later is one more call that can fail, on a step whose failure
+ * would fall back to closing.
+ */
 const resolveTarget = (): Target => {
+  const facts = (pr: { headRefName: string; body: string | null }): FactoryPrFacts => ({
+    headRef: pr.headRefName,
+    body: pr.body ?? "",
+  });
   if (PR_INPUT) {
-    const pr = ghJson<{ state: string; body: string | null }>([
-      "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body",
+    const pr = ghJson<{ state: string; body: string | null; headRefName: string }>([
+      "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body,headRefName",
     ]);
     const issue = ISSUE_INPUT ?? linkedIssueNumber(pr.body) ?? undefined;
-    return { issue: issue || undefined, pr: pr.state === "OPEN" ? PR_INPUT : undefined };
+    const open = pr.state === "OPEN";
+    return { issue: issue || undefined, pr: open ? PR_INPUT : undefined, prFacts: open ? facts(pr) : undefined };
   }
   const issue = required("ISSUE_NUMBER");
-  const open = ghJson<{ number: number; body: string | null }[]>([
-    "pr", "list", "--repo", REPO, "--state", "open", "--search", `in:body "#${issue}"`, "--json", "number,body",
+  const open = ghJson<{ number: number; body: string | null; headRefName: string }[]>([
+    "pr", "list", "--repo", REPO, "--state", "open", "--search", `in:body "#${issue}"`,
+    "--json", "number,body,headRefName",
   ]);
   const pr = open.find((p) => linkedIssueNumber(p.body) === issue);
-  return { issue, pr: pr ? String(pr.number) : undefined };
+  return { issue, pr: pr ? String(pr.number) : undefined, prFacts: pr ? facts(pr) : undefined };
 };
 
 /** An open PR's mergeability and base, as GitHub reports them, with the PR they belong to. */
@@ -476,13 +501,32 @@ const handOff = ({ pr, base }: PrMergeability, reason: string): void => {
 };
 
 const escalate = (target: Target, reason: string, failure: Failure): void => {
+  let escalatedPr: EscalatedPr | undefined;
   if (target.pr) {
-    const prLabels = prCloseLabels(labelsOf({ kind: "pr", number: target.pr })).remove;
-    if (prLabels.length > 0) tryWrite(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", prLabels.join(",")]);
-    tryWrite([
-      "pr", "close", target.pr, "--repo", REPO, "--comment",
-      `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
-    ]);
+    // Facts and number are read together, so an open PR always has both and
+    // the fallback is unreachable. It is spelled out rather than asserted
+    // because it resolves the safe way: no facts, no authorship, no close.
+    // Leaving a PR open costs a human one click; closing one throws away work
+    // nothing can recreate (#174).
+    const prFacts = target.prFacts ?? { headRef: "", body: "" };
+    const { remove, close } = prEscalation({ ...prFacts, labels: labelsOf({ kind: "pr", number: target.pr }) });
+    if (remove.length > 0) tryWrite(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", remove.join(",")]);
+    if (close) {
+      tryWrite([
+        "pr", "close", target.pr, "--repo", REPO, "--comment",
+        `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
+      ]);
+    } else if (target.issue) {
+      // The escalation comment goes on `recordOn`, the ticket whenever there
+      // is one, and this PR's thread would otherwise say nothing at all about
+      // why its labels vanished. With no ticket, `recordOn` is this PR and the
+      // escalation comment lands here already, so a second one would repeat it.
+      commentOn(
+        { kind: "pr", number: target.pr },
+        `Left open by the factory: ${reason}. The factory did not author this PR, so it is not the factory's to close. Its \`agent:*\` labels are off, so no factory run picks it up again. The escalation is on #${target.issue}. Run: ${RUN_URL}`,
+      );
+    }
+    escalatedPr = { number: target.pr, closed: close };
   }
   const on = recordOn(target);
   const labels = escalationLabels(labelsOf(on));
@@ -498,11 +542,16 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
       logUrl: artifactUrl(),
       branch: BRANCH,
       branchExists: branchExists(),
-      closedPr: target.pr,
+      pr: escalatedPr,
       output: failure.output,
     }),
   );
-  console.log(`Escalated ${on.kind} #${on.number}: ${labels.add} on, ${labels.remove.join(", ") || "no factory labels"} off${target.pr ? `, PR #${target.pr} closed` : ""}.`);
+  const prNote = !escalatedPr
+    ? ""
+    : escalatedPr.closed
+      ? `, PR #${escalatedPr.number} closed`
+      : `, PR #${escalatedPr.number} left open (not factory-authored)`;
+  console.log(`Escalated ${on.kind} #${on.number}: ${labels.add} on, ${labels.remove.join(", ") || "no factory labels"} off${prNote}.`);
 };
 
 const main = async (): Promise<void> => {
@@ -539,7 +588,7 @@ const main = async (): Promise<void> => {
   if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
     if (!mergeability) {
       console.log(`PR #${target.pr} closed or merged as the handler waited; it is no longer the subject.`);
-      target = { ...target, pr: undefined };
+      target = { ...target, pr: undefined, prFacts: undefined };
       if (!target.issue) {
         console.log("No ticket to fall back to; nothing to requeue.");
         return;

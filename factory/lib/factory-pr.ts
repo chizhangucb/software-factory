@@ -21,6 +21,16 @@
  * is the durable body-level record that the factory worked on this PR, on
  * the same field the audit's decide job already reads.
  *
+ * Two questions, one module (#174). `isFactoryPr` is what the factory reads
+ * and judges, and is deliberately broad: a human-opened PR the reviewer
+ * judged has to reach the audit and the reconciler. `isFactoryAuthoredPr` is
+ * what the factory may *do to* a branch, and drops the verdict arm, because
+ * that arm is exactly the human-opened PR. Escalation used to close whatever
+ * PR was open, so labelling a hand-authored PR `agent:review`, the one action
+ * that gets it judged, destroyed it. They live together because the broad one
+ * is written as the narrow one plus the verdict section: two predicates that
+ * could disagree in principle cannot disagree here.
+ *
  * The body is the signal on purpose, and a human who edits the section out
  * does hide the PR from the audit. The two alternatives cost a mechanism
  * this spec does not add: the `factory/verdict` status needs GITHUB_TOKEN,
@@ -49,8 +59,28 @@ export interface FactoryPrFacts {
   readonly body: string;
 }
 
-/** The factory opened this PR, or worked on it: an agent/ branch, its marker, or a verdict on it. */
+/**
+ * The factory itself opened this PR: an `agent/` branch, or the marker
+ * `agent-implement.yml` writes into every body it opens with. Both are
+ * things only the factory writes, and neither is a label, so nothing a human
+ * adds or removes from a PR can turn this answer either way (#174). A human
+ * *can* cut an `agent/` branch by hand, which is the safe direction to be
+ * wrong in: the namespace is the factory's, and the arms are read only to
+ * decide what may be *done to* a branch, where a false positive is at worst
+ * the factory closing a PR someone deliberately filed inside its namespace.
+ *
+ * The narrow half of the definition. Use it for what the factory may do to a
+ * PR, `isFactoryPr` for what it reads and judges.
+ */
+export const isFactoryAuthoredPr = (pr: FactoryPrFacts): boolean =>
+  pr.headRef.startsWith(FACTORY_BRANCH_PREFIX) || pr.body.includes(FACTORY_BODY_MARKER);
+
+/**
+ * The factory opened this PR, or worked on it: an agent/ branch, its marker,
+ * or a verdict on it. Written as the authored test plus the verdict section
+ * rather than as three arms of its own, so the broad answer is the narrow one
+ * by construction and the pair cannot drift the way the audit and the
+ * reconciler had already drifted.
+ */
 export const isFactoryPr = (pr: FactoryPrFacts): boolean =>
-  pr.headRef.startsWith(FACTORY_BRANCH_PREFIX) ||
-  pr.body.includes(FACTORY_BODY_MARKER) ||
-  pr.body.includes(VERDICT_SECTION_START);
+  isFactoryAuthoredPr(pr) || pr.body.includes(VERDICT_SECTION_START);

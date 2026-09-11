@@ -47,10 +47,10 @@ import {
   type Snapshot,
   type TicketState,
   type VerdictState,
-  PARKED_LABELS,
   leftAlone,
   leftAloneFromListing,
   marksFromTimeline,
+  onMergePath,
   prFromGitHub,
   reconcile,
   roleFromJobs,
@@ -194,8 +194,7 @@ const withUnjudgedState = (pr: PrState, createdAt: string): PrState => {
 };
 
 const withMergeState = (pr: PrState, createdAt: string): PrState => {
-  // A hold withholds only the reviewer (#210), so a held factory PR's merge state is read.
-  if (pr.labels.some((l) => l.startsWith("agent:")) || PARKED_LABELS.some((l) => pr.labels.includes(l))) return pr;
+  if (!onMergePath(pr.labels)) return pr;
   if (!pr.factory) return withUnjudgedState(pr, createdAt);
   // No auto-merge: the reconciler re-arms it against the same deadline (#83), and no
   // verdict can change that, so the verdict is not worth a read here.

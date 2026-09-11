@@ -475,11 +475,19 @@ const decideUnjudged = (p: PrState, snap: Snapshot, deadlines: Deadlines, held: 
 };
 
 /**
+ * No agent on the PR and not parked: the PRs `decidePrMerge` decides, and the
+ * ones whose merge state `sweep.ts` reads, so the two cannot disagree. A hold
+ * keeps a PR here (#210).
+ */
+export const onMergePath = (labels: readonly string[]): boolean =>
+  agentLabels(labels).length === 0 && !PARKED_LABELS.some((l) => labels.includes(l));
+
+/**
  * PRs with no agent on them. Any other PR goes to `decideUnjudged` above; a
  * factory PR is unarmed, or judged, or stale behind main, or none of those.
  */
 const decidePrMerge = (p: PrState, snap: Snapshot, deadlines: Deadlines, held: string | undefined, policy: TrustPolicy): Decision | undefined => {
-  if (agentLabels(p.labels).length > 0 || PARKED_LABELS.some((l) => p.labels.includes(l))) return undefined;
+  if (!onMergePath(p.labels)) return undefined;
   if (!p.factory) return decideUnjudged(p, snap, deadlines, held, policy);
   const subject: Subject = { kind: "pr", number: p.number };
   const none = (log: string): Decision => ({ subject, action: { type: "none" }, log });

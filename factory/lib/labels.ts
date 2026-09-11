@@ -28,11 +28,13 @@ export const READY_LABEL = "ready-for-agent";
 export const ESCALATION_LABEL = "needs-human";
 
 /**
- * A human said the factory starts no work on this ticket: the dispatcher does
- * not dispatch it, the retry handler stands down, and the reconciler neither
- * re-adds a start label nor asks for a verdict on it or its PR (#185). It never
- * stops a merge (#210): to stop a started ticket, close its PR. Unprefixed
- * because it is a human's instruction, not factory state.
+ * A human said no agent starts on this ticket: the dispatcher does not
+ * dispatch it, the retry handler stands down, and the reconciler neither
+ * re-adds a start label nor asks for a verdict on it or its PR (#185). It
+ * stops no merge, and not two hand-offs on an open PR, update-branch's
+ * conflict hand-off and an agent run labelling its own PR `agent:review`: to
+ * stop a started ticket, close its PR (#210). Unprefixed because it is a
+ * human's instruction, not factory state.
  *
  * Before it, people held tickets with `needs-triage`, and a triage pass that
  * cleared the pair as drift released 12 tickets at once (#169).

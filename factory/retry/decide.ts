@@ -259,7 +259,7 @@ export const decide = (input: {
   readonly mergeable?: Mergeability;
   /** Why another implementer run cannot fix this failure; undefined when it might. */
   readonly unretryable?: string;
-  /** The hold-set label on the ticket or its open PR, from `findHold`; undefined when neither is held. */
+  /** The hold on the ticket or its open PR, from `findHold`; undefined when neither is held. */
   readonly held?: Hold;
 }): Decision => {
   if (input.escalated) {

@@ -5,6 +5,7 @@ import {
   DEFAULT_DEADLINES,
   type Decision,
   leftAlone,
+  onMergePath,
   PARKED_LABELS,
   type PrState,
   type Run,
@@ -322,27 +323,34 @@ test("a held PR is left alone, and so is a PR whose ticket is held", () => {
 
 // #210: a hold stops the factory starting work, never a merge. Stopping a
 // started ticket is closing its PR.
+/** Two factory PRs in the same state: #11 held on its own label, #12 through its ticket, #3. */
+const heldPrs = (state: Partial<PrState>): Decision[] =>
+  reconcile(
+    snapshot({ issues: [ticket(3, { labels: ["ready-for-agent", "hold"] })], prs: [pr(11, { ...state, labels: ["hold"] }), pr(12, { ...state, closes: 3 })] }),
+    DEFAULT_DEADLINES,
+    POLICY,
+  );
+
 test("a held factory PR with auto-merge off, past the stuck deadline, is re-armed", () => {
-  const own = pr(11, { autoMerge: false, headSince: minutesAgo(45), labels: ["hold"] });
-  const viaTicket = pr(12, { autoMerge: false, headSince: minutesAgo(45), closes: 3 });
-  const ds = reconcile(snapshot({ issues: [ticket(3, { labels: ["ready-for-agent", "hold"] })], prs: [own, viaTicket] }), DEFAULT_DEADLINES, POLICY);
+  const ds = heldPrs({ autoMerge: false, headSince: minutesAgo(45) });
   assert.deepEqual(ds.map((d) => d.action), [{ type: "arm-auto-merge", pr: 11 }, { type: "arm-auto-merge", pr: 12 }]);
 });
 
 test("a held factory PR with a passing verdict, behind main past the update deadline, gets an update-branch dispatch", () => {
-  const own = pr(11, { behindBy: 2, labels: ["hold"] });
-  const viaTicket = pr(12, { behindBy: 2, closes: 3 });
-  const ds = reconcile(snapshot({ issues: [ticket(3, { labels: ["ready-for-agent", "hold"] })], prs: [own, viaTicket] }), DEFAULT_DEADLINES, POLICY);
-  assert.deepEqual(ds.map((d) => d.action), [
+  assert.deepEqual(heldPrs({ behindBy: 2 }).map((d) => d.action), [
     { type: "dispatch", eventType: "factory-update-branch", pr: 11 },
     { type: "dispatch", eventType: "factory-update-branch", pr: 12 },
   ]);
 });
 
+test("the sweep reads a held PR's merge state: only an agent label or a parked one takes a PR off the merge path", () => {
+  // The sweep and `decidePrMerge` share this, so the snapshot the two tests above hand in is one the sweep builds.
+  assert.equal(onMergePath(["hold"]), true);
+  for (const label of ["agent:review", ...PARKED_LABELS]) assert.equal(onMergePath([label]), false, label);
+});
+
 test("a held factory PR with no verdict, past the verdict deadline, gets no agent:review, and the log names the hold", () => {
-  const own = pr(11, { verdict: "none", headSince: minutesAgo(45), labels: ["hold"] });
-  const viaTicket = pr(12, { verdict: "none", headSince: minutesAgo(45), closes: 3 });
-  const ds = reconcile(snapshot({ issues: [ticket(3, { labels: ["ready-for-agent", "hold"] })], prs: [own, viaTicket] }), DEFAULT_DEADLINES, POLICY);
+  const ds = heldPrs({ verdict: "none", headSince: minutesAgo(45) });
   assert.deepEqual(repairs(ds), []);
   assert.match(ds[0]!.log, /^#11 \(pr\) auto-merge armed, no factory\/verdict on abcdef1 since .*, deadline 30 min: held: hold$/);
   assert.match(ds[1]!.log, /^#12 \(pr\) .*, deadline 30 min: held: hold on #3$/);

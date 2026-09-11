@@ -16,7 +16,7 @@
 # Larger and a recently added check reads as path-filtered, because the oldest commits in
 # the sample predate it, and it silently stops being required. Smaller and a path-filtered
 # check reads as always-on, which is the failure this whole thing exists to avoid. Cost is
-# one API call per sampled commit, plus one for the listing.
+# two API calls per sampled commit, check runs and commit statuses, plus one for the listing.
 # Discover nothing, or name nothing, and onboarding still runs, loudly: see warn_no_own_check.
 set -euo pipefail
 # The sample size the header explains. onboard.test.ts reads both and fails on drift.
@@ -37,18 +37,21 @@ warn_no_own_check() {
   {
     echo "############################################################"
     if [ "$has_caller" = "true" ]; then
-      echo "## WARNING: no own check given for $repo."
+      echo "## WARNING: no own check for $repo: none discovered, none named."
       echo "## The factory ruleset gates on the factory's checks alone:"
       echo "##   factory/verdict, factory/red-green, factory/test-integrity."
       echo "## The target's own CI is not required, so a PR that breaks the"
       echo "## target's build still merges."
     else
-      echo "## WARNING: no own check given for $repo, and it carries no caller."
+      echo "## WARNING: no own check for $repo, and it carries no caller."
       echo "## The ruleset requires nothing at all: no factory checks, since"
       echo "## no caller posts them, and no own check either. A PR merges"
       echo "## with nothing having run on it."
     fi
-    echo "## Fix: re-run naming the checks the target's CI posts, e.g."
+    echo "## Discovery read the last $check_sample commits of the default branch"
+    echo "## and found no check posted on every one of them."
+    echo "## Fix: name the checks the target's CI posts, which turns"
+    echo "## discovery off and requires exactly what you list, e.g."
     echo "##   scripts/onboard.sh $repo check"
     echo "############################################################"
   } >&2
@@ -59,7 +62,7 @@ label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
 # picker and nowhere else, so the description has to carry the whole rule; prose in the
 # target's own docs would be a copy this repo cannot see or keep in step. `--force` in
 # label() means a re-run rewrites it, so an existing target gets it by re-running the
-# script with its own checks named again; that run also rewrites the ruleset. `hold` is an
+# script; that run also rewrites the ruleset, off discovery unless checks are named. `hold` is an
 # ordinary word, so check whether the target already uses the label for something of its
 # own before onboarding: --force rewrites it in place and every issue carrying it is held.
 # `Factory:` here says who reads the label, not who writes it: the label is a human's to
@@ -198,19 +201,33 @@ discover_own_checks() {
   # and a ruleset written off an answer nobody got. The assignment fails loudly under set -e.
   # Same rule the caller check above follows, for the same reason.
   recent=$(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha')
-  for sha in $recent; do
+  while IFS= read -r sha; do
+    # An empty listing still feeds a herestring one empty line, and a sha of "" would count as
+    # a commit that posted nothing and take the intersection down to nothing with it.
+    if [ -z "$sha" ]; then continue; fi
     sampled_commits=$((sampled_commits + 1))
+    # Both report styles, because a ruleset context matches either and a target's CI may use
+    # either: GitHub Actions posts check runs, while external CI (CircleCI, Jenkins) and the
+    # factory's own three post commit statuses (ADR 0003: "Commit statuses are always posted
+    # with GITHUB_TOKEN"). Reading one style only would send half the targets to the "your CI
+    # posted nothing" warning with their CI sitting right there in the API.
     # `sort -u` because a re-run posts a second check run under the same name, and one name
     # posted twice on one commit must not count as two commits. awk and not grep -v, which
     # exits 1 on a commit whose only checks are the factory's and would take set -e with it.
-    names=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --jq '.check_runs[].name' |
-      awk 'NF && $0 !~ /^factory\//' | sort -u)
+    names=$( {
+      gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --jq '.check_runs[].name'
+      gh api "repos/$repo/commits/$sha/status?per_page=100" --jq '.statuses[].context'
+    } | awk 'NF && $0 !~ /^factory\//' | sort -u)
     seen="$seen$names"$'\n'
-  done
+  done <<<"$recent"
   [ "$sampled_commits" -gt 0 ] || return 0
   # One line per name, "<commits it posted on> <name>". Line-based throughout, because a job
   # name is routinely several words: `test (20.x)`, `build / lint`.
   counted=$(printf '%s' "$seen" | awk 'NF' | sort | uniq -c)
+  # Nothing discovered is not one nameless check. A herestring hands awk one empty record even
+  # for an empty string, which printed a note block whose single entry was "(posted on  of 5)":
+  # a warning about path filters on the run that found no checks at all.
+  if [ -z "$counted" ]; then return 0; fi
   discovered_required=$(awk -v n="$sampled_commits" '{ count = $1; sub(/^ *[0-9]+ /, ""); if (count + 0 == n) print }' <<<"$counted")
   discovered_partial=$(awk -v n="$sampled_commits" '{ count = $1; sub(/^ *[0-9]+ /, ""); if (count + 0 != n) print $0 " (posted on " count " of " n ")" }' <<<"$counted")
 }

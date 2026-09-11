@@ -39,11 +39,23 @@ const factoryChecks = ["factory/verdict", "factory/red-green", "factory/test-int
  * a test never has to invent a sha. The commit listing honours the `per_page` the script
  * asks for, which is what lets a test prove the sample size off the calls themselves.
  * The stub reports the names raw, factory checks included: filtering them is the script's
- * job and a stub that did it would be testing itself.
+ * job and a stub that did it would be testing itself. A name written `status:<name>` in a
+ * history is reported by the commit-status endpoint instead of the check-runs one, which is
+ * how a target whose CI is external (CircleCI, Jenkins) reports, and how the factory's own
+ * three arrive: ADR 0003 has them posted as commit statuses with GITHUB_TOKEN.
  */
 const stubGh = `#!/usr/bin/env bash
 args="$*"
 printf '%s\\t' "$@" >> "$GH_CALLS"; printf '\\n' >> "$GH_CALLS"
+# A commit the history does not have is a 404 from real gh, and must not answer here either:
+# an empty or malformed sha reaching the API is a bug in the script, and a stub that shrugged
+# and returned nothing would hide it as "that commit posted no checks".
+known_commit() {
+  case "$1" in ''|*[!0-9]*) echo "stub gh: not a sampled commit: $args" >&2; exit 1 ;; esac
+  if [ "$1" -lt 1 ] || [ "$1" -gt "$(wc -l < "$GH_HISTORY")" ]; then
+    echo "stub gh: no such commit (HTTP 404): $args" >&2; exit 1
+  fi
+}
 case "$args" in
   "label create"*) ;;
   "repo edit"*) ;;
@@ -60,7 +72,12 @@ case "$args" in
     done < "$GH_HISTORY" ;;
   *"/check-runs"*)
     commit=\${args#*/commits/c}; commit=\${commit%%/check-runs*}
-    sed -n "\${commit}p" "$GH_HISTORY" | tr '\\t' '\\n' | grep -v '^$' || true ;;
+    known_commit "$commit"
+    sed -n "\${commit}p" "$GH_HISTORY" | tr '\\t' '\\n' | grep -v '^$' | grep -v '^status:' || true ;;
+  *"/status"*)
+    commit=\${args#*/commits/c}; commit=\${commit%%/status*}
+    known_commit "$commit"
+    sed -n "\${commit}p" "$GH_HISTORY" | tr '\\t' '\\n' | sed -n 's/^status://p' || true ;;
   *"contents/.github/workflows/factory.yml"*)
     if [ -n "\${GH_CALLER_ERROR:-}" ]; then echo "$GH_CALLER_ERROR" >&2; exit 1
     elif [ "$GH_HAS_CALLER" = "true" ]; then exit 0
@@ -510,14 +527,23 @@ test("with no arguments, a check that posted on every sampled commit is discover
  */
 const reportedPathFiltered = (output: string): string[] =>
   output.split("\n").flatMap((line) => {
-    const reported = line.match(/^##\s+(.+?) \(posted on \d+ of \d+\)$/);
+    const reported = line.match(/^##\s+(.*?) \(posted on (\d*) of \d+\)$/);
+    // `.*?` and `\d*`, deliberately loose: a blank name or a blank count is the shape an empty
+    // awk record produces, and this helper exists to catch that, not to filter it out of sight.
     return reported ? [reported[1]!] : [];
   });
 
 /** The sample size the script actually uses, and the header comment that should explain it. */
 const script = fs.readFileSync(onboard, "utf8");
-const sampleSize = Number(/^check_sample=(\d+)$/m.exec(script)![1]);
-const headerComment = script.slice(0, script.indexOf("set -euo pipefail"));
+const declaredSample = /^check_sample=(\d+)$/m.exec(script);
+assert.ok(declaredSample, "onboard.sh should declare its sample size as `check_sample=<n>`");
+const sampleSize = Number(declaredSample[1]);
+const headerEnds = script.indexOf("set -euo pipefail");
+// Without this, a renamed `set -euo pipefail` makes `headerComment` the whole file, and every
+// header assertion below starts matching the discovery block's comments instead: a drift guard
+// that quietly stops guarding.
+assert.ok(headerEnds > 0, "the header comment is what precedes `set -euo pipefail`");
+const headerComment = script.slice(0, headerEnds);
 
 /** The `check-runs` reads the run made, one per commit it sampled. */
 const checkRunCalls = (calls: string[][]): string[][] =>
@@ -619,4 +645,73 @@ test("a commit listing that fails aborts, rather than being read as a repo with 
     /ruleset factory (created|updated)/,
     "no ruleset should be written off a discovery read that never actually answered",
   );
+});
+
+test("a target whose CI posts commit statuses, not check runs, is discovered just the same", () => {
+  // External CI (CircleCI, Buildkite, Jenkins) posts commit statuses, and a ruleset `context`
+  // matches either. Reading only check runs would send every such target to the "your CI posted
+  // nothing" warning with its CI sitting right there in the API.
+  const run = onboardWith([], { history: postedOnEvery(5, ["status:ci/circleci: build"]) });
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "ci/circleci: build"]);
+  assert.doesNotMatch(run.output, /WARNING/);
+});
+
+test("the two report styles are one vocabulary: check runs and statuses discover together", () => {
+  const run = onboardWith([], { history: postedOnEvery(5, ["check", "status:lint"]) });
+  assert.deepEqual(run.requiredChecks.slice(0, 3), factoryChecks);
+  assert.deepEqual(run.requiredChecks.slice(3).sort(), ["check", "lint"]);
+  assert.deepEqual(reportedPathFiltered(run.output), []);
+});
+
+test("the intersection rule holds across the two report styles, not per style", () => {
+  // A status that posted on three of five commits is as path-filtered as a check run that did.
+  const run = onboardWith([], {
+    history: [["check", "status:docs"], ["check"], ["check", "status:docs"], ["check"], ["check", "status:docs"]],
+  });
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "check"]);
+  assert.deepEqual(reportedPathFiltered(run.output), ["docs"]);
+});
+
+test("the factory's own three arrive as commit statuses, and are still never rediscovered", () => {
+  // ADR 0003: "Commit statuses are always posted with GITHUB_TOKEN". So this, and not the
+  // check-runs half, is where a target that carried a caller has the factory's three in its
+  // history. Requiring them off history would gate on checks nothing posts any more.
+  const run = onboardWith([], {
+    history: postedOnEvery(5, factoryChecks.map((name) => `status:${name}`)),
+    hasCaller: false,
+  });
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, [], "whether the factory's three are required is read off the caller, not history");
+  assert.match(run.output, /requires nothing at all/i);
+});
+
+test("discovery samples the default branch, not whatever GitHub hands back by default", () => {
+  const run = onboardWith([], { history: postedOnEvery(5, ["check"]) });
+  const listing = run.calls.find((args) => args.some((argument) => argument.includes("/commits?sha=")));
+  assert.ok(
+    listing?.some((argument) => argument.includes("sha=main")),
+    `the listing should name the default branch, it ran: gh ${listing?.join(" ")}`,
+  );
+});
+
+test("a target with nothing to report gets no path-filtered note, not an empty one", () => {
+  // An empty count fed through the herestring prints `##   (posted on  of 5)`: a NOTE block
+  // about no checks at all, under a heading saying some posted. The run that most needs a
+  // legible screen is exactly the one with nothing discovered.
+  for (const history of [postedOnEvery(5, []), postedOnEvery(5, ["status:factory/verdict"])]) {
+    const run = onboardWith([], { history });
+    assert.deepEqual(reportedPathFiltered(run.output), [], "nothing partial is nothing to name");
+    assert.doesNotMatch(run.output, /but not all/, "and no note block at all, not even an empty one");
+  }
+});
+
+test("a repo with no commits on its default branch onboards and warns, rather than erroring", () => {
+  // A brand new target: nothing to sample, so nothing to discover. The empty commit listing
+  // still hands the read loop one empty line, and an empty sha reaching the API is a 404, not
+  // a commit that posted nothing.
+  const run = onboardWith([], { history: [] });
+  assert.equal(run.code, 0, `a target with no history still onboards: ${run.output}`);
+  assert.deepEqual(run.requiredChecks, factoryChecks);
+  assert.match(run.output, /WARNING/);
 });

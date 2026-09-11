@@ -24,7 +24,11 @@ import { fail, required, sh, writeJson, writeText } from "../agent-workflows/sha
 import { errorMessage } from "../lib/errors";
 import { resolveRoleModel } from "../lib/model";
 import { assertReadOnly, worktreeState } from "../lib/read-only";
-import { describeDropped, fetchPullRequestContext } from "../agent-workflows/shared/review-context";
+import {
+  describeDropped,
+  fetchPullRequestContext,
+  noCriteriaReason,
+} from "../agent-workflows/shared/review-context";
 import { trustPolicyFromEnv } from "../lib/trusted-authors";
 import { runWithExtraction } from "../agent-workflows/shared/run-with-extraction";
 import { formatUsageComment } from "../lib/usage";
@@ -117,9 +121,7 @@ try {
   console.log(`Ticket #${context.issueNumber || "(none)"}: ${criteria.length} acceptance criteria.`);
 
   if (criteria.length === 0) {
-    const reason = context.issueNumber
-      ? `#${context.issueNumber} has no checklist under an "Acceptance criteria" heading.`
-      : "The PR body links no ticket (no `Closes #N`).";
+    const reason = noCriteriaReason(context);
     writeAudit(
       {
         verdict: resolveVerdict([], { verdict: "fail", criteria: [] }),

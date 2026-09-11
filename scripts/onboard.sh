@@ -108,6 +108,10 @@ label "wayfinder:task"      "006b75" "Wayfinder: manual work a decision is block
 # silently and with no way back, and a script that does that to somebody's repo is a
 # different risk class from one that only adds. The whole gain here is a legible picker,
 # which a command a human reads before running buys just as well.
+# "Unused" here is a claim about the factory and the triage vocabulary, and nothing else:
+# the note is printed unconditionally rather than read off the repo, so it cannot know that
+# a target labels its own docs issues `documentation`. Hence the line telling the reader to
+# check before pasting; that check is the whole reason this prints instead of deleting.
 # One command per label, so a target that already dropped some of them can paste the rest,
 # and unconditional rather than read back off the repo: a label listing is one more call
 # that can fail, and under set -e a cosmetic note would then take the whole onboarding down.
@@ -118,6 +122,8 @@ note_unused_defaults() {
     echo "############################################################"
     echo "## NOTE: $repo may still carry GitHub's default labels that"
     echo "## nothing here uses. This script deletes nothing, ever."
+    echo "## Check each is unused on $repo first: deleting a label strips"
+    echo "## it from every issue carrying it, silently and with no way back."
     echo "## To drop the ones it has, by hand:"
     for unused in "documentation" "good first issue" "help wanted" "invalid" "question"; do
       echo "##   gh label delete \"$unused\" --repo $repo --yes"

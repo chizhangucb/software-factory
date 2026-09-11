@@ -93,14 +93,20 @@ const requiredChecks = (payloadFile: string): string[] => {
   return (checks?.parameters.required_status_checks ?? []).map((c: { context: string }) => c.context);
 };
 
-/** Every `gh` call the script made, as its argv. */
+/**
+ * Every `gh` call the script made, as its argv. The stub writes a tab *after* every
+ * argument, so each line ends in one and splitting leaves a trailing empty field: drop
+ * exactly that one, rather than every empty field. An argument that is genuinely empty
+ * has to survive, or a call made with one silently shifts every argument after it and
+ * `createdLabels` reads the wrong thing as a name or a description.
+ */
 const ghCalls = (callsFile: string): string[][] =>
   fs.existsSync(callsFile)
     ? fs
         .readFileSync(callsFile, "utf8")
         .split("\n")
         .filter(Boolean)
-        .map((line) => line.split("\t").filter(Boolean))
+        .map((line) => line.split("\t").slice(0, -1))
     : [];
 
 /** The `gh label create` calls among them, as argv. */
@@ -342,7 +348,7 @@ test("a wayfinder ticket type says whether it is worked with a human or driven a
   }
 });
 
-test("every label onboarding writes carries a description, empty ones included", () => {
+test("no label onboarding writes reaches the picker without a description", () => {
   const { labels } = onboardWith(["check"]);
   for (const [name, description] of labels) {
     assert.notEqual(description, "", `${name} reaches the picker with nothing saying what it is for`);
@@ -432,15 +438,17 @@ test("a label create is a rewrite, so a second run updates descriptions rather t
   }
 });
 
-test("a second run writes the same vocabulary again and still deletes nothing", () => {
-  // Idempotent and additive, which is what makes "re-run onboarding to pick up the new
-  // labels" safe advice to give a target that is already live. Run twice rather than read
-  // `--force` and call it proven: the re-run is the case the advice actually describes.
-  const first = onboardWith(["check"], { existingRulesetId: "7" });
-  const second = onboardWith(["check"], { existingRulesetId: "7" });
-  assert.deepEqual([...second.labels], [...first.labels], "a re-run should assert the same labels and wording");
-  assert.equal(second.code, 0);
-  for (const args of second.calls) {
+test("onboarding a target that has been onboarded before writes the same vocabulary, and no delete", () => {
+  // "Re-run onboarding to pick up the new labels" is the advice this ticket gives a target
+  // that is already live, and an already-onboarded target is the one with a `factory`
+  // ruleset, so the re-run goes down the update path. The stub keeps no state, so what this
+  // can prove is that the two paths write the same labels and that neither deletes: a
+  // script that skipped or trimmed the vocabulary once a ruleset existed would fail here.
+  const first = onboardWith(["check"]);
+  const rerun = onboardWith(["check"], { existingRulesetId: "7" });
+  assert.match(rerun.output, /ruleset factory updated/, "an onboarded target takes the update path");
+  assert.deepEqual([...rerun.labels], [...first.labels], "a re-run should assert the same labels and wording");
+  for (const args of rerun.calls) {
     assert.ok(!args.includes("delete") && !args.includes("DELETE"), `a re-run ran: gh ${args.join(" ")}`);
   }
 });

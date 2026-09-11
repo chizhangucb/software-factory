@@ -17,6 +17,7 @@ _Except_ as a vendored step name: the `Refuse PRD-shaped issue` step in `.github
 One vertical slice of a spec, sized to one fresh context window, carrying acceptance criteria. Produced by /to-tickets. The unit the factory picks up.
 _Avoid_: task, issue (the tracker's word for the container), sub-issue.
 _Except_ as a heading: `# ISSUE` and `# LINKED ISSUE` are the vendored prompts' section headings and stay sandcastle's. The prose under them says ticket.
+_Except_ as a vendored label string: `wayfinder:task` is one of the `wayfinder:<type>` labels the vendored wayfinder skill creates and reads, so it keeps that spelling wherever the label is written, `scripts/onboard.sh` included. Prose about such a ticket still says ticket.
 
 **Acceptance criteria**:
 The checklist on a ticket that says what done means. Written before any agent starts. The reviewer ticks each one with evidence.
@@ -50,8 +51,8 @@ A changed test file whose process died before any test reported a result, which 
 _Avoid_: skipped, skip (the placeholder's word), ignored (it is named in the status, never passed over in silence).
 
 **Escalation**:
-A ticket the factory gives up on after its retry cap. Labeled for a human, branch kept, log attached. The only queue a human must read.
-_Avoid_: failure, blocked (the tracker's dependency word).
+A ticket or PR the factory gives up on: `needs-human` on it, its `agent:*` labels off and `ready-for-agent` with them, branch kept, log attached. Not only when the retry cap runs out; the reconciler and the audit reach it too. The only queue a human must read.
+_Avoid_: failure, blocked (bare *blocked* is the tracker's dependency word, and `agent:blocked` is the other state: see **Blocked**).
 
 **Requeue**:
 A run handed back to the queue because what stopped it was not the ticket's failure: every account rate limited, or a check still pending when the wait for it runs out. A comment naming the cause, no retry spent, and no label for a human. One meaning on both sides (#148): a ticket is left with no factory label for the dispatcher, a PR in `agent:in-progress` for the reconciler, which re-adds the start label at its stuck deadline.
@@ -65,9 +66,21 @@ _Avoid_: requeue (the retry handler's other no-retry path: a ticket goes back to
 The hand-off's counterpart on a PR the factory did not author (#180): the same comment naming the conflict, then `agent:blocked` instead of `agent:implement`, because merging the base in and pushing someone else's branch is not the factory's to do. The label is what makes it stick, holding the PR through the next push to `main` here and, on a PR the reviewer has judged, parking it at the reconciler too, and the author taking it off is what hands the PR back. Updates are untouched either way.
 _Avoid_: escalation (nothing is given up on and no retry was spent), hand-back (the PR was never the factory's to hand anywhere).
 
+**Blocked**:
+A ticket or PR the factory has stopped on because something a person has to deal with is in the way: the `agent:blocked` label. A note rather than a transition, so the label takes nothing off and spends no retry. Who that person is and what they do depends on what stopped: a failed step is cleared by re-adding that step's label, a **tell-author** conflict by resolving it and taking the label off. Distinct from an **escalation**, which is the factory done trying rather than waiting.
+_Avoid_: blocked on its own (the tracker's dependency word, so prose writes `agent:blocked`), stuck (the reconciler's word for a subject with no live run), failed.
+
+**Parked**:
+A ticket or PR the factory has stopped on and no sweep repairs: the `agent:blocked` and `needs-human` pair, `PARKED_LABELS` in `factory/dispatch/reconcile.ts`. Always the factory's own doing, which is what separates it from a **hold**, and the way the factory stops touching something without closing it.
+_Avoid_: held (a hold is a person choosing the timing), stalled, abandoned.
+
 **Hold**:
 A human's instruction to leave a ready ticket alone: the `hold` label, which holds a ticket back whatever else it carries. Removing it releases the ticket on the next sweep. Distinct from an **escalation** (the factory giving up) and from a blocker (the tracker's dependency edge): a hold is a person choosing the timing. `HOLD_LABELS` in `factory/lib/labels.ts` is the set the dispatcher reads, and `docs/agents/hold.md` is what a triager reads.
 _Avoid_: blocked, on hold as a state the factory sets (the factory never adds or removes it); paused, which since #171 names the whole target's breaker rather than one ticket's timing (**Pause**).
+
+**Ready for human**:
+A ticket a person is to implement rather than the factory: the `ready-for-human` label, one of the five triage roles `docs/agents/triage-labels.md` maps. The factory never writes it, and the dispatcher reads it only as a backstop among the labels that hold a ticket back, since a ticket genuinely somebody's to write by hand does not also carry `ready-for-agent`.
+_Avoid_: human ticket, manual, hold (a **hold** says not yet, this says not the factory).
 
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.

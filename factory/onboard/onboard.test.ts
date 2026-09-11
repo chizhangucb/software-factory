@@ -348,7 +348,7 @@ test("every label onboarding writes carries a description, empty ones included",
  */
 const offeredForDeletion = (output: string): string[] =>
   output.split("\n").flatMap((line) => {
-    const offer = line.match(/gh label delete ([a-z][a-z ]*[a-z]|[a-z]) /);
+    const offer = line.match(/gh label delete "([^"]+)" /);
     return offer ? [offer[1]!] : [];
   });
 
@@ -366,6 +366,9 @@ test("the unused GitHub defaults are named, with the command that removes them",
   ]);
   assert.match(output, /--yes/, "the command should be one a maintainer can paste and have run");
   assert.match(output, new RegExp(target), "the command should name the target, not a placeholder");
+  // `gh label delete good first issue` is three arguments and an error. The names are
+  // printed quoted, so every line is one a maintainer can paste as it stands.
+  assert.match(output, /gh label delete "good first issue" /, "a multi-word label has to reach the shell quoted");
 });
 
 test("no label the tracker actually uses is ever offered for deletion", () => {

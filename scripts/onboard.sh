@@ -106,6 +106,8 @@ label "wayfinder:task"      "006b75" "Wayfinder: manual work a decision is block
 # One command per label, so a target that already dropped some of them can paste the rest,
 # and unconditional rather than read back off the repo: a label listing is one more call
 # that can fail, and under set -e a cosmetic note would then take the whole onboarding down.
+# The names print quoted, because `gh label delete good first issue` is three arguments and
+# an error, and a command a maintainer has to repair first is one they will not run.
 note_unused_defaults() {
   {
     echo "############################################################"
@@ -113,7 +115,7 @@ note_unused_defaults() {
     echo "## nothing here uses. This script deletes nothing, ever."
     echo "## To drop the ones it has, by hand:"
     for unused in "documentation" "good first issue" "help wanted" "invalid" "question"; do
-      echo "##   gh label delete $unused --repo $repo --yes"
+      echo "##   gh label delete \"$unused\" --repo $repo --yes"
     done
     echo "## Not in that list, and not to be deleted: bug, enhancement,"
     echo "## wontfix and duplicate. Those are triage vocabulary."

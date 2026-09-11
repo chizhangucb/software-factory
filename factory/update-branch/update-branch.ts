@@ -7,9 +7,12 @@
  * A passing factory/verdict is carried onto the merge commit GitHub made
  * (see plan.ts); the old head gets a factory/update-branch status the moment
  * the call is accepted, so a later run can tell that merge from one a person
- * made in the web editor. A conflict the API cannot resolve is commented and
- * labeled agent:implement, so agent-implement-pr.yml resolves it on the branch
- * (planConflict in plan.ts, ADR 0003 as amended by #19). No agent runs here.
+ * made in the web editor. A conflict the API cannot resolve on a PR the factory
+ * authored is commented and labeled agent:implement, so agent-implement-pr.yml
+ * resolves it on the branch (planConflict in plan.ts, ADR 0003 as amended by
+ * #19); on any other PR it is commented and labeled agent:blocked, because the
+ * branch is its author's to resolve and no agent may rewrite it (#180, ADR
+ * 0003's 2026-09-10 amendment). No agent runs here.
  *
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT, for the update call,
  * comments, and labels), STATUS_TOKEN (GITHUB_TOKEN, for reading and
@@ -25,9 +28,10 @@ import * as path from "node:path";
 
 import { errorMessage } from "../lib/errors.ts";
 import { GhError, gh } from "../lib/gh.ts";
-import { IMPLEMENT_LABEL } from "../lib/labels.ts";
+import { BLOCKED_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
 import {
   type CommitStatus,
+  type ConflictPlan,
   type HeadCommit,
   type OpenPr,
   type Plan,
@@ -59,6 +63,8 @@ type RawPr = {
   number: number;
   headRefOid: string;
   headRefName: string;
+  /** Null on a PR opened with an empty body; `isFactoryAuthoredPr` reads it as a string. */
+  body: string | null;
   autoMergeRequest: unknown;
   mergeable: string;
   labels: { name: string }[];
@@ -68,7 +74,7 @@ const openPrs = (): RawPr[] =>
   JSON.parse(
     gh([
       "pr", "list", "--repo", repo, "--state", "open", "--base", base, "--limit", "200",
-      "--json", "number,headRefOid,headRefName,autoMergeRequest,mergeable,labels",
+      "--json", "number,headRefOid,headRefName,body,autoMergeRequest,mergeable,labels",
     ]),
   );
 
@@ -94,6 +100,8 @@ const toOpenPr = (raw: RawPr): OpenPr => {
   const head = active ? commit(raw.headRefOid) : { sha: raw.headRefOid, parents: [], committerLogin: null };
   return {
     number: raw.number,
+    headRef: raw.headRefName,
+    body: raw.body ?? "",
     autoMerge,
     behindBy: active ? behindBy(raw.headRefOid) : 0,
     mergeable,
@@ -152,17 +160,75 @@ const waitForNewHead = async (number: number, oldHead: string): Promise<string |
   return undefined;
 };
 
-/** No API call resolves a conflict: label the PR for agent-implement-pr.yml, which merges the base on the branch and resolves. */
-const handOff = (number: number): void => {
-  const body = [
-    "update-branch could not bring this PR up to date with `" + base + "`: the merge conflicts.",
-    "",
-    "Handing it to the implementer: labeled `" + IMPLEMENT_LABEL + "`. Its run merges `" + base +
-      "` into the branch, resolves the conflicts, and pushes; the review then judges the new head and auto-merge lands it.",
-    runUrl ? `\nRun: ${runUrl}` : "",
-  ].join("\n");
+/** What every conflict comment opens with; both decisions below are answers to the same sentence. */
+const CONFLICT_CAUSE = `update-branch could not bring this PR up to date with \`${base}\`: the merge conflicts.`;
+
+/**
+ * Say what the job decided on the PR's own thread, then put the label on that
+ * records the decision. Both conflict decisions write the same pair, and the
+ * label is what the next run reads (`planConflict`), so neither may be written
+ * without the other.
+ */
+const commentAndLabel = (number: number, paragraphs: readonly string[], label: string): void => {
+  const body = [CONFLICT_CAUSE, ...paragraphs.flatMap((p) => ["", p]), runUrl ? `\nRun: ${runUrl}` : ""].join("\n");
   gh(["pr", "comment", String(number), "--repo", repo, "--body", body]);
-  gh(["pr", "edit", String(number), "--repo", repo, "--add-label", IMPLEMENT_LABEL]);
+  gh(["pr", "edit", String(number), "--repo", repo, "--add-label", label]);
+};
+
+/** No API call resolves a conflict: label the PR for agent-implement-pr.yml, which merges the base on the branch and resolves. */
+const handOff = (number: number): void =>
+  commentAndLabel(number, [
+    `Handing it to the implementer: labeled \`${IMPLEMENT_LABEL}\`. Its run merges \`${base}\` into the branch, resolves the ` +
+      "conflicts, and pushes; the review then judges the new head and auto-merge lands it.",
+  ], IMPLEMENT_LABEL);
+
+/**
+ * The factory did not open this PR, so the conflict goes back to whoever did:
+ * a comment naming the cause and what to do, then `agent:blocked`, which is
+ * the one label that means a human must look. No agent touches the branch.
+ *
+ * The label is what makes the decline stick, and the comment says so, because
+ * it is also what the author has to take off to hand the PR back. Every push
+ * to main runs this job again and the conflict is still there, so without it
+ * the same comment would arrive on every push; and the reconciler re-arms a
+ * Factory PR carrying no `agent:*` label at its verdict deadline, so a PR the
+ * reviewer had already judged would be enrolled again with the conflict in
+ * place (`PARKED_LABELS` in `factory/dispatch/reconcile.ts`).
+ *
+ * Auto-merge is left exactly as it is, and so is the update half of this job,
+ * which never reads a label and never asks who opened a PR. So the branch is
+ * brought up to date again the moment the conflict is gone, label or no label.
+ * What the label holds back is the review and the reconciler, which is why the
+ * comment asks for it to come off rather than claiming the updates stop.
+ */
+const tellAuthor = (number: number): void =>
+  commentAndLabel(number, [
+    `The factory did not open this PR, so it will not rewrite the branch: merging \`${base}\` in and resolving is yours. ` +
+      `Labeled \`${BLOCKED_LABEL}\`, which is this factory's "a human must look".`,
+    `Push the resolution and the factory goes back to bringing the branch up to date on its own, since that part never asks ` +
+      `who opened a PR. Then remove \`${BLOCKED_LABEL}\`: it is the factory's record that a human is still needed here, and ` +
+      `on a PR the reviewer has judged it is also what holds the next review back. Auto-merge, if it is armed, is untouched ` +
+      "throughout.",
+  ], BLOCKED_LABEL);
+
+/**
+ * Carry out a conflict decision, whether the plan took it from a CONFLICTING
+ * scan or it was taken again when GitHub refused the call this job made anyway.
+ * One place, so the two routes to the same decision cannot act on it two ways;
+ * the `reason` differs between them because the refusal is the caller's fact.
+ */
+const actOnConflict = ({ number, action, reason }: ConflictPlan): void => {
+  if (action === "hand-off") {
+    handOff(number);
+    console.log(`#${number}: ${reason}; commented and labeled ${IMPLEMENT_LABEL}.`);
+    return;
+  }
+  if (action === "tell-author") {
+    tellAuthor(number);
+    console.log(`#${number}: ${reason}; commented and labeled ${BLOCKED_LABEL}.`);
+    return;
+  }
+  console.log(`#${number}: ${reason}, left alone.`);
 };
 
 /** Mark the head the factory asked GitHub to update from; findVerdict trusts only merges made on such a head. */
@@ -212,9 +278,8 @@ for (const plan of plans) {
       );
     }
     if (plan.action === "skip") continue;
-    if (plan.action === "hand-off") {
-      handOff(plan.number);
-      console.log(`Handed off #${plan.number}: commented and labeled ${IMPLEMENT_LABEL}.`);
+    if (plan.action === "hand-off" || plan.action === "tell-author") {
+      actOnConflict({ ...plan, action: plan.action });
       continue;
     }
     const result = requestUpdate(plan.number, pr.head.sha);
@@ -228,12 +293,7 @@ for (const plan of plans) {
       // Action and reason only: the plan's `carry` was already acted on above.
       outcome.action = conflict.action;
       outcome.reason = reason;
-      if (conflict.action === "hand-off") {
-        handOff(plan.number);
-        console.log(`#${plan.number}: ${reason}; commented and labeled ${IMPLEMENT_LABEL}.`);
-      } else {
-        console.log(`#${plan.number}: ${reason}, left alone.`);
-      }
+      actOnConflict({ ...conflict, reason });
       continue;
     }
     if (result === "head moved") {
@@ -281,8 +341,10 @@ if (outputDir) {
 
 const updated = outcomes.filter((o) => o.newHead).length;
 const handedOff = outcomes.filter((o) => o.action === "hand-off").length;
+const toldAuthor = outcomes.filter((o) => o.action === "tell-author").length;
 const carried = outcomes.filter((o) => o.verdictCarried).length;
 console.log(
-  `${prs.length} open PR(s) on ${base}, ${updated} updated, ${carried} verdict(s) carried, ${handedOff} handed to the implementer, ${failed} failed${dryRun ? " (dry run)" : ""}.`,
+  `${prs.length} open PR(s) on ${base}, ${updated} updated, ${carried} verdict(s) carried, ${handedOff} handed to the implementer, ` +
+    `${toldAuthor} conflict(s) left to their authors, ${failed} failed${dryRun ? " (dry run)" : ""}.`,
 );
 if (failed > 0) process.exit(1);

@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { PARKED_LABELS } from "../dispatch/reconcile.ts";
+import { FACTORY_BODY_MARKER } from "../lib/factory-pr.ts";
 import { GhError } from "../lib/gh.ts";
 import { BLOCKED_LABEL, IMPLEMENT_LABEL } from "../lib/labels.ts";
 import {
   type CommitStatus,
+  type ConflictSubject,
   type HeadCommit,
   type OpenPr,
   carriedVerdict,
@@ -19,6 +22,8 @@ import {
 
 const pr = (number: number, overrides: Partial<OpenPr> = {}): OpenPr => ({
   number,
+  headRef: `agent/issue-${number}-thing`,
+  body: `Closes #${number}\n\nImplemented by the software factory.`,
   autoMerge: true,
   behindBy: 2,
   mergeable: "MERGEABLE",
@@ -27,6 +32,16 @@ const pr = (number: number, overrides: Partial<OpenPr> = {}): OpenPr => ({
   verdict: { state: "success", sha: "h1" },
   ...overrides,
 });
+
+/** A PR somebody else opened: no `agent/` branch, no body marker, nothing the factory writes. */
+const NOT_OURS = { headRef: "fix/their-branch", body: "Fixes the thing I hit last week." };
+
+/** A conflicting PR the factory opened, by the branch namespace it owns. */
+const authored = (labels: readonly string[] = []): ConflictSubject =>
+  ({ number: 7, labels, headRef: "agent/issue-7-thing", body: "Closes #7" });
+
+/** The same conflicting PR, opened by somebody else. */
+const theirs = (labels: readonly string[] = []): ConflictSubject => ({ number: 7, labels, ...NOT_OURS });
 
 const actions = (prs: readonly OpenPr[]): string[] =>
   planUpdates(prs).map((plan) => `${plan.number}:${plan.action}${plan.carry ? "+carry" : ""}`);
@@ -63,8 +78,16 @@ test("a PR whose verdict failed is not updated, wherever that verdict sits; it c
   assert.deepEqual(actions([pr(7, { verdict: { state: "error", sha: "h0" } })]), ["7:skip"]);
 });
 
-test("hand-off: a conflicting PR nobody holds goes to the implementer, whoever found the conflict", () => {
-  assert.deepEqual(planConflict({ number: 7, labels: [] }), {
+test("a conflicting PR the factory did not author is not handed to the implementer", () => {
+  assert.deepEqual(planConflict(theirs()), {
+    number: 7,
+    action: "tell-author",
+    reason: "conflicts with main; the factory did not author this PR, so the conflict is its author's to resolve",
+  });
+});
+
+test("hand-off: a conflicting PR the factory authored and nobody holds goes to the implementer, whoever found the conflict", () => {
+  assert.deepEqual(planConflict(authored()), {
     number: 7,
     action: "hand-off",
     reason: "conflicts with main; handing the PR to the implementer",
@@ -73,18 +96,40 @@ test("hand-off: a conflicting PR nobody holds goes to the implementer, whoever f
 
 test("held: a conflicting PR an agent already holds, or that is parked, is skipped and the reason names the label", () => {
   for (const label of [IMPLEMENT_LABEL, "agent:in-progress", "agent:review", BLOCKED_LABEL]) {
-    assert.deepEqual(planConflict({ number: 7, labels: ["ready-for-agent", label] }), {
-      number: 7,
-      action: "skip",
-      reason: `conflicts with main, already ${label}`,
-    }, label);
+    // Both branches of the authorship decision: the label holds the PR whoever opened it.
+    for (const subject of [authored(["ready-for-agent", label]), theirs(["ready-for-agent", label])]) {
+      assert.deepEqual(planConflict(subject), {
+        number: 7,
+        action: "skip",
+        reason: `conflicts with main, already ${label}`,
+      }, `${label} on ${subject.headRef}`);
+    }
   }
+});
+
+test("the author is told once: agent:blocked is what the caller adds, and it skips the PR on the next push to main", () => {
+  // The decline has to stick. update-branch runs again on every push to main and the
+  // conflict is still there, so without the label the comment would repeat; and the
+  // reconciler re-arms a Factory PR with no agent:* label at its verdict deadline.
+  // agent:blocked is in HANDED_OFF_LABELS and in the reconciler's PARKED_LABELS, so
+  // the same label answers both, and the author removing it hands the PR back.
+  assert.equal(planConflict(theirs()).action, "tell-author");
+  assert.equal(planConflict(theirs([BLOCKED_LABEL])).action, "skip");
+  assert.equal(planConflict(theirs([BLOCKED_LABEL])).reason, `conflicts with main, already ${BLOCKED_LABEL}`);
+  assert.ok(PARKED_LABELS.includes(BLOCKED_LABEL), "the reconciler parks on it too, so nothing re-arms the PR");
+});
+
+test("the factory's own body marker authors a PR whose branch is not under agent/", () => {
+  // Both arms of isFactoryAuthoredPr reach the hand-off: implement-pr can rename a
+  // branch, and the marker is what says the factory opened the PR regardless.
+  const marked = { ...theirs(), body: `Closes #7\n\n${FACTORY_BODY_MARKER}.` };
+  assert.equal(planConflict(marked).action, "hand-off");
 });
 
 test("a conflict decision states no verdict carry; the plan that has an opinion on one states its own", () => {
   // The decision never sees a verdict, so the flag it always set to false is not
   // its to state. `planUpdate` is the one that decides a carry, and it says so.
-  assert.deepEqual(Object.keys(planConflict({ number: 7, labels: [] })).sort(), ["action", "number", "reason"]);
+  assert.deepEqual(Object.keys(planConflict(authored())).sort(), ["action", "number", "reason"]);
   assert.equal(planUpdate(pr(7, { mergeable: "CONFLICTING" })).carry, false);
 });
 
@@ -119,6 +164,23 @@ test("anything else GitHub answers with is not a refusal, and the caller keeps t
   assert.equal(updateRefusal({ status: 1, stderr: "gh: merge conflict between base and head (HTTP 409)\n" }), undefined);
   // No exit status is a call that never got an answer: killed, or never spawned at all.
   assert.equal(updateRefusal({ status: null, stderr: "" }), undefined);
+});
+
+test("a stale PR the factory did not author is still brought up to date: the update half does not narrow", () => {
+  // ADR 0003's amendment: the update call is deterministic and applies to any PR with
+  // auto-merge armed, whoever opened it. Arming auto-merge on a hand-authored PR is the
+  // normal thing to do under a strict ruleset, and that enrolment is the point.
+  assert.deepEqual(actions([pr(7, NOT_OURS)]), ["7:update"]);
+  assert.equal(planUpdate(pr(7, NOT_OURS)).reason, "2 behind main");
+  assert.deepEqual(actions([pr(7, { ...NOT_OURS, behindBy: 0 })]), ["7:skip"]);
+  // And the verdict carry is the same deterministic path, still open to it.
+  const stalled = pr(7, { ...NOT_OURS, head: updateMerge, verdict: { state: "success", sha: "h1" } });
+  assert.deepEqual(actions([stalled]), ["7:update+carry"]);
+});
+
+test("the plan hands a conflicting PR back to its author through the same decision", () => {
+  assert.deepEqual(actions([pr(7, { ...NOT_OURS, mergeable: "CONFLICTING" })]), ["7:tell-author"]);
+  assert.equal(planUpdate(pr(7, { ...NOT_OURS, mergeable: "CONFLICTING" })).carry, false);
 });
 
 test("the plan takes the conflict decision before it looks at any verdict", () => {

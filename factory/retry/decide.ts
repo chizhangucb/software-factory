@@ -15,8 +15,9 @@
  * implementer run reads back. Pure functions here; `retry.ts` does the API
  * calls.
  */
-import { ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
+import { BLOCKED_LABEL, ESCALATION_LABEL, IMPLEMENT_LABEL, READY_LABEL } from "../lib/labels.ts";
 import { boundOutput } from "../lib/verdict";
+import type { PrFixAction } from "./escalation.ts";
 
 export type FailureKind = "implement" | "merge-gate" | "ci" | "verdict";
 
@@ -149,6 +150,17 @@ export interface RetryContext {
   readonly output: string;
 }
 
+/**
+ * What `renderRetryComment` is given: the context above plus which way the
+ * open PR went (#183). Not part of `RetryContext` itself: that is what a later
+ * implementer run reads back out of the comment, and by then the PR that
+ * failed may be gone.
+ */
+export interface RetryCommentInput extends RetryContext {
+  /** Default `hand-off`, the only answer there was before #183. */
+  readonly action?: PrFixAction;
+}
+
 const MARKER = /^<!-- factory:retry retry=(\d+) kind=([a-z-]+) -->\n?/;
 const RUN_LINE = /^Attempt \d+ failed \([a-z-]+\)\. Run: (\S+)$/m;
 /** Fits a GitHub comment (64k) with room for the rest of the body. */
@@ -160,21 +172,35 @@ const fence = (text: string): string => {
   return `${ticks}text\n${text.trim()}\n${ticks}`;
 };
 
-/** The marker comment the failure handler posts on the ticket before the retry starts. */
-export const renderRetryComment = (context: RetryContext): string =>
+/**
+ * The failing output folded away at the end of a comment, bounded, or nothing
+ * when there is none to show. Every comment that carries an output carries it
+ * the same way, and `parseRetryComment` reads this shape back out of the
+ * marker comment.
+ */
+const failureDetails = (output: string): string[] =>
+  output.trim().length === 0
+    ? []
+    : ["", "<details><summary>Failure output</summary>", "", fence(boundOutput(output, OUTPUT_LIMITS)), "", "</details>"];
+
+/**
+ * The marker comment the failure handler posts on the ticket before the retry
+ * starts. It records the attempt whoever fixes it (#183), so the count is the
+ * same either way and nothing is dropped in silence; only the line saying what
+ * happens next changes, because on a PR the factory did not author the answer
+ * is "nothing of the factory's does".
+ */
+export const renderRetryComment = (context: RetryCommentInput): string =>
   [
     `<!-- factory:retry retry=${context.retry} kind=${context.kind} -->`,
     `### Retry ${context.retry} of ${MAX_RETRIES} requested by the factory`,
     "",
     `Attempt ${context.retry} failed (${context.kind}). Run: ${context.runUrl}`,
     "",
-    "The implementer runs once more on the same branch with this output in its prompt; a second failure escalates to `needs-human`.",
-    "",
-    "<details><summary>Failure output</summary>",
-    "",
-    fence(boundOutput(context.output, OUTPUT_LIMITS)),
-    "",
-    "</details>",
+    context.action === "tell-author"
+      ? `The factory did not author the open PR, so no implementer runs on its branch: the fix is its author's. The PR carries \`${BLOCKED_LABEL}\`, and taking that label off hands it back to the factory; a second failure escalates to \`${ESCALATION_LABEL}\`.`
+      : "The implementer runs once more on the same branch with this output in its prompt; a second failure escalates to `needs-human`.",
+    ...failureDetails(context.output),
   ].join("\n");
 
 const isFailureKind = (value: string): value is FailureKind =>
@@ -285,6 +311,67 @@ export const renderHandOffComment = (input: {
   ].join("\n");
 
 /**
+ * The conflict as the PR's own author reads it (#183): the same fact
+ * `CONFLICT_REASON` states, without the clause naming the implementer that is
+ * not coming, and with the base named, since the merge is theirs to make.
+ */
+export const authorConflictReason = (base: string): string =>
+  `the PR conflicts with \`${base}\`, so GitHub started no merge gate on this head`;
+
+/** What the factory tells the author of a PR it will not put an implementer on (#183). */
+export interface TellAuthorNote {
+  /** What the factory found: the failure summary, or the conflict. */
+  readonly reason: string;
+  /** The ticket carrying the record, when the record went elsewhere; undefined when nothing else holds it. */
+  readonly issueNumber: string | undefined;
+  /** The failing output, when there is one this thread does not already carry. */
+  readonly output: string;
+  /**
+   * Whether the next failure on this PR escalates, which is true once the
+   * ticket's retries are spent and false on the conflict path, which spends
+   * none. The author reads this thread and not the ticket, so a terminal next
+   * round has to be said here or it is not said to them at all.
+   */
+  readonly escalatesNext?: boolean;
+}
+
+/**
+ * The comment on a PR the factory will not put an implementer on (#183), for
+ * the PR's own thread. Both paths that would have labelled it
+ * `agent:implement` post it: the retry after a failing check, and the conflict
+ * hand-off.
+ *
+ * It is the whole of what its author gets, so it carries what failed rather
+ * than a link to it: the retry's own record goes on the ticket, which is not
+ * this author's thread and may not even be theirs to read. It also says what
+ * the labels now say, because a PR whose `agent:*` labels vanished and that
+ * acquired `needs-human` otherwise reads as the factory losing interest.
+ *
+ * What it does not say is "add `agent:review`". Taking `agent:blocked` off is
+ * what actually hands the PR back, which is what #180's own tell-author
+ * comment says, and telling a producer how to enter the **Judged path** is
+ * #181's job rather than a failure comment's.
+ */
+export const renderTellAuthorComment = (input: TellAuthorNote & { readonly runUrl: string }): string =>
+  [
+    "### The fix is yours: the factory did not author this PR",
+    "",
+    `${input.reason}. Run: ${input.runUrl}`,
+    "",
+    `The factory puts an implementer only on a branch it opened, so no agent of the factory's will rewrite this one. It carries \`${BLOCKED_LABEL}\` instead, this factory's "a human must look", which is what holds the next review and the reconciler back.`,
+    "",
+    `Push the fix yourself, then take \`${BLOCKED_LABEL}\` off, which hands the PR back. Bringing the branch up to date with its base is the one part that never stops, since it never asks who opened a PR; auto-merge, if it is armed, is untouched throughout.`,
+    ...(input.issueNumber ? ["", `The attempt is recorded on #${input.issueNumber}.`] : []),
+    ...(input.escalatesNext
+      ? [
+          "",
+          `That was the factory's last attempt on this one. If the next judgement fails too it escalates: \`${ESCALATION_LABEL}\` on this PR and on the ticket, auto-merge disarmed, and a person decides what happens next. Nothing is closed and no commit of yours is touched.`,
+        ]
+      : []),
+    ...failureDetails(input.output),
+  ].join("\n");
+
+/**
  * The PR that was open when the factory gave up, and what became of it.
  * Closing is `prEscalation`'s call, not this one's: escalation leaves a PR
  * the factory did not author open (#174), and the comment reports what
@@ -355,15 +442,6 @@ export const renderEscalationComment = (input: EscalationInput): string => {
     "",
     `To hand it back to the factory: fix the ticket, then remove \`${ESCALATION_LABEL}\` and \`${retryLabel(MAX_RETRIES)}\`, then add \`${READY_LABEL}\` back (escalation took it off). The dispatcher picks it up on the next event and the new run starts from main again${input.branchExists ? "; the kept branch is for reading" : ""}.`,
   ];
-  if (input.output.trim().length > 0) {
-    lines.push(
-      "",
-      "<details><summary>Failure output</summary>",
-      "",
-      fence(boundOutput(input.output, OUTPUT_LIMITS)),
-      "",
-      "</details>",
-    );
-  }
+  lines.push(...failureDetails(input.output));
   return lines.join("\n");
 };

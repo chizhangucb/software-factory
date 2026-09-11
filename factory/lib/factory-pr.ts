@@ -22,14 +22,15 @@
  * the same field the audit's decide job already reads.
  *
  * Two questions, one module (#174). `isFactoryPr` is what the factory reads
- * and judges, and is deliberately broad: a human-opened PR the reviewer
- * judged has to reach the audit and the reconciler. `isFactoryAuthoredPr` is
- * what the factory may *do to* a branch, and drops the verdict arm, because
- * that arm is exactly the human-opened PR. Escalation used to close whatever
- * PR was open, so labelling a hand-authored PR `agent:review`, the one action
- * that gets it judged, destroyed it. They live together because the broad one
- * is written as the narrow one plus the verdict section: two predicates that
- * could disagree in principle cannot disagree here.
+ * and judges, and is deliberately broad: a PR the factory did not author but
+ * the reviewer judged has to reach the audit and the reconciler.
+ * `isFactoryAuthoredPr` is what the factory may *do to* a branch, and drops
+ * the verdict arm, because that arm is exactly the PR the factory did not
+ * author. Escalation used to close whatever PR was open, so labelling such a
+ * PR `agent:review`, the one action that gets it judged, destroyed it. They
+ * live together because the broad one is written as the narrow one plus the
+ * verdict section: two predicates that could disagree in principle cannot
+ * disagree here.
  *
  * The body is the signal on purpose, and a human who edits the section out
  * does hide the PR from the audit. The two alternatives cost a mechanism

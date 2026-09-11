@@ -5,7 +5,7 @@ import { VERDICT_SECTION_START } from "../lib/factory-pr.ts";
 import { escalationLabels, prEscalation } from "./escalation.ts";
 
 const agentBranch = { headRef: "agent/issue-7-thing", body: "" };
-const handAuthored = { headRef: "maintainer/flaky-login", body: "Fixes the flaky login test." };
+const notAuthored = { headRef: "maintainer/flaky-login", body: "Fixes the flaky login test." };
 
 test("an escalated ticket is left carrying needs-human and nothing else of the factory's", () => {
   assert.deepEqual(
@@ -36,10 +36,11 @@ test("escalating a PR touches nothing but the factory's own labels", () => {
 });
 
 test("escalation never closes a PR the factory did not author", () => {
-  // #174: a hand-authored PR labelled agent:review gets a failing verdict for
-  // want of acceptance criteria, which is unretryable, which escalates. Closing
-  // it here throws away work nothing can recreate.
-  assert.equal(prEscalation({ ...handAuthored, labels: ["agent:review"] }).close, false);
+  // #174: a PR the factory did not author closes no ticket, so labelling it
+  // agent:review gets it a verdict that fails for want of acceptance criteria,
+  // which is unretryable, which escalates. Closing it here throws away work
+  // nothing can recreate.
+  assert.equal(prEscalation({ ...notAuthored, labels: ["agent:review"] }).close, false);
   // An outside agent's PR is no more the factory's to close than a person's.
   assert.equal(prEscalation({ headRef: "bot/dependabot-bump", body: "", labels: [] }).close, false);
 });
@@ -55,5 +56,5 @@ test("a PR the reviewer judged is still not the factory's to close", () => {
 test("escalation stands a PR down whether or not it closes it", () => {
   // The agent:* labels come off either way. A label left on is a run that picks
   // the PR up again, and escalation is the factory saying it is done with it.
-  assert.deepEqual(prEscalation({ ...handAuthored, labels: ["agent:review", "bug"] }).remove, ["agent:review"]);
+  assert.deepEqual(prEscalation({ ...notAuthored, labels: ["agent:review", "bug"] }).remove, ["agent:review"]);
 });

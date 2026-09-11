@@ -89,6 +89,7 @@ import {
   RATE_LIMITED_REASON,
   renderEscalationComment,
   renderHandOffComment,
+  renderLeftOpenPrComment,
   renderRequeueComment,
   renderRetryComment,
   REQUEUED_FILE,
@@ -139,17 +140,23 @@ const attempt = (call: () => string): string | undefined => {
 const tryGh = (args: string[]): string | undefined => attempt(() => gh(args));
 const tryWrite = (args: string[]): string | undefined => attempt(() => ghWrite(args));
 
+/**
+ * An open PR for the branch: its number, and the facts that place it. One
+ * object and not two fields, so there is no state where the number is known
+ * and the facts are not; escalation has to ask `prEscalation` whether the
+ * factory authored this PR before it may close it (#174), and a call site
+ * that could hold a number without facts would need a fallback for a case
+ * that cannot happen.
+ */
+interface OpenPr {
+  readonly number: string;
+  readonly facts: FactoryPrFacts;
+}
+
 interface Target {
   readonly issue: string | undefined;
   /** An open PR for the branch, when there is one. */
-  readonly pr: string | undefined;
-  /**
-   * The open PR's branch and body, read with its number so escalation can ask
-   * `prEscalation` whether the factory authored it (#174). Undefined exactly
-   * when `pr` is: the two are read together and travel together, so no call
-   * site can decide what to do to a PR it has no facts about.
-   */
-  readonly prFacts: FactoryPrFacts | undefined;
+  readonly pr: OpenPr | undefined;
 }
 
 /**
@@ -174,7 +181,7 @@ interface Subject {
  * the PR and what a human reads; the PR only when no ticket was found.
  */
 const recordOn = (target: Target): Subject =>
-  target.issue ? { kind: "issue", number: target.issue } : { kind: "pr", number: target.pr as string };
+  target.issue ? { kind: "issue", number: target.issue } : { kind: "pr", number: (target.pr as OpenPr).number };
 
 /**
  * What a label has to go on to move the factory: the open PR when there is
@@ -183,7 +190,7 @@ const recordOn = (target: Target): Subject =>
  * a retry uses both at once.
  */
 const actOn = (target: Target): Subject =>
-  target.pr ? { kind: "pr", number: target.pr } : { kind: "issue", number: target.issue as string };
+  target.pr ? { kind: "pr", number: target.pr.number } : { kind: "issue", number: target.issue as string };
 
 /**
  * The ticket and its open PR from whichever number the workflow knows.
@@ -193,17 +200,16 @@ const actOn = (target: Target): Subject =>
  * would fall back to closing.
  */
 const resolveTarget = (): Target => {
-  const facts = (pr: { headRefName: string; body: string | null }): FactoryPrFacts => ({
-    headRef: pr.headRefName,
-    body: pr.body ?? "",
+  const openPr = (number: string, pr: { headRefName: string; body: string | null }): OpenPr => ({
+    number,
+    facts: { headRef: pr.headRefName, body: pr.body ?? "" },
   });
   if (PR_INPUT) {
     const pr = ghJson<{ state: string; body: string | null; headRefName: string }>([
       "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body,headRefName",
     ]);
     const issue = ISSUE_INPUT ?? linkedIssueNumber(pr.body) ?? undefined;
-    const open = pr.state === "OPEN";
-    return { issue: issue || undefined, pr: open ? PR_INPUT : undefined, prFacts: open ? facts(pr) : undefined };
+    return { issue: issue || undefined, pr: pr.state === "OPEN" ? openPr(PR_INPUT, pr) : undefined };
   }
   const issue = required("ISSUE_NUMBER");
   const open = ghJson<{ number: number; body: string | null; headRefName: string }[]>([
@@ -211,7 +217,7 @@ const resolveTarget = (): Target => {
     "--json", "number,body,headRefName",
   ]);
   const pr = open.find((p) => linkedIssueNumber(p.body) === issue);
-  return { issue, pr: pr ? String(pr.number) : undefined, prFacts: pr ? facts(pr) : undefined };
+  return { issue, pr: pr ? openPr(String(pr.number), pr) : undefined };
 };
 
 /** An open PR's mergeability and base, as GitHub reports them, with the PR they belong to. */
@@ -501,32 +507,21 @@ const handOff = ({ pr, base }: PrMergeability, reason: string): void => {
 };
 
 const escalate = (target: Target, reason: string, failure: Failure): void => {
+  const openPr = target.pr;
   let escalatedPr: EscalatedPr | undefined;
-  if (target.pr) {
-    // Facts and number are read together, so an open PR always has both and
-    // the fallback is unreachable. It is spelled out rather than asserted
-    // because it resolves the safe way: no facts, no authorship, no close.
-    // Leaving a PR open costs a human one click; closing one throws away work
-    // nothing can recreate (#174).
-    const prFacts = target.prFacts ?? { headRef: "", body: "" };
-    const { remove, close } = prEscalation({ ...prFacts, labels: labelsOf({ kind: "pr", number: target.pr }) });
-    if (remove.length > 0) tryWrite(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", remove.join(",")]);
+  if (openPr) {
+    const { remove, close } = prEscalation({
+      ...openPr.facts,
+      labels: labelsOf({ kind: "pr", number: openPr.number }),
+    });
+    if (remove.length > 0) tryWrite(["pr", "edit", openPr.number, "--repo", REPO, "--remove-label", remove.join(",")]);
     if (close) {
       tryWrite([
-        "pr", "close", target.pr, "--repo", REPO, "--comment",
+        "pr", "close", openPr.number, "--repo", REPO, "--comment",
         `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
       ]);
-    } else if (target.issue) {
-      // The escalation comment goes on `recordOn`, the ticket whenever there
-      // is one, and this PR's thread would otherwise say nothing at all about
-      // why its labels vanished. With no ticket, `recordOn` is this PR and the
-      // escalation comment lands here already, so a second one would repeat it.
-      commentOn(
-        { kind: "pr", number: target.pr },
-        `Left open by the factory: ${reason}. The factory did not author this PR, so it is not the factory's to close. Its \`agent:*\` labels are off, so no factory run picks it up again. The escalation is on #${target.issue}. Run: ${RUN_URL}`,
-      );
     }
-    escalatedPr = { number: target.pr, closed: close };
+    escalatedPr = { number: openPr.number, closed: close };
   }
   const on = recordOn(target);
   const labels = escalationLabels(labelsOf(on));
@@ -535,7 +530,10 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
   commentOn(
     on,
     renderEscalationComment({
-      issueNumber: target.issue ?? `PR ${target.pr}`,
+      // The PR's own number when no ticket was found, which is the reachable
+      // case for a PR the factory did not author: it closes no ticket. The
+      // comment renders it as `#N`, which on that PR's thread links to itself.
+      issueNumber: target.issue ?? (target.pr as OpenPr).number,
       reason,
       summary: failure.summary,
       runUrl: RUN_URL,
@@ -546,17 +544,29 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
       output: failure.output,
     }),
   );
+  // Last, and with `tryWrite` rather than `commentOn`, which throws: the record
+  // above is the thing that must not be lost. A PR left open whose courtesy
+  // note fails is a human short one comment; the same failure ahead of the
+  // record would cost the escalation its label and its comment, which is the
+  // silent drop #174 asks to prevent. Only when the record went elsewhere,
+  // since with no ticket `recordOn` is this PR and it was just commented on.
+  if (escalatedPr && !escalatedPr.closed && on.kind !== "pr") {
+    tryWrite([
+      "pr", "comment", escalatedPr.number, "--repo", REPO, "--body",
+      renderLeftOpenPrComment({ reason, issueNumber: on.number, runUrl: RUN_URL }),
+    ]);
+  }
   const prNote = !escalatedPr
     ? ""
     : escalatedPr.closed
       ? `, PR #${escalatedPr.number} closed`
-      : `, PR #${escalatedPr.number} left open (not factory-authored)`;
+      : `, PR #${escalatedPr.number} left open (the factory did not author it)`;
   console.log(`Escalated ${on.kind} #${on.number}: ${labels.add} on, ${labels.remove.join(", ") || "no factory labels"} off${prNote}.`);
 };
 
 const main = async (): Promise<void> => {
   let target = resolveTarget();
-  console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr ?? "(none)"}, branch ${BRANCH}.`);
+  console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr?.number ?? "(none)"}, branch ${BRANCH}.`);
 
   let failure: Failure | undefined;
   if (FAILURE_KIND === "implement") {
@@ -569,7 +579,7 @@ const main = async (): Promise<void> => {
     }
     failure = implementFailure(outcome);
   } else if (FAILURE_KIND === "checks") {
-    failure = await checksFailure(target.pr);
+    failure = await checksFailure(target.pr?.number);
   } else {
     throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_KIND}`);
   }
@@ -587,8 +597,8 @@ const main = async (): Promise<void> => {
   const mergeability = failure.mergeability;
   if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
     if (!mergeability) {
-      console.log(`PR #${target.pr} closed or merged as the handler waited; it is no longer the subject.`);
-      target = { ...target, pr: undefined, prFacts: undefined };
+      console.log(`PR #${target.pr.number} closed or merged as the handler waited; it is no longer the subject.`);
+      target = { ...target, pr: undefined };
       if (!target.issue) {
         console.log("No ticket to fall back to; nothing to requeue.");
         return;

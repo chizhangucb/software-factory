@@ -16,6 +16,7 @@ import {
   latestRetryContext,
   parseRetryComment,
   renderEscalationComment,
+  renderLeftOpenPrComment,
   renderRequeueComment,
   renderRetryComment,
   retriesUsed,
@@ -365,6 +366,21 @@ test("the escalation comment says a PR the factory did not author was left open,
   assert.doesNotMatch(body, /was closed/);
   // The escalation itself still happened: the label is named and the run is linked.
   assert.match(body, /needs-human/);
+  assert.match(body, /Run: https:\/\/github\.com\/o\/r\/actions\/runs\/1\b/);
+});
+
+test("the PR left open is told on its own thread why its agent:* labels went", () => {
+  // The escalation itself is recorded on the ticket, so this is the only thing
+  // the PR's own readers see (#174).
+  const body = renderLeftOpenPrComment({
+    reason: 'the ticket has no acceptance criteria (no "Acceptance criteria" checklist)',
+    issueNumber: "7",
+    runUrl,
+  });
+  assert.match(body, /Left open by the factory/);
+  assert.match(body, /did not author this PR/);
+  assert.match(body, /`agent:\*` labels are off/);
+  assert.match(body, /escalation is on #7/);
   assert.match(body, /Run: https:\/\/github\.com\/o\/r\/actions\/runs\/1\b/);
 });
 

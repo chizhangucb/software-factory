@@ -295,6 +295,26 @@ export interface EscalatedPr {
   readonly closed: boolean;
 }
 
+/**
+ * The comment on a PR escalation left open (#174), for the PR's own thread.
+ * The escalation is recorded on the ticket, so without this the PR would show
+ * its `agent:*` labels vanishing and say nothing about why. Posted only when
+ * the record went elsewhere: with no ticket the escalation comment lands on
+ * this PR already and a second one would repeat it.
+ */
+export const renderLeftOpenPrComment = (input: {
+  readonly reason: string;
+  readonly issueNumber: string;
+  readonly runUrl: string;
+}): string =>
+  [
+    "### Left open by the factory",
+    "",
+    `${input.reason}. The factory did not author this PR, so it is not the factory's to close.`,
+    "",
+    `Its \`agent:*\` labels are off, so no factory run picks it up again. The escalation is on #${input.issueNumber}. Run: ${input.runUrl}`,
+  ].join("\n");
+
 export interface EscalationInput {
   readonly issueNumber: string;
   readonly reason: string;

@@ -33,6 +33,11 @@ export const escalationLabels = (
   add: ESCALATION_LABEL,
 });
 
+/** What escalation needs to know about the open PR: enough to place it, plus its labels. */
+export interface EscalatedPrFacts extends FactoryPrFacts {
+  readonly labels: readonly string[];
+}
+
 /** What escalation does to the open PR: which labels come off, and whether it closes. */
 export interface PrEscalation {
   readonly remove: string[];
@@ -51,20 +56,20 @@ export interface PrEscalation {
  * ticket still holds the work, and a later run cuts a fresh branch from main
  * and opens a new PR from it. Applied to a PR a person or an outside agent
  * wrote, the same step throws away work nothing can recreate, and the path is
- * reachable without anyone intending it. A hand-authored PR closes no ticket,
- * so the reviewer has no acceptance criteria to tick and posts `factory/verdict`
- * as a failure; `unretryableReason` rightly calls that unfixable by any
- * implementer run, `decide` turns unretryable into an escalation, and escalation
- * closed the PR. Labelling a hand-authored PR `agent:review`, the one action
- * that gets it judged, destroyed it.
+ * reachable without anyone intending it. A PR the factory did not author
+ * closes no ticket, so the reviewer has no acceptance criteria to tick and
+ * posts `factory/verdict` as a failure; `unretryableReason` rightly calls that
+ * unfixable by any implementer run, `decide` turns unretryable into an
+ * escalation, and escalation closed the PR. Labelling such a PR `agent:review`,
+ * the one action that gets it judged, destroyed it.
  *
  * `isFactoryAuthoredPr` and not `isFactoryPr`: the broad one answers what the
- * factory reads and judges, and its verdict arm is *exactly* the human-opened
- * PR that must survive this. Not a label either, per #174: the branch prefix
- * and the body marker are written by the factory when it opens the PR and are
- * not the sort of thing a human adds or removes on one.
+ * factory reads and judges, and its verdict arm is *exactly* the PR the factory
+ * did not author that must survive this. Not a label either, per #174: the
+ * branch prefix and the body marker are written by the factory when it opens
+ * the PR and are not the sort of thing a human adds or removes on one.
  */
-export const prEscalation = (pr: FactoryPrFacts & { readonly labels: readonly string[] }): PrEscalation => ({
+export const prEscalation = (pr: EscalatedPrFacts): PrEscalation => ({
   remove: agentLabels(pr.labels),
   close: isFactoryAuthoredPr(pr),
 });

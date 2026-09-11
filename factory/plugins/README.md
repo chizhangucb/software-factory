@@ -15,7 +15,7 @@ Skills the factory prompts invoke by name. `factory/lib/plugins.ts` copies every
 
 Copied verbatim: `.claude-plugin/plugin.json`, `LICENSE`, and the 25 skills the manifest declares, which live under `skills/engineering/` and `skills/productivity/`. Upstream's `skills/deprecated/`, `skills/in-progress/` and `skills/misc/` declare no skill in the manifest and are not copied, so an upstream diff of this folder is a diff of the plugin.
 
-`docs/agents/domain.md`, `issue-tracker.md` and `triage-labels.md` at the repo root are the same bytes as this plugin's `skills/engineering/setup-matt-pocock-skills/{domain,issue-tracker-github,triage-labels}.md`, which is the skill that writes them. They stay verbatim so a re-run of that skill is a no-op and a bump can re-copy them; edit the right-hand column of the triage table and the PR flag in the tracker page, and leave the prose alone.
+`docs/agents/domain.md`, `issue-tracker.md` and `triage-labels.md` at the repo root are the same bytes as this plugin's `skills/engineering/setup-matt-pocock-skills/{domain,issue-tracker-github,triage-labels}.md`, which is the skill that writes them. They stay verbatim so a re-run of that skill is a no-op and a bump can re-copy them; edit the right-hand column of the triage table and the PR flag in the tracker page, and leave the prose alone. Prose of the repo's own about the tracker goes on `docs/agents/tracker-conventions.md` instead, and `factory/lib/vendored-agent-docs.test.ts` fails when any of the three drifts from the plugin's copy outside those two places.
 
 ## Why vendored rather than installed
 

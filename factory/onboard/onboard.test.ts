@@ -103,10 +103,14 @@ const ghCalls = (callsFile: string): string[][] =>
         .map((line) => line.split("\t").filter(Boolean))
     : [];
 
+/** The `gh label create` calls among them, as argv. */
+const labelCreateCalls = (calls: string[][]): string[][] =>
+  calls.filter(([verb, noun]) => verb === "label" && noun === "create");
+
 /** The labels the script asked GitHub to create, by name, with the description it gave each. */
 const createdLabels = (calls: string[][]): Map<string, string> => {
   const labels = new Map<string, string>();
-  for (const args of calls.filter(([verb, noun]) => verb === "label" && noun === "create")) {
+  for (const args of labelCreateCalls(calls)) {
     const description = args.indexOf("--description");
     // `gh label create <name>`, so the name is the third argument.
     labels.set(args[2]!, description === -1 ? "" : args[description + 1]!);
@@ -272,6 +276,10 @@ test("a caller check that fails for a reason other than 404 aborts, rather than 
  * byte-identical to the `setup-matt-pocock-skills` copy, so it is the one place the roles
  * and their meanings are written down, and parsing it is what makes the script's
  * descriptions provably the same words a skill reads.
+ *
+ * So a skills bump that rewords the Meaning column turns a vendor re-copy red here, and the
+ * fix is to follow it in `onboard.sh`. That is the intended direction: the page is upstream
+ * of the picker, and the alternative is a second wording nobody notices going stale.
  */
 const triageRoles = (): Map<string, string> => {
   const page = fs.readFileSync(fileURLToPath(new URL("../../docs/agents/triage-labels.md", import.meta.url)), "utf8");
@@ -419,7 +427,20 @@ test("onboarding deletes nothing, which is what makes re-running it safe", () =>
 
 test("a label create is a rewrite, so a second run updates descriptions rather than failing", () => {
   const { calls } = onboardWith(["check"]);
-  for (const args of calls.filter(([verb, noun]) => verb === "label" && noun === "create")) {
+  for (const args of labelCreateCalls(calls)) {
     assert.ok(args.includes("--force"), `gh label create ${args[2]} without --force fails on a re-run`);
+  }
+});
+
+test("a second run writes the same vocabulary again and still deletes nothing", () => {
+  // Idempotent and additive, which is what makes "re-run onboarding to pick up the new
+  // labels" safe advice to give a target that is already live. Run twice rather than read
+  // `--force` and call it proven: the re-run is the case the advice actually describes.
+  const first = onboardWith(["check"], { existingRulesetId: "7" });
+  const second = onboardWith(["check"], { existingRulesetId: "7" });
+  assert.deepEqual([...second.labels], [...first.labels], "a re-run should assert the same labels and wording");
+  assert.equal(second.code, 0);
+  for (const args of second.calls) {
+    assert.ok(!args.includes("delete") && !args.includes("DELETE"), `a re-run ran: gh ${args.join(" ")}`);
   }
 });

@@ -87,16 +87,21 @@ label "factory:retry-1"   "c5def5" "Factory: retries used on this ticket"
 # the picker, and a shared shade is what says they belong to one map. `Wayfinder:` reads
 # like `Factory:` above, naming who the label is addressed to. Each ticket type says whether
 # it is worked with a human (HITL) or driven alone (AFK), which is the distinction the skill
-# turns on; the map is the container and has no such answer.
+# turns on; the map is the container and has no such answer. The strings are the skill's and
+# not ours, which is why `wayfinder:task` keeps a word CONTEXT.md otherwise avoids: renaming
+# it here would just mean `gh issue create --label wayfinder:task` failing on every chart.
 label "wayfinder:map"       "006b75" "Wayfinder: the map a chart's decision tickets hang off"
 label "wayfinder:research"  "006b75" "Wayfinder: AFK, read sources for a fact a decision waits on"
 label "wayfinder:prototype" "006b75" "Wayfinder: with a human, a rough artifact to react to"
 label "wayfinder:grilling"  "006b75" "Wayfinder: with a human, conversation to settle a decision"
 label "wayfinder:task"      "006b75" "Wayfinder: manual work a decision is blocked on, AFK where it can be"
 
-# GitHub puts nine labels on every new repo, and four of them are vocabulary: bug and
-# enhancement are the triage categories, wontfix is one of the five triage roles, and
-# duplicate is a real triage answer. Those four stay, and three of them are asserted above.
+# GitHub puts nine labels on every new repo, and four of them are in use: bug, enhancement
+# and wontfix are roles the triage skill hands out, so they are asserted above, and
+# duplicate is the answer a triager reaches for on a repeat report. That last one is
+# created by nothing here, because no skill names it and this script only asserts what the
+# vocabulary depends on; it is left alone rather than offered up, which is the difference
+# between not creating a label and telling somebody to delete one.
 # The other five are noise in a picker this script has just filled, and nothing in the
 # factory or in the triage vocabulary reads any of them.
 # Printed and never deleted: deleting a label strips it from every issue carrying it,
@@ -122,7 +127,6 @@ note_unused_defaults() {
     echo "############################################################"
   } >&2
 }
-note_unused_defaults
 
 # Auto-merge is enabled per PR by the implementer; the repo must allow it. Merged branches go.
 gh repo edit "$repo" --enable-auto-merge --delete-branch-on-merge >/dev/null
@@ -199,4 +203,7 @@ else
   echo "ruleset factory created (id $id)"
 fi
 echo "required on $default_branch: $(jq -r '[.[].context] | join(", ")' <<<"$checks")"
+# Last, so it is on screen when the run ends rather than buried under the ruleset output,
+# and above the warning, which is the more important of the two and gets the last word.
+note_unused_defaults
 if [ "$own_checks" -eq 0 ]; then warn_no_own_check; fi

@@ -206,8 +206,9 @@ const tellAuthor = (number: number): void =>
     `The factory did not open this PR, so it will not rewrite the branch: merging \`${base}\` in and resolving is yours. ` +
       `Labeled \`${BLOCKED_LABEL}\`, which is this factory's "a human must look".`,
     `Push the resolution and the factory goes back to bringing the branch up to date on its own, since that part never asks ` +
-      `who opened a PR. Then remove \`${BLOCKED_LABEL}\` to put the PR back in front of the reviewer; auto-merge, if it is ` +
-      "armed, is untouched throughout.",
+      `who opened a PR. Then remove \`${BLOCKED_LABEL}\`: it is the factory's record that a human is still needed here, and ` +
+      `on a PR the reviewer has judged it is also what holds the next review back. Auto-merge, if it is armed, is untouched ` +
+      "throughout.",
   ], BLOCKED_LABEL);
 
 /**

@@ -28,6 +28,12 @@
  *   add agent:review, unless it is a draft, from a fork, closes no ticket,
  *   or closes one an untrusted author opened (#182). This rule never arms
  *   it; once judged it is a factory PR, and the re-arm above reaches it.
+ *   Of those four, no-ticket is the one told to the PR's author (#230): a
+ *   comment saying what happened and to add the closing keyword, posted with
+ *   the factory's own token and suppressed from then on by its own marker.
+ *   A draft is its author saying not yet, a fork agent-review.yml already
+ *   refuses on the PR, and an untrusted ticket's author is a disclosure
+ *   question this does not open.
  * - merge-ready PR behind main with no update-branch run in the window:
  *   dispatch factory-update-branch.
  * None of them reaches a parked subject (`agent:blocked`, `needs-human`, the
@@ -79,6 +85,13 @@ export { ESCALATION_LABEL };
 export const PARKED_LABELS = ["agent:blocked", ESCALATION_LABEL] as const;
 export const UPDATE_BRANCH_EVENT = "factory-update-branch";
 export const SWEEP_MARK = /^<!-- factory:sweep miss=(\d+)(?: tries=(\d+))? -->/;
+/**
+ * The head of the comment #230 posts on a PR left alone for `no-ticket`, and
+ * what the next sweep recognises as its own so it says it once. A marker
+ * rather than a phrase, as the sweep mark above is: the wording is free to
+ * change without the factory forgetting what it already said.
+ */
+export const NO_TICKET_MARK = /^<!-- factory:no-ticket -->/;
 
 /** Label timestamps and run timestamps are written by different actors; this much skew is noise. */
 const SLACK_MS = 2 * 60_000;
@@ -144,6 +157,14 @@ export type PrState = {
   fork: boolean;
   /** Whoever opened the ticket it closes, when that was read; only a PR that is not a factory PR needs it. */
   ticketAuthor?: Author;
+  /**
+   * Whether the factory has already said on this PR that it closes no ticket
+   * (#230); undefined when the comments were not read, which is treated as
+   * told. The sweep never speaks on a fact it did not read, and staying quiet
+   * is the safe direction to be wrong in: a missed comment costs a producer
+   * one sweep's wait, a repeated one is the noise the marker exists to stop.
+   */
+  toldNoTicket?: boolean;
   stateSince: string | undefined;
   marks: readonly SweepMark[];
 };
@@ -164,6 +185,7 @@ export type Action =
   | { type: "none" }
   | { type: "relabel"; remove: string[]; add: string; miss?: number }
   | { type: "escalate"; remove: string[]; add: typeof ESCALATION_LABEL; ticket?: number }
+  | { type: "comment"; pr: number }
   | { type: "dispatch"; eventType: typeof UPDATE_BRANCH_EVENT; pr: number }
   | { type: "arm-auto-merge"; pr: number };
 
@@ -407,6 +429,65 @@ export const leftAloneFromListing = (p: PrState): LeftAlone | undefined => {
   return undefined;
 };
 
+/** A comment on a PR, as much of it as the marker read needs: `gh-read.ts` projects exactly this. */
+export type PrComment = { body: string; author: Author };
+
+/**
+ * GitHub spells an app's login two ways, `name[bot]` on REST and `name` on
+ * gh's JSON and GraphQL, so both sides of the comparison are normalised.
+ * `trusted-authors.ts` normalises the same way and for the same reason.
+ */
+const normaliseLogin = (login: string | null | undefined): string => String(login ?? "").toLowerCase().replace(/\[bot\]$/, "");
+
+/**
+ * Has the factory already told this PR it closes no ticket (#230)?
+ *
+ * The marker alone is not the answer. Suppression is worth forging: a faked
+ * comment switches the factory off on that PR for good, and on a public
+ * target anyone can comment on one. So the marker counts only from the
+ * factory's own account, `factoryLogin`, whoever that is on the target: the
+ * account the sweep's own write token belongs to. Nothing else can post as
+ * it, so nothing else can switch it off.
+ *
+ * The author's association is deliberately not what is asked. It is a
+ * property of a person's standing on the repo rather than of the identity,
+ * and it answers wrongly in both directions: a target that widens
+ * `trusted_author_associations` would let a collaborator forge the
+ * suppression, and on an org-owned target the factory's own comments arrive
+ * as MEMBER under a default OWNER policy, so the factory would not recognise
+ * its own marker and would repeat itself every sweep. ADR 0002's exemption
+ * for the shared `github-actions` identity does not apply and is not wanted:
+ * that login is every workflow in the target, and this comment is posted
+ * with FACTORY_PAT precisely so it is not.
+ *
+ * An unknown login is treated as told, like every other fact the sweep did
+ * not read: a factory that cannot name itself cannot recognise its own
+ * marker, and repeating the comment forever is the worse way to be wrong.
+ */
+export const toldNoTicketIn = (comments: readonly PrComment[], factoryLogin: string | undefined): boolean => {
+  if (factoryLogin === undefined) return true;
+  const factory = normaliseLogin(factoryLogin);
+  return comments.some((c) => NO_TICKET_MARK.test(c.body) && normaliseLogin(c.author.login) === factory);
+};
+
+/**
+ * What a producer is told, in the register of `agent-review.yml`'s fork
+ * refusal: what happened, and the one thing to do about it. The closing
+ * keyword is the only thing on the judged path nobody can supply on the
+ * producer's behalf, which is why this reason speaks and the other three do
+ * not (#230).
+ */
+const noTicketComment = (why: string, url?: string): string =>
+  [
+    "<!-- factory:no-ticket -->",
+    `Left alone: ${why}, so the factory is not asking for a verdict on this PR.`,
+    "",
+    "Add `Closes #<ticket>` to the description, naming the ticket this PR implements, and the next sweep picks it up.",
+    // Spread, not a filtered "": the blank line above is a paragraph break the
+    // filter would eat along with the absent link.
+    ...(url ? [`\nSweep: ${url}`] : []),
+  ].join("\n");
+
 /**
  * The fourth reason, and #179's definition rather than a second one: the
  * target's own trust policy, asked on the `ticket-author` channel, which is
@@ -465,7 +546,13 @@ const decideUnjudged = (p: PrState, snap: Snapshot, deadlines: Deadlines, held: 
   const none = (log: string): Decision => ({ subject, action: { type: "none" }, log });
   if (held) return none(`#${p.number} (pr) not a factory PR, deadline ${deadlines.verdictMinutes} min: held: ${held}`);
   const reason = whyLeftAlone(p, policy);
-  if (reason) return none(`#${p.number} (pr) not a factory PR, deadline ${deadlines.verdictMinutes} min: left alone (${reason.reason}): ${reason.why}`);
+  if (reason) {
+    const log = `#${p.number} (pr) not a factory PR, deadline ${deadlines.verdictMinutes} min: left alone (${reason.reason}): ${reason.why}`;
+    // The one reason the producer can fix and nobody can fix for them, so it is
+    // the one that speaks (#230). Told already, or never read, and it stays quiet.
+    if (reason.reason !== "no-ticket" || p.toldNoTicket !== false) return none(log);
+    return { subject, action: { type: "comment", pr: p.number }, log: `${log}: comment`, comment: noTicketComment(reason.why, snap.sweepUrl) };
+  }
   const sha = p.headSha.slice(0, 7);
   if (p.verdict === undefined) return none(`#${p.number} (pr) not a factory PR, factory/verdict on ${sha} not read, deadline ${deadlines.verdictMinutes} min: skip`);
   if (p.verdict !== "none") return none(`#${p.number} (pr) not a factory PR, factory/verdict ${p.verdict} on ${sha}, deadline ${deadlines.verdictMinutes} min: judged or being judged`);
@@ -624,6 +711,12 @@ export const prFromGitHub = (raw: Record<string, any>): PrState => {
     marks: [],
   };
 };
+
+/** From the `comments` projection in `gh-read.ts`: the marker's line, and who wrote it. */
+export const commentFromGitHub = (raw: Record<string, any>): PrComment => ({
+  body: String(raw.body ?? ""),
+  author: { association: raw.association, login: raw.login },
+});
 
 type TimelineEvent = { event: string; label?: { name: string }; body?: string; created_at?: string };
 

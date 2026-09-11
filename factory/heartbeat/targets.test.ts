@@ -4,21 +4,19 @@
  * test quoting the list would fail on that instead of on a regression.
  */
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
 import { test } from "node:test";
 
 import { TARGET_REPOS } from "./targets.ts";
 
-const source = fs.readFileSync(new URL("./targets.ts", import.meta.url), "utf8");
-
 test("every target on the list is one owner/repo, named once", () => {
-  assert.ok(TARGET_REPOS.length > 0, "the list carries the targets the heartbeat wakes");
+  assert.ok(TARGET_REPOS.length > 0, "the list carries the targets the heartbeat considers");
   for (const target of TARGET_REPOS) assert.match(target, /^[\w.-]+\/[\w.-]+$/, `${target} is owner/repo`);
-  assert.equal(new Set(TARGET_REPOS).size, TARGET_REPOS.length, "no target is woken twice a pass");
+  assert.equal(new Set(TARGET_REPOS).size, TARGET_REPOS.length, "no target is answered twice a pass");
 });
 
-test("the fixture repo is off the list, and the list still records it", () => {
-  // Off since 2026-09-11 (#221), and taking the record out with it would lose why.
-  assert.ok(!TARGET_REPOS.includes("chizhangucb/factory-fixture"), "the fixture is not woken");
-  assert.match(source, /factory-fixture/, "the list records the fixture and why it is off");
+test("the fixture repo is on the list, since an idle target costs nothing now", () => {
+  // It came off as a stopgap while an idle private target billed a minute every
+  // interval (#221), and the idle skip is what put it back (#212). Taking it off
+  // again is a decision to say out loud here, as its absence was.
+  assert.ok(TARGET_REPOS.includes("chizhangucb/factory-fixture"), "the fixture is considered every pass");
 });

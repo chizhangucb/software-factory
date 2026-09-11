@@ -41,8 +41,11 @@ const main = (): void => {
     console.error("Missing GH_REPO, ISSUE_NUMBER, or GITHUB_OUTPUT.");
     process.exit(1);
   }
+  // Every open PR, as the dispatcher lists them, and not a body search: GitHub's
+  // search for `#7` does not find a body reading `#007`, which `linkedIssueNumber`
+  // resolves to 7 (#132), so a search would drop the PR before `prsClosing` saw it.
   const open = JSON.parse(
-    gh(["pr", "list", "--repo", repo, "--state", "open", "--search", `in:body "#${issue}"`, "--json", "number,url,body,author"]),
+    gh(["pr", "list", "--repo", repo, "--state", "open", "--limit", "200", "--json", "number,url,body,author"]),
   ) as OpenPr[];
   // Only PRs from collaborators block the agent; outside contributors do not count.
   const blocking = prsClosing(issue, open).find((pr) => isCollaborator(repo, pr.author.login));
@@ -50,7 +53,7 @@ const main = (): void => {
   console.log(
     blocking
       ? `Refusing: ${blocking.url} by ${blocking.author.login} already closes #${issue}.`
-      : `No open collaborator PR closes #${issue} (${open.length} candidate(s) mention it).`,
+      : `No open collaborator PR closes #${issue} (${open.length} open PR(s) read).`,
   );
 };
 

@@ -55,12 +55,72 @@ label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
 label "hold"              "d4c5f9" "Factory: never dispatched while this is set"
 label "ready-for-human"   "c2e0c6" "Requires human implementation"
 label "needs-triage"      "ededed" "Maintainer needs to evaluate this issue"
+# The other two triage roles. Nothing created them before this: `setup-matt-pocock-skills`
+# writes the role-to-label mapping into docs/agents/triage-labels.md and never runs
+# `gh label create` (mattpocock/skills#616), so every target made them by hand or did
+# without. `gh issue create --label <missing>` fails outright rather than creating the
+# label, so "did without" means a triage pass that cannot record its own answer.
+# The descriptions are the Meaning column of that page, word for word: it is the one place
+# the five roles are written down, and a skill reading it and a triager reading the picker
+# should be reading the same sentence. onboard.test.ts parses the page and fails on drift.
+label "needs-info"        "bfd4f2" "Waiting on reporter for more information"
+label "wontfix"           "ffffff" "Will not be actioned"
+# The two category roles the triage skill hands out, next to the five state roles above.
+# Asserted rather than assumed: they exist on most targets only because GitHub creates them
+# on a new repo, and a repo made from a template or tidied by hand has neither. The colours
+# are GitHub's own, so a target that already has them sees no change in the picker; the
+# descriptions are the skill's wording, which does change GitHub's ("Something isn't
+# working", "New feature or request"). That rewrite is the point: one sentence per role
+# across every target beats three wordings that mean the same thing.
+label "bug"               "d73a4a" "Something is broken"
+label "enhancement"       "a2eeef" "New feature or improvement"
 label "agent:implement"   "1d76db" "Factory: run the implementer on this ticket"
 label "agent:in-progress" "fbca04" "Factory: a run is active"
 label "agent:review"      "5319e7" "Factory: run the reviewer on this PR"
 label "agent:blocked"     "b60205" "Factory: last run failed, see the comment"
 label "needs-human"       "d93f0b" "Factory: escalated, a human must read this"
 label "factory:retry-1"   "c5def5" "Factory: retries used on this ticket"
+# The wayfinder set: one map issue and the four types its child tickets carry. Same story as
+# the triage roles, the skill names the strings and creates none of them, and here a missing
+# label bites on the first ticket of a chart, because `gh issue create --label` refuses a
+# label that does not exist. One colour for all five: the prefix already separates them in
+# the picker, and a shared shade is what says they belong to one map. `Wayfinder:` reads
+# like `Factory:` above, naming who the label is addressed to. Each ticket type says whether
+# it is worked with a human (HITL) or driven alone (AFK), which is the distinction the skill
+# turns on; the map is the container and has no such answer.
+label "wayfinder:map"       "006b75" "Wayfinder: the map a chart's decision tickets hang off"
+label "wayfinder:research"  "006b75" "Wayfinder: AFK, read sources for a fact a decision waits on"
+label "wayfinder:prototype" "006b75" "Wayfinder: with a human, a rough artifact to react to"
+label "wayfinder:grilling"  "006b75" "Wayfinder: with a human, conversation to settle a decision"
+label "wayfinder:task"      "006b75" "Wayfinder: manual work a decision is blocked on, AFK where it can be"
+
+# GitHub puts nine labels on every new repo, and four of them are vocabulary: bug and
+# enhancement are the triage categories, wontfix is one of the five triage roles, and
+# duplicate is a real triage answer. Those four stay, and three of them are asserted above.
+# The other five are noise in a picker this script has just filled, and nothing in the
+# factory or in the triage vocabulary reads any of them.
+# Printed and never deleted: deleting a label strips it from every issue carrying it,
+# silently and with no way back, and a script that does that to somebody's repo is a
+# different risk class from one that only adds. The whole gain here is a legible picker,
+# which a command a human reads before running buys just as well.
+# One command per label, so a target that already dropped some of them can paste the rest,
+# and unconditional rather than read back off the repo: a label listing is one more call
+# that can fail, and under set -e a cosmetic note would then take the whole onboarding down.
+note_unused_defaults() {
+  {
+    echo "############################################################"
+    echo "## NOTE: $repo may still carry GitHub's default labels that"
+    echo "## nothing here uses. This script deletes nothing, ever."
+    echo "## To drop the ones it has, by hand:"
+    for unused in "documentation" "good first issue" "help wanted" "invalid" "question"; do
+      echo "##   gh label delete $unused --repo $repo --yes"
+    done
+    echo "## Not in that list, and not to be deleted: bug, enhancement,"
+    echo "## wontfix and duplicate. Those are triage vocabulary."
+    echo "############################################################"
+  } >&2
+}
+note_unused_defaults
 
 # Auto-merge is enabled per PR by the implementer; the repo must allow it. Merged branches go.
 gh repo edit "$repo" --enable-auto-merge --delete-branch-on-merge >/dev/null

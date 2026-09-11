@@ -3,14 +3,14 @@
  * line. One sender covers any number of them, so no target carries a sender of
  * its own.
  *
- * factory-fixture is off the list (2026-09-11): it is private, so every sweep
- * bills a whole Actions minute, and an idle fixture was eating most of the
- * month's included minutes. Put it back while actively testing there.
+ * factory-fixture is back on it (#212): it is private, so a sweep bills a whole
+ * Actions minute, and what makes an idle one free is that the sender now reads a
+ * target's open work first and skips a target with nothing waiting.
  *
  * This module imports nothing, so `send.ts` reaches it on bare
  * `node --experimental-strip-types`.
  */
 export const TARGET_REPOS: readonly string[] = [
-  // "chizhangucb/factory-fixture",
+  "chizhangucb/factory-fixture",
   "chizhangucb/chronicle",
 ];

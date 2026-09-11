@@ -28,7 +28,15 @@ export const READY_LABEL = "ready-for-agent";
 export const ESCALATION_LABEL = "needs-human";
 
 /**
- * A human said not to dispatch this ticket, whatever else it says. Unprefixed
+ * A human said no agent starts on this ticket, whatever else it says: the
+ * dispatcher does not dispatch it, the retry handler stands down rather than
+ * retry it, and the reconciler leaves it and its PR alone rather than re-add a
+ * start label (#185). Before #185 only the first of the three read it, so the
+ * promise was the dispatcher's alone. One seam still does not:
+ * update-branch's conflict hand-off (`planConflict`) puts `agent:implement` on
+ * a conflicting factory-authored PR carrying no `agent:*` label, held or not.
+ * A PR the retry handler stood down on keeps `agent:in-progress` and is
+ * skipped there already, so the gap is a held PR between stages. Unprefixed
  * because it is a human's instruction rather than factory state, so it belongs
  * next to `ready-for-agent` rather than in `agent:*`.
  *
@@ -61,8 +69,11 @@ export const BLOCKED_LABEL = "agent:blocked";
 export const IN_PROGRESS_LABEL = "agent:in-progress";
 
 /**
- * Labels that stop a dispatch. `hold` is the one to use; a human adds it and
- * removes it, and removing it releases the ticket on the next sweep.
+ * Labels that stop an agent starting: read by the dispatcher
+ * (`dispatch/select.ts`), the retry handler (`findHold` in `retry/decide.ts`)
+ * and the reconciler (`dispatch/reconcile.ts`), from here, so those three cannot
+ * disagree on what holds a ticket back. `hold` is the one to use; a human adds
+ * it and removes it, and removing it releases the ticket on the next sweep.
  *
  * `ready-for-human` and `needs-triage` stay in the set as a backstop, not as
  * the way to hold something. Given correct labelling neither can fire: the

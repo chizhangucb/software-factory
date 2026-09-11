@@ -1,9 +1,11 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  # No push trigger: a merge here lands the tree the pull request already checked,
+  # since `check` is required on a head up to date with main. Run this by hand to
+  # check main after a merge that bypassed the gate (#223).
+  workflow_dispatch:
 
 jobs:
   check:

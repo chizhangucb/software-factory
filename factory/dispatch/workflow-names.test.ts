@@ -4,7 +4,8 @@
  * sandcastle's `agent-` names and nothing answers to the old ones, the caller
  * template calls files the factory has, the reconciler still reads a role out
  * of each agent workflow's jobs, and every agent job is serialised on its own
- * subject number with no per-account slot left anywhere (#149).
+ * subject number with no per-account slot left anywhere (#149). Plus the
+ * triggers this repo's own CI subscribes to (#223).
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -76,6 +77,17 @@ const jobsOf = (yaml: string): { id: string; body: string }[] => {
 };
 
 const jobIdsOf = (yaml: string): string[] => jobsOf(yaml).map((job) => job.id);
+
+/** The triggers a workflow subscribes to: two-space indented keys under `on:`, sorted. */
+const triggersOf = (yaml: string): string[] => {
+  const head = "\non:\n";
+  const start = yaml.indexOf(head);
+  assert.ok(start >= 0, "the workflow has a top-level on: block");
+  const rest = yaml.slice(start + head.length);
+  const next = rest.search(/^\S/m);
+  const block = next < 0 ? rest : rest.slice(0, next);
+  return [...block.matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]!).sort();
+};
 
 /**
  * Every job-level concurrency block in the repo's workflows, in file then job
@@ -174,6 +186,17 @@ test("the reconciler reads a role from each model-free workflow's own job", () =
       `${file} jobs read as ${role}`,
     );
   }
+});
+
+test("this repo's CI runs on a pull request and on demand, never on a push to the default branch", () => {
+  // The ruleset requires `check` on a head up to date with main, so a merge lands
+  // the tree the pull request already checked and a re-run says nothing new (#223).
+  // The manual trigger is what checks main after a merge that bypassed the gate.
+  const yaml = read("ci.yml");
+  assert.deepEqual(triggersOf(yaml), ["pull_request", "workflow_dispatch"]);
+  // A manual run does a pull request run's checks: one job, nothing switched on the event.
+  assert.deepEqual(jobIdsOf(yaml), ["check"]);
+  assert.doesNotMatch(yaml, /github\.event_name/, "ci.yml branches on the event, so a manual run checks something else");
 });
 
 test("the reconciler reads a role from each agent workflow's own job", () => {

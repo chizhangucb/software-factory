@@ -10,9 +10,10 @@
 #
 # The caller admits an `unassigned` event whoever dropped the assignee, and an
 # `unlabeled` event for any label outside the factory's own agent:* and factory:*
-# namespaces, so a ticket stopped by hold, needs-human or an assignee
-# is dispatched the moment the human lets go of it rather than on the next
-# heartbeat. The two namespace clauses are a loop breaker, not a refinement: the
+# namespaces, both on an open ticket only (#213), so a ticket stopped by hold,
+# needs-human or an assignee is dispatched the moment the human lets go of it
+# rather than on the next heartbeat. A close is admitted whatever the state.
+# The two namespace clauses are a loop breaker, not a refinement: the
 # factory writes labels with a PAT so they fire their events, and its own removals
 # used to wake a sweep that re-stamped the ticket, so a cancelled run got a
 # replacement within seconds (#170). Why the caller still does not try to name

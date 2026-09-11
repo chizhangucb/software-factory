@@ -129,9 +129,14 @@ const evaluate = (expression: string, context: Context): boolean => {
   return Boolean(new Function("read", "readVar", "startsWith", `return (${js});`)(read, readVar, startsWith));
 };
 
-const issueEvent = (action: string, label?: string): Context => ({
+/** A ticket's state as the event fired, in select.ts's vocabulary. The caller reads it since #213. */
+type IssueState = "open" | "closed";
+
+const issueEvent = (action: string, label?: string, state: IssueState = "open"): Context => ({
   event_name: "issues",
-  event: label === undefined ? { action } : { action, label: { name: label } },
+  // `issue` is on every payload because GitHub sends it on every issues event,
+  // and `evaluate` throws where GitHub would answer null.
+  event: { action, issue: { state }, ...(label === undefined ? {} : { label: { name: label } }) },
 });
 
 /**
@@ -139,7 +144,9 @@ const issueEvent = (action: string, label?: string): Context => ({
  *
  * An `unlabeled` event wakes the dispatcher for any label outside the
  * factory's own two namespaces, and `unassigned` wakes it whoever dropped the
- * assignee. Which of the admitted removals can actually unblock a ticket is
+ * assignee. Both are admitted on an open ticket only (#213), since select.ts
+ * refuses a closed one whatever it carries. A row without a `state` is an open
+ * ticket. Which of the admitted removals can actually unblock a ticket is
  * still select.ts's answer and not the caller's, so a sweep over a ticket
  * nothing unblocked labels nothing.
  *
@@ -156,7 +163,7 @@ const issueEvent = (action: string, label?: string): Context => ({
  * a factory state label with no live run is picked up by the reconciler at
  * its stuck deadline instead, on the next heartbeat.
  */
-const ISSUE_EVENTS: { action: string; label?: string; wakes: string[] }[] = [
+const ISSUE_EVENTS: { action: string; label?: string; state?: IssueState; wakes: string[] }[] = [
   { action: "labeled", label: "ready-for-agent", wakes: ["dispatch"] },
   { action: "labeled", label: "agent:implement", wakes: ["implement"] },
   { action: "labeled", label: "documentation", wakes: [] },
@@ -173,7 +180,17 @@ const ISSUE_EVENTS: { action: string; label?: string; wakes: string[] }[] = [
   { action: "unlabeled", label: "agent:blocked", wakes: [] },
   { action: "unlabeled", label: "factory:retry-1", wakes: [] },
   { action: "unassigned", wakes: ["dispatch"] },
-  { action: "closed", wakes: ["dispatch"] },
+  // #213 gates the two removals and nothing else, so a label going on is
+  // unchanged: it wakes the sweep on a closed ticket too. Scope, not
+  // availability, since a labeled payload carries the state as well.
+  { action: "labeled", label: "ready-for-agent", state: "closed", wakes: ["dispatch"] },
+  { action: "unlabeled", label: "hold", state: "closed", wakes: [] },
+  { action: "unlabeled", label: "ready-for-agent", state: "closed", wakes: [] },
+  { action: "unassigned", state: "closed", wakes: [] },
+  // A close fires after the close, so its payload carries the ticket already
+  // closed. That is why the state clauses sit on the two removals alone:
+  // hoisted, they would drop the one event that can unblock another ticket.
+  { action: "closed", state: "closed", wakes: ["dispatch"] },
 ];
 
 /**
@@ -347,10 +364,15 @@ test("removing a blocking label or an assignee wakes the dispatcher and nothing 
     ["paused", "dispatch", "implement", "review", "implement-pr", "merge-gate", "audit", "update-branch"],
     "every job in the caller is guarded by a condition this test evaluates",
   );
-  for (const { action, label, wakes } of ISSUE_EVENTS) {
-    const payload = issueEvent(action, label);
+  for (const { action, label, state, wakes } of ISSUE_EVENTS) {
+    const payload = issueEvent(action, label, state);
     const woken = [...conditions].filter(([, condition]) => evaluate(condition, payload)).map(([id]) => id);
-    assert.deepEqual(woken, wakes, `issues: ${action}${label ? ` (${label})` : ""} wakes ${wakes.join(", ") || "nothing"}`);
+    const ticket = state === "closed" ? "a closed ticket" : "an open ticket";
+    assert.deepEqual(
+      woken,
+      wakes,
+      `issues: ${action}${label ? ` (${label})` : ""} on ${ticket} wakes ${wakes.join(", ") || "nothing"}`,
+    );
   }
 });
 
@@ -362,7 +384,9 @@ test("a removal in the factory's own namespaces wakes no sweep, any other remova
   // leaves its agent:* label for a cleanup step, and that removal fires
   // `unlabeled` because the factory writes with a PAT; a dispatcher that
   // answered it re-stamped agent:implement and the cancel bought nothing.
-  const removals = ISSUE_EVENTS.filter((event) => event.action === "unlabeled");
+  // Open tickets only: a removal on a closed one wakes nothing whoever owns
+  // the label, which is the next test's rule and not this one's.
+  const removals = ISSUE_EVENTS.filter((event) => event.action === "unlabeled" && event.state !== "closed");
   const factoryOwned = (label: string) =>
     label.startsWith(AGENT_LABEL_PREFIX) || label.startsWith(FACTORY_LABEL_PREFIX);
   const covered = { factory: 0, human: 0 };
@@ -378,6 +402,27 @@ test("a removal in the factory's own namespaces wakes no sweep, any other remova
     }
   }
   assert.ok(covered.factory > 0 && covered.human > 0, "the table covers both kinds of removal");
+});
+
+test("a removal on a closed ticket wakes nothing, and closing one still wakes the sweep", () => {
+  // #213, stated over the table the way the test above states #170. A closed
+  // ticket is refused by select.ts whatever it carries, so the sweep a removal
+  // on one wakes is a billed minute that can never dispatch anything.
+  const REMOVALS = ["unlabeled", "unassigned"];
+  const closed = ISSUE_EVENTS.filter((event) => event.state === "closed" && REMOVALS.includes(event.action));
+  for (const { action, label, wakes } of closed) {
+    assert.deepEqual(wakes, [], `${action}${label ? ` (${label})` : ""} on a closed ticket wakes nothing`);
+  }
+  assert.deepEqual(
+    [...new Set(closed.map((event) => event.action))].sort(),
+    ["unassigned", "unlabeled"],
+    "the table covers both removals on a closed ticket",
+  );
+  // The other half of the rule: a close is still admitted, because closing one
+  // ticket can unblock another.
+  for (const { wakes } of ISSUE_EVENTS.filter((event) => event.action === "closed")) {
+    assert.deepEqual(wakes, ["dispatch"], "closing a ticket wakes the sweep");
+  }
 });
 
 test("the caller's namespace clauses name the prefixes the factory actually writes", () => {

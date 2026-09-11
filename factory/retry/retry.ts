@@ -248,9 +248,6 @@ const resolveTarget = (): Target | Unresolved => {
     "pr", "list", "--repo", REPO, "--state", "open", "--limit", "200",
     "--json", "number,body,headRefName",
   ]);
-  // Only this run's PR, the one on BRANCH, and not the first that links the
-  // ticket: a person's PR saying `Closes #7` is theirs, and this run's failure
-  // is not theirs to be told about (#204).
   return ticketOrPrFromTicket({ ticket: issue, branch: BRANCH, open: open.map((p) => openPr(String(p.number), p)) });
 };
 

@@ -16,6 +16,7 @@ import {
   latestRetryContext,
   parseRetryComment,
   renderEscalationComment,
+  renderLeftOpenPrComment,
   renderRequeueComment,
   renderRetryComment,
   retriesUsed,
@@ -319,7 +320,7 @@ test("renderEscalationComment links the run and the log, keeps the branch, names
     logUrl: "https://github.com/o/r/actions/runs/1/artifacts/9",
     branch: "agent/issue-7-thing",
     branchExists: true,
-    closedPr: "12",
+    pr: { number: "12", closed: true },
     output: "## Verdict: fail",
   });
   assert.match(body, /needs-human/);
@@ -340,10 +341,50 @@ test("the escalation comment asks for ready-for-agent back, since escalation too
     logUrl: undefined,
     branch: "agent/issue-7-thing",
     branchExists: true,
-    closedPr: "12",
+    pr: { number: "12", closed: true },
     output: "",
   });
   assert.match(body, /remove `needs-human` and `factory:retry-1`, then add `ready-for-agent` back/);
+});
+
+test("the escalation comment says a PR the factory did not author was left open, and why", () => {
+  // #174: escalation still happens on a PR it does not close, so the comment
+  // has to carry the one thing that differs, or the PR looks silently skipped.
+  const body = renderEscalationComment({
+    // The PR's own number: a PR the factory did not author closes no ticket,
+    // so the escalation is recorded on the PR itself and this self-links.
+    issueNumber: "12",
+    reason: 'the ticket has no acceptance criteria (no "Acceptance criteria" checklist)',
+    summary: "verdict: no acceptance criteria",
+    runUrl,
+    logUrl: undefined,
+    branch: "maintainer/flaky-login",
+    branchExists: true,
+    pr: { number: "12", closed: false },
+    output: "",
+  });
+  assert.match(body, /PR #12 is left open/);
+  assert.match(body, /did not author it/);
+  assert.match(body, /auto-merge is disarmed/);
+  assert.doesNotMatch(body, /was closed/);
+  // The escalation itself still happened: the label is named and the run is linked.
+  assert.match(body, /needs-human/);
+  assert.match(body, /Run: https:\/\/github\.com\/o\/r\/actions\/runs\/1\b/);
+});
+
+test("the PR left open is told on its own thread why its agent:* labels went", () => {
+  // The escalation itself is recorded on the ticket, so this is the only thing
+  // the PR's own readers see (#174).
+  const body = renderLeftOpenPrComment({
+    reason: 'the ticket has no acceptance criteria (no "Acceptance criteria" checklist)',
+    issueNumber: "7",
+    runUrl,
+  });
+  assert.match(body, /Left open by the factory/);
+  assert.match(body, /did not author this PR/);
+  assert.match(body, /`agent:\*` labels are off/);
+  assert.match(body, /escalation is on #7/);
+  assert.match(body, /Run: https:\/\/github\.com\/o\/r\/actions\/runs\/1\b/);
 });
 
 test("renderEscalationComment says when there is no branch and no PR", () => {
@@ -355,7 +396,7 @@ test("renderEscalationComment says when there is no branch and no PR", () => {
     logUrl: undefined,
     branch: "agent/issue-7-thing",
     branchExists: false,
-    closedPr: undefined,
+    pr: undefined,
     output: "",
   });
   assert.match(body, /No branch was pushed/);

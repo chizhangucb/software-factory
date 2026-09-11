@@ -90,7 +90,7 @@ A PR the factory opened or worked on: a branch under `agent/`, the marker the im
 _Avoid_: agent PR, bot PR.
 
 **Factory-authored PR**:
-A PR the factory itself opened, rather than one it later worked on: a branch under `agent/`, or the marker the implement workflow writes in the body. Narrower than a **Factory PR** and answering a different question. Factory PR decides what the factory *reads and judges*; this decides what it may *do to* a branch. Escalation may close one and never another, and a conflict is the implementer's to resolve only on one.
+A PR the factory itself opened, rather than one it later worked on: a branch under `agent/`, or the marker the implement workflow writes in the body. Narrower than a **Factory PR** and answering a different question. Factory PR decides what the factory *reads and judges*; this decides what it may *do to* a branch. Escalation may close one and never another, and a conflict is the implementer's to resolve only on one. One definition, `isFactoryAuthoredPr` in `factory/lib/factory-pr.ts`, sitting beside `isFactoryPr`, which is written as this predicate plus the verdict section so the pair cannot drift.
 _Avoid_: hand-authored, human PR (both name what a PR is not, and an outside agent's is neither).
 
 **Judged path**:

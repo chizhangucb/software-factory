@@ -78,7 +78,16 @@ export const HOLD_LABELS: readonly string[] = [HOLD_LABEL, "ready-for-human", "n
 /** Labels that say an agent already holds the subject (implementer or reviewer, running or queued) or that it is parked. */
 export const HANDED_OFF_LABELS: readonly string[] = [IMPLEMENT_LABEL, IN_PROGRESS_LABEL, "agent:review", BLOCKED_LABEL];
 
-const AGENT_LABEL_PREFIX = "agent:";
+/**
+ * The two namespaces the factory writes labels in. A target's caller drops
+ * the `unlabeled` events for both, so that the factory's own label removals
+ * do not wake a sweep that re-stamps the ticket (#170), and
+ * `dispatch/triggers.test.ts` pins the caller's clauses to these strings.
+ * Renaming one here without renaming it in `templates/factory.yml` fails
+ * that test rather than quietly restarting the loop.
+ */
+export const AGENT_LABEL_PREFIX = "agent:";
+export const FACTORY_LABEL_PREFIX = "factory:";
 
 /** Factory state: which step holds this ticket or PR right now. */
 export const isAgentLabel = (label: string): boolean => label.startsWith(AGENT_LABEL_PREFIX);

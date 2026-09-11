@@ -6,7 +6,13 @@
  * full scan whatever woke it, so admitting an `unlabeled` or `unassigned`
  * event is what makes a ticket the human just unblocked move at once instead
  * of on the next heartbeat, and it dispatches nothing this module would not
- * have dispatched anyway. Reads the target repo's open issues (labels,
+ * have dispatched anyway. The caller drops the `unlabeled` events for the
+ * factory's own `agent:*` and `factory:*` labels before this runs, because a
+ * full scan woken by the factory taking a state label off re-stamped the
+ * ticket in the gap before the next one went on, which turned a cancelled run
+ * into a replacement within seconds (#170).
+ *
+ * Reads the target repo's open issues (labels,
  * assignees, open blocker count from GitHub native dependencies, sub-issue
  * count) and its open PRs, asks `select.ts` which ones to dispatch, and adds
  * `agent:implement` to each. The label must be added with FACTORY_PAT: a

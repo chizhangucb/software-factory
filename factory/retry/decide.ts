@@ -284,6 +284,37 @@ export const renderHandOffComment = (input: {
     `Labeled \`${IMPLEMENT_LABEL}\`. Its run merges \`${input.base}\` into the branch, resolves the conflicts, and pushes; the merge gate and the review then judge the new head and auto-merge lands it.`,
   ].join("\n");
 
+/**
+ * The PR that was open when the factory gave up, and what became of it.
+ * Closing is `prEscalation`'s call, not this one's: escalation leaves a PR
+ * the factory did not author open (#174), and the comment reports what
+ * happened rather than deciding it.
+ */
+export interface EscalatedPr {
+  readonly number: string;
+  readonly closed: boolean;
+}
+
+/**
+ * The comment on a PR escalation left open (#174), for the PR's own thread.
+ * The escalation is recorded on the ticket, so without this the PR would show
+ * its `agent:*` labels vanishing and say nothing about why. Posted only when
+ * the record went elsewhere: with no ticket the escalation comment lands on
+ * this PR already and a second one would repeat it.
+ */
+export const renderLeftOpenPrComment = (input: {
+  readonly reason: string;
+  readonly issueNumber: string;
+  readonly runUrl: string;
+}): string =>
+  [
+    "### Left open by the factory",
+    "",
+    `${input.reason}. The factory did not author this PR, so it is not the factory's to close.`,
+    "",
+    `Its \`agent:*\` labels are off and \`${ESCALATION_LABEL}\` is on, so no factory run picks it up again. The escalation is on #${input.issueNumber}. Run: ${input.runUrl}`,
+  ].join("\n");
+
 export interface EscalationInput {
   readonly issueNumber: string;
   readonly reason: string;
@@ -294,7 +325,8 @@ export interface EscalationInput {
   readonly logUrl: string | undefined;
   readonly branch: string;
   readonly branchExists: boolean;
-  readonly closedPr: string | undefined;
+  /** The PR that was open when the factory gave up; undefined when none was. */
+  readonly pr: EscalatedPr | undefined;
   readonly output: string;
 }
 
@@ -303,9 +335,14 @@ export const renderEscalationComment = (input: EscalationInput): string => {
   const branchLine = input.branchExists
     ? `Branch \`${input.branch}\` is kept for you.`
     : `No branch was pushed: no attempt made a commit.`;
-  const prLine = input.closedPr
-    ? `PR #${input.closedPr} was closed (auto-merge with it) so no open PR remains.`
-    : "No PR was open.";
+  // Three outcomes, not two. A PR left open is the one a reader would
+  // otherwise take for a PR that was closed, so it says which and why (#174):
+  // the escalation happened, and only the closing did not.
+  const prLine = !input.pr
+    ? "No PR was open."
+    : input.pr.closed
+      ? `PR #${input.pr.number} was closed (auto-merge with it) so no open PR remains.`
+      : `PR #${input.pr.number} is left open: the factory did not author it, so it is not the factory's to close. Its \`agent:*\` labels are off, \`${ESCALATION_LABEL}\` is on and auto-merge is disarmed, so no factory run picks it up again.`;
   const lines = [
     `## Escalated: \`${ESCALATION_LABEL}\``,
     "",

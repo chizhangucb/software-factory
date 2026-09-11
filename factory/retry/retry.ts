@@ -5,9 +5,15 @@
  * - retry: post the failing output as a marker comment on the ticket, add
  *   `factory:retry-<n>`, and label `agent:implement` (on the PR when one is
  *   open, so implement-pr runs on the branch; on the ticket otherwise).
- * - escalate: agent:* and ready-for-agent off the ticket, needs-human on,
- *   the PR closed with its agent:* labels off, the branch kept, a comment on
- *   the ticket linking the run and its log.
+ * - escalate: agent:* and ready-for-agent off the ticket, needs-human on, the
+ *   open PR's agent:* labels off, the branch kept, a comment on the ticket
+ *   linking the run and its log. The PR is closed only when the factory
+ *   authored it (#174): closing a factory PR is free, since the ticket still
+ *   holds the work and a later run opens a fresh one, but closing a PR a
+ *   person or an outside agent wrote throws away work nothing can recreate.
+ *   One left open still escalates in every other respect, and gets
+ *   `needs-human` and its auto-merge disarmed, which is what closing would
+ *   otherwise have done for it.
  * - requeue (rate limited on every account (#17), or a check still pending
  *   when the wait runs out): no retry spent, and one meaning on both sides
  *   (#148). The subject gets a comment and nothing is labeled for a human: a
@@ -72,9 +78,11 @@ import {
   waitOver,
 } from "./checks";
 import { ESCALATION_LABEL, IMPLEMENT_LABEL, IN_PROGRESS_LABEL } from "../lib/labels.ts";
-import { escalationLabels, prCloseLabels } from "./escalation.ts";
+import { type FactoryPrFacts } from "../lib/factory-pr.ts";
+import { escalationLabels, prEscalation } from "./escalation.ts";
 import {
   decide,
+  type EscalatedPr,
   type FailureKind,
   isImplementerFailure,
   MAX_RETRIES,
@@ -83,6 +91,7 @@ import {
   RATE_LIMITED_REASON,
   renderEscalationComment,
   renderHandOffComment,
+  renderLeftOpenPrComment,
   renderRequeueComment,
   renderRetryComment,
   REQUEUED_FILE,
@@ -133,10 +142,23 @@ const attempt = (call: () => string): string | undefined => {
 const tryGh = (args: string[]): string | undefined => attempt(() => gh(args));
 const tryWrite = (args: string[]): string | undefined => attempt(() => ghWrite(args));
 
+/**
+ * An open PR for the branch: its number, and the facts that place it. One
+ * object and not two fields, so there is no state where the number is known
+ * and the facts are not; escalation has to ask `prEscalation` whether the
+ * factory authored this PR before it may close it (#174), and a call site
+ * that could hold a number without facts would need a fallback for a case
+ * that cannot happen.
+ */
+interface OpenPr {
+  readonly number: string;
+  readonly facts: FactoryPrFacts;
+}
+
 interface Target {
   readonly issue: string | undefined;
   /** An open PR for the branch, when there is one. */
-  readonly pr: string | undefined;
+  readonly pr: OpenPr | undefined;
 }
 
 /**
@@ -161,7 +183,7 @@ interface Subject {
  * the PR and what a human reads; the PR only when no ticket was found.
  */
 const recordOn = (target: Target): Subject =>
-  target.issue ? { kind: "issue", number: target.issue } : { kind: "pr", number: target.pr as string };
+  target.issue ? { kind: "issue", number: target.issue } : { kind: "pr", number: (target.pr as OpenPr).number };
 
 /**
  * What a label has to go on to move the factory: the open PR when there is
@@ -170,23 +192,34 @@ const recordOn = (target: Target): Subject =>
  * a retry uses both at once.
  */
 const actOn = (target: Target): Subject =>
-  target.pr ? { kind: "pr", number: target.pr } : { kind: "issue", number: target.issue as string };
+  target.pr ? { kind: "pr", number: target.pr.number } : { kind: "issue", number: target.issue as string };
 
-/** The ticket and its open PR from whichever number the workflow knows. */
+/**
+ * The ticket and its open PR from whichever number the workflow knows.
+ * `headRefName` comes back on both reads, because the facts escalation judges
+ * the PR on have to be the ones from the read that found it (#174): asking
+ * GitHub again later is one more call that can fail, on a step whose failure
+ * would fall back to closing.
+ */
 const resolveTarget = (): Target => {
+  const openPr = (number: string, pr: { headRefName: string; body: string | null }): OpenPr => ({
+    number,
+    facts: { headRef: pr.headRefName, body: pr.body ?? "" },
+  });
   if (PR_INPUT) {
-    const pr = ghJson<{ state: string; body: string | null }>([
-      "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body",
+    const pr = ghJson<{ state: string; body: string | null; headRefName: string }>([
+      "pr", "view", PR_INPUT, "--repo", REPO, "--json", "state,body,headRefName",
     ]);
     const issue = ISSUE_INPUT ?? linkedIssueNumber(pr.body) ?? undefined;
-    return { issue: issue || undefined, pr: pr.state === "OPEN" ? PR_INPUT : undefined };
+    return { issue: issue || undefined, pr: pr.state === "OPEN" ? openPr(PR_INPUT, pr) : undefined };
   }
   const issue = required("ISSUE_NUMBER");
-  const open = ghJson<{ number: number; body: string | null }[]>([
-    "pr", "list", "--repo", REPO, "--state", "open", "--search", `in:body "#${issue}"`, "--json", "number,body",
+  const open = ghJson<{ number: number; body: string | null; headRefName: string }[]>([
+    "pr", "list", "--repo", REPO, "--state", "open", "--search", `in:body "#${issue}"`,
+    "--json", "number,body,headRefName",
   ]);
   const pr = open.find((p) => linkedIssueNumber(p.body) === issue);
-  return { issue, pr: pr ? String(pr.number) : undefined };
+  return { issue, pr: pr ? openPr(String(pr.number), pr) : undefined };
 };
 
 /** An open PR's mergeability and base, as GitHub reports them, with the PR they belong to. */
@@ -476,13 +509,30 @@ const handOff = ({ pr, base }: PrMergeability, reason: string): void => {
 };
 
 const escalate = (target: Target, reason: string, failure: Failure): void => {
-  if (target.pr) {
-    const prLabels = prCloseLabels(labelsOf({ kind: "pr", number: target.pr })).remove;
-    if (prLabels.length > 0) tryWrite(["pr", "edit", target.pr, "--repo", REPO, "--remove-label", prLabels.join(",")]);
-    tryWrite([
-      "pr", "close", target.pr, "--repo", REPO, "--comment",
-      `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
-    ]);
+  const openPr = target.pr;
+  let escalatedPr: EscalatedPr | undefined;
+  if (openPr) {
+    const { remove, add, close } = prEscalation({
+      ...openPr.facts,
+      labels: labelsOf({ kind: "pr", number: openPr.number }),
+    });
+    if (remove.length > 0) tryWrite(["pr", "edit", openPr.number, "--repo", REPO, "--remove-label", remove.join(",")]);
+    if (add) tryWrite(["pr", "edit", openPr.number, "--repo", REPO, "--add-label", add]);
+    if (close) {
+      tryWrite([
+        "pr", "close", openPr.number, "--repo", REPO, "--comment",
+        `Closed by the factory: ${reason}. The branch is kept; see ${target.issue ? `#${target.issue}` : "the run"} for the escalation. Run: ${RUN_URL}`,
+      ]);
+    } else {
+      // Closing cancels auto-merge; leaving the PR open does not. The factory
+      // arms auto-merge on every PR it reads as its own, this one included, so
+      // a PR it has just declared itself done with would otherwise still hold a
+      // standing instruction to merge the moment its checks go green. Disarming
+      // it is the same "stand down" the labels are. Refused when none was armed,
+      // which `tryWrite` swallows.
+      tryWrite(["pr", "merge", openPr.number, "--repo", REPO, "--disable-auto"]);
+    }
+    escalatedPr = { number: openPr.number, closed: close };
   }
   const on = recordOn(target);
   const labels = escalationLabels(labelsOf(on));
@@ -491,23 +541,43 @@ const escalate = (target: Target, reason: string, failure: Failure): void => {
   commentOn(
     on,
     renderEscalationComment({
-      issueNumber: target.issue ?? `PR ${target.pr}`,
+      // The PR's own number when no ticket was found, which is the reachable
+      // case for a PR the factory did not author: it closes no ticket. The
+      // comment renders it as `#N`, which on that PR's thread links to itself.
+      issueNumber: target.issue ?? (target.pr as OpenPr).number,
       reason,
       summary: failure.summary,
       runUrl: RUN_URL,
       logUrl: artifactUrl(),
       branch: BRANCH,
       branchExists: branchExists(),
-      closedPr: target.pr,
+      pr: escalatedPr,
       output: failure.output,
     }),
   );
-  console.log(`Escalated ${on.kind} #${on.number}: ${labels.add} on, ${labels.remove.join(", ") || "no factory labels"} off${target.pr ? `, PR #${target.pr} closed` : ""}.`);
+  // Last, and with `tryWrite` rather than `commentOn`, which throws: the record
+  // above is the thing that must not be lost. A PR left open whose courtesy
+  // note fails is a human short one comment; the same failure ahead of the
+  // record would cost the escalation its label and its comment, which is the
+  // silent drop #174 asks to prevent. Only when the record went elsewhere,
+  // since with no ticket `recordOn` is this PR and it was just commented on.
+  if (escalatedPr && !escalatedPr.closed && on.kind !== "pr") {
+    tryWrite([
+      "pr", "comment", escalatedPr.number, "--repo", REPO, "--body",
+      renderLeftOpenPrComment({ reason, issueNumber: on.number, runUrl: RUN_URL }),
+    ]);
+  }
+  const prNote = !escalatedPr
+    ? ""
+    : escalatedPr.closed
+      ? `, PR #${escalatedPr.number} closed`
+      : `, PR #${escalatedPr.number} left open (the factory did not author it)`;
+  console.log(`Escalated ${on.kind} #${on.number}: ${labels.add} on, ${labels.remove.join(", ") || "no factory labels"} off${prNote}.`);
 };
 
 const main = async (): Promise<void> => {
   let target = resolveTarget();
-  console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr ?? "(none)"}, branch ${BRANCH}.`);
+  console.log(`Ticket #${target.issue ?? "(none)"}, open PR #${target.pr?.number ?? "(none)"}, branch ${BRANCH}.`);
 
   let failure: Failure | undefined;
   if (FAILURE_KIND === "implement") {
@@ -520,7 +590,7 @@ const main = async (): Promise<void> => {
     }
     failure = implementFailure(outcome);
   } else if (FAILURE_KIND === "checks") {
-    failure = await checksFailure(target.pr);
+    failure = await checksFailure(target.pr?.number);
   } else {
     throw new Error(`FAILURE_KIND must be implement or checks, got ${FAILURE_KIND}`);
   }
@@ -538,7 +608,7 @@ const main = async (): Promise<void> => {
   const mergeability = failure.mergeability;
   if (FAILURE_KIND === "checks" && failure.requeue && target.pr) {
     if (!mergeability) {
-      console.log(`PR #${target.pr} closed or merged as the handler waited; it is no longer the subject.`);
+      console.log(`PR #${target.pr.number} closed or merged as the handler waited; it is no longer the subject.`);
       target = { ...target, pr: undefined };
       if (!target.issue) {
         console.log("No ticket to fall back to; nothing to requeue.");

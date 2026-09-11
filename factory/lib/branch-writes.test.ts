@@ -2,7 +2,8 @@
  * The factory asks `isFactoryAuthoredPr` before it closes a pull request or
  * puts the implementer on its branch (ADR 0003, 2026-09-11 amendment, #195).
  * The tree is the fixture, as in `lib/strip-types-cone.test.ts`: a table of
- * the sites that decide those writes and the modules that make them.
+ * the sites that decide those writes and the modules that make them. The last
+ * two tests hand the scan synthetic sources instead, to check the scan itself.
  *
  * It asserts the asking, never a shared answer. Escalation answers a PR the
  * factory did not author with `needs-human`, the other two sites with a
@@ -11,9 +12,14 @@
  * The limit, and it is not to be trusted past it: it pins the sites that
  * exist. It checks that each tabled site asks, and that the module making the
  * site's write calls the site, not which of its functions do or what they do
- * with the answer. A new write path that calls neither the predicate nor a
- * site is invisible here. What its author reads is the contract in
- * `factory/lib/factory-pr.ts`'s doc comment, which is why that stays the anchor.
+ * with the answer. It finds a call's site by layout, not by parsing: the
+ * top-level statement whose first line, flush left, is the nearest at or
+ * above the call. A statement that does not open its own line flush left is read as
+ * part of the one above it, and a flush-left line inside a template literal
+ * as a statement of its own. A new write path that calls neither the
+ * predicate nor a site is invisible here. What its author reads is the
+ * contract in `factory/lib/factory-pr.ts`'s doc comment, which is why that
+ * stays the anchor.
  *
  * Not a site: update-branch's own update call. The 2026-09-10 amendment
  * applies it to any PR with auto-merge armed, since GitHub makes that merge
@@ -118,22 +124,45 @@ const importedFrom = (module: string, name: string): string | undefined => {
   return undefined;
 };
 
+/** The first line of a top-level statement: flush left, and not a bracket or backtick closing the one above it. */
+const STATEMENT_START = /^[^\s)\]}>`].*/gm;
+
+/** The name a statement's first line declares: a function, generator, class, const, let or var, exported, default or async. */
+const DECLARATION = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\b\s*\*?|class\b|const\b|let\b|var\b)\s*(?!extends\b)(\w+)/;
+
 /**
- * `module#site` for every call to the predicate in the tree, named by the
- * top-level declaration it sits in, exported or not, so a tabled site that
- * stops asking is not credited with a call a helper below it makes.
+ * The site a top-level statement is: the name it declares, `default` for an
+ * unnamed default export, or `(top level)`, so a statement it cannot name
+ * fails the table rather than passing as another site.
  */
-const callSites = (): string[] =>
-  factoryModules()
-    .filter((module) => module !== PREDICATE_MODULE)
-    .flatMap((module) => {
-      const code = codeOf(module);
-      const decls = [...code.matchAll(/^(?:export\s+)?(?:const|let|function)\s+(\w+)/gm)];
-      return [...code.matchAll(/\bisFactoryAuthoredPr\(/g)].map((call) =>
-        siteKey(module, decls.filter((d) => d.index! < call.index!).at(-1)?.[1] ?? "(top level)"),
-      );
-    })
-    .sort();
+const siteOf = (statementStart: string): string =>
+  statementStart.match(DECLARATION)?.[1] ?? (/^export\s+default\b/.test(statementStart) ? "default" : "(top level)");
+
+/** Every module under `factory/` that could call the predicate, mapped to its code. */
+const treeCodes = (): Record<string, string> =>
+  Object.fromEntries(
+    factoryModules()
+      .filter((module) => module !== PREDICATE_MODULE)
+      .map((module) => [module, codeOf(module)]),
+  );
+
+/**
+ * `module#site` for every site in `codes` that calls the predicate, once
+ * however often it asks. A call's site is the top-level statement it sits in,
+ * named by `siteOf`, so a tabled site that stops asking is not credited with a
+ * call a declaration below it makes, whatever that declaration's form.
+ */
+const callSites = (codes: Readonly<Record<string, string>> = treeCodes()): string[] =>
+  [
+    ...new Set(
+      Object.entries(codes).flatMap(([module, code]) => {
+        const statements = [...code.matchAll(STATEMENT_START)];
+        return [...code.matchAll(/\bisFactoryAuthoredPr\(/g)].map((call) =>
+          siteKey(module, siteOf(statements.filter((s) => s.index! <= call.index!).at(-1)?.[0] ?? "")),
+        );
+      }),
+    ),
+  ].sort();
 
 test("the PRs below are authored as written, and one of them is where the two predicates part", () => {
   // Guards the grouping the next test leans on. A corpus that lost either side,
@@ -184,4 +213,35 @@ test("the table names every call to isFactoryAuthoredPr in the tree, and nothing
   // there instead of going unchecked. A new write path that never calls it
   // appears on neither side: that is the limit the header names.
   assert.deepEqual(callSites(), WRITE_SITES.map(({ module, site }) => siteKey(module, site)).sort());
+});
+
+/** Where the synthetic sources below claim to live. No such module exists. */
+const FIXTURE_MODULE = "factory/fixture.ts";
+
+test("a call is credited to the top-level statement it sits in, whatever form that takes", () => {
+  // The scan above is only as good as this. A tabled site that stops asking,
+  // with an untabled declaration below it that starts, must read as the new
+  // one asking, never as the tabled site still doing it.
+  const FORMS: readonly { form: string; code: string; site: string }[] = [
+    { form: "async function", code: "export async function helper(pr) {\n  return isFactoryAuthoredPr(pr);\n}", site: "helper" },
+    { form: "class", code: "class Helper {\n  asks(pr) {\n    return isFactoryAuthoredPr(pr);\n  }\n}", site: "Helper" },
+    { form: "var", code: "var helper = (pr) =>\n  isFactoryAuthoredPr(pr);", site: "helper" },
+    { form: "generator", code: "function* helper(prs) {\n  for (const pr of prs) yield isFactoryAuthoredPr(pr);\n}", site: "helper" },
+    { form: "export default", code: "export default (pr) =>\n  isFactoryAuthoredPr(pr);", site: "default" },
+    { form: "export default function", code: "export default function helper(pr) {\n  return isFactoryAuthoredPr(pr);\n}", site: "helper" },
+    { form: "export default class", code: "export default class extends Base {\n  asks(pr) {\n    return isFactoryAuthoredPr(pr);\n  }\n}", site: "default" },
+    { form: "a statement that declares nothing", code: "if (isFactoryAuthoredPr(pr)) close(pr);", site: "(top level)" },
+  ];
+  const siteAbove = "export const site = (pr) => pr.headRef;\n\n";
+  assert.deepEqual(
+    FORMS.map(({ form, code }) => [form, callSites({ [FIXTURE_MODULE]: siteAbove + code })]),
+    FORMS.map(({ form, site }) => [form, [siteKey(FIXTURE_MODULE, site)]]),
+  );
+});
+
+test("a site that asks twice is one site", () => {
+  // The table has a row per site, so a site asking in both arms of a ternary
+  // is a site that asks, not a call the table forgot.
+  const code = "export const site = (pr, retried) =>\n  retried ? isFactoryAuthoredPr(pr) : !isFactoryAuthoredPr(pr);\n";
+  assert.deepEqual(callSites({ [FIXTURE_MODULE]: code }), [siteKey(FIXTURE_MODULE, "site")]);
 });

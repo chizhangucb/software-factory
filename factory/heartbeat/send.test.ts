@@ -75,7 +75,9 @@ test("the command a host runs completes a pass on bare node, with nothing instal
     env: { DRY_RUN: "1", PATH: "" },
   });
   for (const target of TARGET_REPOS) assert.match(stdout, literal(`factory-sweep dispatched to ${target} (dry run)`));
-  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), ${TARGET_REPOS.length} woken, 0 failed`));
+  // Every outcome in the summary, so a pass that skipped a target says so
+  // rather than reading as a quiet repo.
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), ${TARGET_REPOS.length} woken, 0 skipped, 0 failed`));
 });
 
 test("the runnable reaches only builtins and .ts files, so it runs with no npm install", () => {

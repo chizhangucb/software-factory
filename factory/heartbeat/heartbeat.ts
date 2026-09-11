@@ -1,26 +1,31 @@
 /**
- * The heartbeat (#222): one `factory-sweep` dispatch per target, every
- * interval. The decision and nothing else, so `send.ts` is where the real
- * waker and reporter are wired.
+ * The heartbeat (#222): one `factory-sweep` dispatch per target that has
+ * something waiting, every interval (#212). The decision and nothing else, so
+ * `send.ts` is where the real reader, waker and reporter are wired.
  *
- * A target that cannot be woken is reported and costs the targets behind it
- * nothing: a heartbeat that died on its first bad target would stop the
- * factory everywhere behind it.
+ * A target that cannot be read or woken is reported and costs the targets
+ * behind it nothing: a heartbeat that died on its first bad target would stop
+ * the factory everywhere behind it.
  *
  * Builtins only and explicit `.ts`, so `send.ts` runs on bare
  * `node --experimental-strip-types`.
  */
 import { errorMessage } from "../lib/errors.ts";
+import { type OpenSubject, needsSweep } from "./work.ts";
 
 /** What happened to one target in one pass. */
 export type TargetOutcome =
   | { readonly target: string; readonly outcome: "woken" }
+  /** Nothing open needs a sweep, so the target was left asleep. */
+  | { readonly target: string; readonly outcome: "skipped" }
   | { readonly target: string; readonly outcome: "failed"; readonly error: string };
 
-/** What one pass needs: the targets, a way to wake one, a way to report. */
+/** What one pass needs: the targets, a way to read one, a way to wake one, a way to report. */
 export type Pass = {
-  /** The targets to wake, one line each in `targets.ts`. */
+  /** The targets to consider, one line each in `targets.ts`. */
   readonly targets: readonly string[];
+  /** Read one target's open tickets and pull requests. Throwing fails that target and no other. */
+  readonly readOpenWork: (target: string) => readonly OpenSubject[];
   /** Wake one target. Throwing fails that target and no other. */
   readonly wake: (target: string) => void;
   /**
@@ -31,8 +36,15 @@ export type Pass = {
   readonly report: (outcome: TargetOutcome) => void;
 };
 
-const wakeOne = (target: string, wake: Pass["wake"]): TargetOutcome => {
+/**
+ * One target's outcome: read what is open, wake it only if a sweep has
+ * something to do. A read that throws fails the target rather than waking it
+ * blind, so a token that cannot read a target says so on every pass instead of
+ * paying a minute a pass to hide it.
+ */
+const answerOne = (target: string, { readOpenWork, wake }: Pass): TargetOutcome => {
   try {
+    if (!needsSweep(readOpenWork(target))) return { target, outcome: "skipped" };
     wake(target);
     return { target, outcome: "woken" };
   } catch (error) {
@@ -40,10 +52,10 @@ const wakeOne = (target: string, wake: Pass["wake"]): TargetOutcome => {
   }
 };
 
-/** One pass of the heartbeat: every target woken, one outcome each, in list order. */
-export const sendHeartbeat = ({ targets, wake, report }: Pass): TargetOutcome[] =>
-  targets.map((target) => {
-    const outcome = wakeOne(target, wake);
-    report(outcome);
+/** One pass of the heartbeat: one outcome per target, in list order. */
+export const sendHeartbeat = (pass: Pass): TargetOutcome[] =>
+  pass.targets.map((target) => {
+    const outcome = answerOne(target, pass);
+    pass.report(outcome);
     return outcome;
   });

@@ -180,8 +180,9 @@ const ISSUE_EVENTS: { action: string; label?: string; state?: IssueState; wakes:
   { action: "unlabeled", label: "agent:blocked", wakes: [] },
   { action: "unlabeled", label: "factory:retry-1", wakes: [] },
   { action: "unassigned", wakes: ["dispatch"] },
-  // A label going on reads no state, so #213 left it alone: only the two
-  // removals are gated. Pinned here rather than left to inference.
+  // #213 gates the two removals and nothing else, so a label going on is
+  // unchanged: it wakes the sweep on a closed ticket too. Scope, not
+  // availability, since a labeled payload carries the state as well.
   { action: "labeled", label: "ready-for-agent", state: "closed", wakes: ["dispatch"] },
   { action: "unlabeled", label: "hold", state: "closed", wakes: [] },
   { action: "unlabeled", label: "ready-for-agent", state: "closed", wakes: [] },

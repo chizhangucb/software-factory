@@ -5,7 +5,8 @@ import * as path from "node:path";
 import { test } from "node:test";
 
 import { PROJECTIONS, STATUSES_PROJECTION, parseItems } from "./gh-read.ts";
-import { marksFromTimeline, roleFromJobs, runFromGitHub, stateSinceFromTimeline, ticketFromGitHub } from "./reconcile.ts";
+import { trustPolicy } from "../lib/trusted-authors.ts";
+import { commentFromGitHub, marksFromTimeline, roleFromJobs, runFromGitHub, stateSinceFromTimeline, ticketFromGitHub, toldNoTicketIn } from "./reconcile.ts";
 
 const pagesDir = path.join(import.meta.dirname, "fixtures", "pages");
 const page = (name: string): string => fs.readFileSync(path.join(pagesDir, `${name}.json`), "utf8");
@@ -47,6 +48,13 @@ test("timeline projection keeps label events and the sweep mark at the head of a
   assert.equal(stateSinceFromTimeline(events, "agent:implement"), "2026-09-07T19:20:00Z");
   assert.deepEqual(marksFromTimeline(events), [{ miss: 1, tries: 1, at: "2026-09-07T19:10:00Z" }]);
   for (const e of events) assert.ok((e.body ?? "").length <= 64, "comment bodies are cut to the mark's width");
+});
+
+test("comments projection carries the body's marker and who wrote it, so a forged marker is dropped (#230)", () => {
+  const comments = project("comments", "comments").map(commentFromGitHub);
+  assert.deepEqual(comments.map((c) => c.author.login), ["chizhangucb", "passer-by"]);
+  assert.equal(toldNoTicketIn(comments, trustPolicy(undefined)), true);
+  assert.equal(toldNoTicketIn(comments.slice(1), trustPolicy(undefined)), false);
 });
 
 test("jobs projection feeds roleFromJobs", () => {

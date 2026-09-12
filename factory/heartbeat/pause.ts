@@ -21,10 +21,17 @@
  * Builtins only and explicit `.ts`, so `send.ts` reaches it on bare
  * `node --experimental-strip-types`.
  */
-import { variableReadArgs, variableValue } from "./variable.ts";
+import { variableReadArgs } from "./variable.ts";
 
 /** The repository variable holding the reason, beside `FACTORY_CHECKS_WAIVED`. */
 export const PAUSE_VARIABLE = "FACTORY_PAUSED";
+
+/**
+ * What the line says when the variable is set but its value is only
+ * whitespace. The target is paused, because the caller stops for it; what is
+ * missing is the reason, and `paused ()` names nothing a maintainer can act on.
+ */
+const NO_REASON = "no reason given";
 
 /**
  * The one read: a GET of the variable, with no `--method`, so asking whether a
@@ -34,12 +41,26 @@ export const PAUSE_VARIABLE = "FACTORY_PAUSED";
 export const pauseReadArgs = (target: string): string[] => variableReadArgs(target, PAUSE_VARIABLE);
 
 /**
- * The variable's value, or nothing. Empty is not paused, which is how the
- * caller's own `vars.FACTORY_PAUSED == ''` gate reads it: a heartbeat that
- * called blank a pause would stop waking a target every job on it is willing
- * to run.
+ * Whether the target is paused, and why: the reason, or nothing when it is
+ * running.
+ *
+ * The test for paused is the caller's own, `vars.FACTORY_PAUSED == ''`, which
+ * is a string comparison: the empty value runs and everything else pauses,
+ * whitespace included. So only the newline `gh` adds is taken off before that
+ * question is asked. Trimming first and calling a whitespace value no pause is
+ * how the two halves of one pause come apart, and it comes apart the expensive
+ * way: every gated job on the target is skipped while the heartbeat goes on
+ * waking it every interval, with the pass reporting it woken.
+ *
+ * The reason is then the value a human can read, which is the trimmed one, and
+ * a value with nothing left in it after the trim keeps the pause and loses
+ * only the reason.
  */
-export const pauseReason = (raw: string): string | undefined => variableValue(raw);
+export const pauseReason = (raw: string): string | undefined => {
+  const value = raw.replace(/\n$/, "");
+  if (value === "") return undefined;
+  return value.trim() || NO_REASON;
+};
 
 /**
  * What the sender prints for a target it did not wake. It says why, so a pause

@@ -32,5 +32,30 @@ export const variableReadArgs = (target: string, name: string): string[] => [
  */
 export const variableValue = (raw: string): string | undefined => raw.trim() || undefined;
 
-/** Is this failed read the variable simply not being there? */
+/**
+ * Is this failed read the variable simply not being there? True of a read that
+ * a token without Actions variables read made, too, which is why a caller that
+ * turns on the answer asks `variablesReadableArgs` next.
+ */
 export const isUnset = (error: string): boolean => error.includes("HTTP 404");
+
+/**
+ * The second question a 404 raises: may this token read the target's variables
+ * at all? A fine-grained token holding the repo but not Actions variables read
+ * is answered 404 on a single variable, exactly as GitHub answers one that is
+ * not set, so the one code cannot tell a missing variable from a missing
+ * permission.
+ *
+ * The list tells them apart because it has an empty answer: a token that may
+ * read gets 200 and a count of zero on a target with no variables, where one
+ * that may not gets the same 404 as before. So a 404 here is the permission.
+ *
+ * A GET, like the read it disambiguates, and unpaginated: the count is the
+ * whole of what is being asked for, and no page of it is read.
+ */
+export const variablesReadableArgs = (target: string): string[] => [
+  "api",
+  `repos/${target}/actions/variables`,
+  "--jq",
+  ".total_count",
+];

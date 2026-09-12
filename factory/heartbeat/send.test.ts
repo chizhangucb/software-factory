@@ -45,9 +45,20 @@ const DOC_PAGES = ["README.md", "docs/pipeline.md"];
  */
 const keepsRunningWhilePaused = (): string[] => {
   const template = fs.readFileSync(new URL("templates/factory.yml", repoRoot), "utf8");
-  const jobs = [...template.matchAll(/\n {2}([a-z][a-z0-9_-]*):\n {4}if:((?:.*)(?:\n {6,}.*)*)/g)];
-  assert.ok(jobs.length > 0, "the caller template has jobs with conditions on them");
-  return jobs.filter(([, id, expression]) => id !== "paused" && !expression!.includes(PAUSE_VARIABLE)).map(([, id]) => id!);
+  // Every job minus the gated ones, rather than only the jobs that carry an
+  // `if:`: a job with no condition at all is the plainest thing a pause does
+  // not stop, and deriving from the conditions alone would leave one out of
+  // both pages with this green.
+  const block = template.slice(template.indexOf("\njobs:"));
+  assert.ok(block.startsWith("\njobs:"), "the caller template has a jobs block");
+  const ids = [...block.matchAll(/\n {2}([a-z][a-z0-9_-]*):\n/g)].map(([, id]) => id!);
+  assert.ok(ids.length > 0, "the caller template has jobs in it");
+  const gated = new Set(
+    [...block.matchAll(/\n {2}([a-z][a-z0-9_-]*):\n {4}if:((?:.*)(?:\n {6,}.*)*)/g)]
+      .filter(([, , expression]) => expression!.includes(PAUSE_VARIABLE))
+      .map(([, id]) => id!),
+  );
+  return ids.filter((id) => id !== "paused" && !gated.has(id));
 };
 
 /** A literal as a regex: a target or a path is matched whole, never as a pattern. */
@@ -113,8 +124,21 @@ test("the command a host runs completes a pass on bare node, with nothing instal
  * value, an empty one is the 404 GitHub sends for a variable that is not there,
  * and `fail` is a read that genuinely went wrong, which is the case the pause
  * and the waiver deliberately answer differently.
+ *
+ * `variablesReadable` is the third answer, and the one that tells the first two
+ * apart: the list endpoint, which a token that may read variables answers 200
+ * even when the target has none. Default true, since that is every target whose
+ * token is scoped as README says.
  */
-const passAgainstStub = ({ waived = "", paused = "" }: { waived?: string; paused?: string }): { stdout: string; stderr: string; status: number } => {
+const passAgainstStub = ({
+  waived = "",
+  paused = "",
+  variablesReadable = true,
+}: {
+  waived?: string;
+  paused?: string;
+  variablesReadable?: boolean;
+}): { stdout: string; stderr: string; status: number } => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "heartbeat-"));
   fs.writeFileSync(
     path.join(dir, "gh"),
@@ -127,6 +151,7 @@ answer() {
 case "$args" in
   *"actions/variables/${WAIVER_VARIABLE}"*) answer "\${GH_WAIVED:-}" ;;
   *"actions/variables/${PAUSE_VARIABLE}"*) answer "\${GH_PAUSED:-}" ;;
+  *"actions/variables"*) answer "\${GH_VARS_LIST:-}" ;;
   *"issues?state=open"*) ;;
   *) echo "stub gh: unexpected call: $args" >&2; exit 1 ;;
 esac
@@ -137,8 +162,21 @@ exit 0
   const result = spawnSync(process.execPath, ["--experimental-strip-types", ENTRYPOINT], {
     cwd: fileURLToPath(repoRoot),
     encoding: "utf8",
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DRY_RUN: "", GH_WAIVED: waived, GH_PAUSED: paused },
+    env: {
+      ...process.env,
+      PATH: `${dir}:${process.env.PATH}`,
+      DRY_RUN: "",
+      GH_WAIVED: waived,
+      GH_PAUSED: paused,
+      // The count GitHub answers a list read with, which is "0" for a target
+      // that has no variables at all: an answer, and not the absence of one.
+      GH_VARS_LIST: variablesReadable ? "0" : "",
+    },
   });
+  // A pass that never ran, or one a signal killed, has no status to read: say
+  // so here rather than asserting against a null stdout further down.
+  assert.ok(!result.error, `the pass ran: ${result.error?.message}`);
+  assert.equal(result.signal, null, "the pass was not killed");
   return { stdout: result.stdout, stderr: result.stderr, status: result.status ?? -1 };
 };
 
@@ -168,6 +206,32 @@ test("a paused target is skipped for the pause, and the pass says so rather than
   // a pause does not read as a quiet estate.
   assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), 0 woken, 0 skipped, ${TARGET_REPOS.length} paused, 0 failed`));
   assert.match(stdout, literal(PAUSE_VARIABLE));
+});
+
+test("a token that cannot read a target's variables fails it, rather than reading every pause as unset", () => {
+  // Acceptance criterion 6 again, against the way the failure actually
+  // arrives. A fine-grained PAT holding the repo but not Actions variables
+  // read answers this endpoint 404, the same 404 as a variable that is simply
+  // not there, so on its own "404 means unset" hands back "not paused" for
+  // every target that token covers -- including one a maintainer really did
+  // pause, woken every interval with the pass reporting it woken. The list
+  // endpoint is what tells them apart: a token that may read variables answers
+  // it 200 even when the target has none.
+  const { stdout, stderr, status } = passAgainstStub({ paused: "", variablesReadable: false });
+  assert.equal(status, 1, stdout);
+  for (const target of TARGET_REPOS) assert.match(stderr, literal(`factory-sweep FAILED for ${target}`));
+  assert.doesNotMatch(stdout, /dispatched to/);
+  assert.match(stdout, literal(`0 woken, 0 skipped, 0 paused, ${TARGET_REPOS.length} failed`));
+});
+
+test("a target that is really paused is never asked whether its variables are readable", () => {
+  // The list read is the 404's second question and nothing more. A pause that
+  // answered with a value has already settled it, so making the call anyway
+  // would spend a request per target per pass to re-confirm what the answer
+  // just proved.
+  const { stdout, status } = passAgainstStub({ paused: "incident", variablesReadable: false });
+  assert.equal(status, 0, stdout);
+  for (const target of TARGET_REPOS) assert.match(stdout, literal(`${target} skipped: paused (incident)`));
 });
 
 test("a pause that cannot be read fails its target rather than being taken for running", () => {

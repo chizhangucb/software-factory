@@ -29,14 +29,34 @@ test("the variable is the one the caller's jobs gate on", () => {
 
 test("the value is the reason, trimmed of the newline gh prints", () => {
   assert.equal(pauseReason("runaway sweep, see #123\n"), "runaway sweep, see #123");
+  assert.equal(pauseReason("  runaway sweep, see #123  \n"), "runaway sweep, see #123");
 });
 
-test("an empty value is no pause, as the caller reads it", () => {
-  // The caller's gate is `vars.FACTORY_PAUSED == ''`, so a variable set to
-  // blank runs. A heartbeat that read it as paused would stop waking a target
-  // every job on it is willing to run.
-  assert.equal(pauseReason("   \n"), undefined);
+test("only the empty value is no pause, exactly as the caller reads it", () => {
+  // The caller's gate is `vars.FACTORY_PAUSED == ''`, a string comparison, so
+  // the empty value is the whole of what runs. A heartbeat that read more than
+  // that as running would stop waking a target no job on it is willing to work
+  // for, which is the bill #256 removes, still being paid behind a pass that
+  // reports the target as woken.
+  assert.equal(pauseReason("\n"), undefined);
   assert.equal(pauseReason(""), undefined);
+});
+
+test("a pause set to whitespace is still a pause, because the caller stops for it", () => {
+  // `gh variable set FACTORY_PAUSED --body " "` is not the empty string, so
+  // every gated job on the target is skipped. Trimming first and calling the
+  // result no pause is how the two halves of one pause come apart.
+  assert.notEqual(pauseReason(" \n"), undefined);
+  assert.notEqual(pauseReason("\t\n"), undefined);
+});
+
+test("a pause with no readable reason says so, rather than printing a blank one", () => {
+  // The line is what a maintainer acts on, and `paused ()` names nothing. The
+  // target is still paused: what is missing is the reason, not the pause.
+  const line = pauseLine("owner/repo", pauseReason(" \n")!);
+  assert.match(line, /paused \(\S/, "the line carries something a maintainer can read");
+  assert.doesNotMatch(line, /undefined/, "and a word, not a missing value rendered");
+  assert.ok(line.includes(PAUSE_VARIABLE), "and still names the variable to clear");
 });
 
 test("a paused target's line carries the reason and the variable to clear", () => {

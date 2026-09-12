@@ -29,7 +29,7 @@ import { READY_LABEL } from "../lib/labels.ts";
 import { type TargetOutcome, sendHeartbeat } from "./heartbeat.ts";
 import { PAUSE_VARIABLE, pauseLine, pauseReadArgs, pauseReason } from "./pause.ts";
 import { TARGET_REPOS } from "./targets.ts";
-import { isUnset } from "./variable.ts";
+import { isUnset, variablesReadableArgs } from "./variable.ts";
 import { WAIVER_VARIABLE, waiverLine, waiverReadArgs, waiverReason } from "./waiver.ts";
 import { type OpenSubject, fromGitHub, openWorkArgs } from "./work.ts";
 
@@ -69,8 +69,15 @@ const readPause = (target: string): string | undefined => {
     return pauseReason(gh(pauseReadArgs(target)));
   } catch (error) {
     // `stderr`, not the rendered message, for the reason `readWaiverReason` gives.
-    if (error instanceof GhError && isUnset(error.stderr)) return undefined;
-    throw error;
+    if (!(error instanceof GhError) || !isUnset(error.stderr)) throw error;
+    // The 404 says the variable is not set, or that this token may not read
+    // the target's variables at all, and those are the same 404. A token
+    // missing the scope would otherwise answer "not paused" for every target
+    // it covers, for as long as nobody noticed, which is the silent version of
+    // the bill this is here to stop. Throws on a 404 of its own, failing the
+    // target, which is what a read nobody can make should do.
+    gh(variablesReadableArgs(target));
+    return undefined;
   }
 };
 

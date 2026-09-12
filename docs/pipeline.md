@@ -84,6 +84,8 @@ That makes the outage structural and not a race. There is no ordering that avoid
 
 The retarget PR cannot be judged, which is why the waiver is the only route: `factory/verdict` comes from the reviewer, the reviewer runs on `pull_request_target`, and `pull_request_target` reads the workflow from the base branch, which is the broken file. `factory/red-green` and `factory/test-integrity` do pass, since `pull_request` reads the merge ref.
 
+An outage is also a stretch of passes the host does not run, which is the window #267 is about: the wake rule is edge-triggered one interval wide, so a deadline falling inside a window like this one is reached only by the caller's `schedule`, measured at 6 fires in 21 and a half hours. Sweep what was open when the waiver closes rather than assuming the next pass finds it.
+
 A target may also pin the factory's name in its own tests, the way chronicle's `test/factory-caller-inputs.test.mjs` asserts the `uses:` prefix. Its CI then fails the rename on its own account and its retarget PR carries more than the caller. That is the target's test doing its job; expect it rather than debugging it.
 
 ## Dispatcher

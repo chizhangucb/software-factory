@@ -144,9 +144,9 @@ const issueEvent = (action: string, label?: string, state: IssueState = "open"):
  *
  * An `unlabeled` event wakes the dispatcher for any label outside the
  * factory's own two namespaces, and `unassigned` wakes it whoever dropped the
- * assignee. Both are admitted on an open ticket only (#213), since select.ts
- * refuses a closed one whatever it carries. A row without a `state` is an open
- * ticket. Which of the admitted removals can actually unblock a ticket is
+ * assignee. Every clause is admitted on an open ticket only (#213 for the two
+ * removals, #236 for the two labels going on), since select.ts refuses a
+ * closed one whatever it carries. A row without a `state` is an open ticket. Which of the admitted removals can actually unblock a ticket is
  * still select.ts's answer and not the caller's, so a sweep over a ticket
  * nothing unblocked labels nothing.
  *
@@ -180,10 +180,12 @@ const ISSUE_EVENTS: { action: string; label?: string; state?: IssueState; wakes:
   { action: "unlabeled", label: "agent:blocked", wakes: [] },
   { action: "unlabeled", label: "factory:retry-1", wakes: [] },
   { action: "unassigned", wakes: ["dispatch"] },
-  // #213 gates the two removals and nothing else, so a label going on is
-  // unchanged: it wakes the sweep on a closed ticket too. Scope, not
-  // availability, since a labeled payload carries the state as well.
-  { action: "labeled", label: "ready-for-agent", state: "closed", wakes: ["dispatch"] },
+  // Every issue event on a closed ticket is refused (#236), additions included:
+  // select.ts reads the target's open issues alone, so a sweep woken by a label
+  // going on a closed ticket bills a minute and can never dispatch anything,
+  // and an implement run started that way works a ticket already finished.
+  { action: "labeled", label: "ready-for-agent", state: "closed", wakes: [] },
+  { action: "labeled", label: "agent:implement", state: "closed", wakes: [] },
   { action: "unlabeled", label: "hold", state: "closed", wakes: [] },
   { action: "unlabeled", label: "ready-for-agent", state: "closed", wakes: [] },
   { action: "unassigned", state: "closed", wakes: [] },
@@ -384,7 +386,7 @@ test("a removal in the factory's own namespaces wakes no sweep, any other remova
   // leaves its agent:* label for a cleanup step, and that removal fires
   // `unlabeled` because the factory writes with a PAT; a dispatcher that
   // answered it re-stamped agent:implement and the cancel bought nothing.
-  // Open tickets only: a removal on a closed one wakes nothing whoever owns
+  // Open tickets only: no edit on a closed one wakes anything, whoever owns
   // the label, which is the next test's rule and not this one's.
   const removals = ISSUE_EVENTS.filter((event) => event.action === "unlabeled" && event.state !== "closed");
   const factoryOwned = (label: string) =>
@@ -404,19 +406,33 @@ test("a removal in the factory's own namespaces wakes no sweep, any other remova
   assert.ok(covered.factory > 0 && covered.human > 0, "the table covers both kinds of removal");
 });
 
-test("a removal on a closed ticket wakes nothing, and closing one still wakes the sweep", () => {
-  // #213, stated over the table the way the test above states #170. A closed
-  // ticket is refused by select.ts whatever it carries, so the sweep a removal
-  // on one wakes is a billed minute that can never dispatch anything.
-  const REMOVALS = ["unlabeled", "unassigned"];
-  const closed = ISSUE_EVENTS.filter((event) => event.state === "closed" && REMOVALS.includes(event.action));
+test("no label or assignee edit on a closed ticket wakes anything, and closing one still wakes the sweep", () => {
+  // #213 then #236, stated over the table the way the test above states #170.
+  // #213 gated the two removals; #236 gated the two additions, so the caller
+  // now states one rule rather than a split nobody could recite: the factory
+  // acts on open tickets, and the only thing worth hearing from a closed one
+  // is the close itself. select.ts refuses a closed ticket whatever it
+  // carries, so an admitted edit is a billed minute that can never dispatch,
+  // and an implement run started that way works a ticket already finished.
+  const EDITS = ["labeled", "unlabeled", "unassigned"];
+  const closed = ISSUE_EVENTS.filter((event) => event.state === "closed" && EDITS.includes(event.action));
   for (const { action, label, wakes } of closed) {
     assert.deepEqual(wakes, [], `${action}${label ? ` (${label})` : ""} on a closed ticket wakes nothing`);
   }
   assert.deepEqual(
     [...new Set(closed.map((event) => event.action))].sort(),
-    ["unassigned", "unlabeled"],
-    "the table covers both removals on a closed ticket",
+    ["labeled", "unassigned", "unlabeled"],
+    "the table covers every edit the caller subscribes to on a closed ticket",
+  );
+  // Both labels that wake a job on an open ticket, asked again closed. Without
+  // this the table could gate one and leave the other, which is the state
+  // #236 found.
+  assert.deepEqual(
+    ISSUE_EVENTS.filter((event) => event.action === "labeled" && event.state === "closed")
+      .map((event) => event.label)
+      .sort(),
+    ["agent:implement", "ready-for-agent"],
+    "every label that wakes a job on an open ticket is pinned closed too",
   );
   // The other half of the rule: a close is still admitted, because closing one
   // ticket can unblock another.

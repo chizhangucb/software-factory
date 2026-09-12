@@ -157,16 +157,26 @@ esac
 # `pull_request` would read as a trigger and the target as having CI, which refuses, where
 # assuming `on:` comes before `jobs:` risks the other error, writing into a CI that exists.
 # `on: [pull_request]` and `"on":` both read, since YAML 1.1 makes a bare `on` a boolean and a
-# target is free to quote it.
+# target is free to quote it, and so does the flow form, `pull_request: {branches: [main]}`:
+# whatever follows the key is not read, so a trigger written inline is still a trigger. A false
+# negative here is the expensive one, since it is what writes a starter file into a live CI.
+# `pull_request_target` is not it: the character after `pull_request` has to end the key.
 runs_on_pull_request() {
-  awk '/^("?on"?:).*pull_request([],[:space:]]|$)/ { found = 1 }
-       /^[[:space:]]*-?[[:space:]]*pull_request:?[[:space:]]*(#.*)?$/ { found = 1 }
+  awk '/^("?on"?:).*pull_request([]},:[:space:]]|$)/ { found = 1 }
+       /^[[:space:]]*-?[[:space:]]*pull_request:?([[:space:]].*)?$/ { found = 1 }
        END { print found ? "true" : "false" }' <<<"$1"
 }
+# The job keys of a workflow: the keys at the first indentation seen under `jobs:`, whatever that
+# indentation is, and no deeper. Pinning it to two spaces read a four-space file as having no job
+# at all, and `needs: []` is a roll-up that rolls up nothing and is green forever.
 job_keys() {
   awk '/^jobs:/ { in_jobs = 1; next }
        in_jobs && /^[A-Za-z]/ { exit }
-       in_jobs && /^  [A-Za-z0-9_.-]+:[[:space:]]*(#.*)?$/ { sub(/:.*$/, ""); gsub(/ /, ""); print }' <<<"$1"
+       in_jobs && /^[[:space:]]+[A-Za-z0-9_.-]+:([[:space:]]*(#.*)?$|[[:space:]]*\{)/ {
+         indent = match($0, /[^[:space:]]/)
+         if (job_indent == 0) job_indent = indent
+         if (indent != job_indent) next
+         sub(/:.*$/, ""); gsub(/ /, ""); print }' <<<"$1"
 }
 
 workflows_error_file=$(mktemp)
@@ -186,6 +196,8 @@ that has some is never written to." ;;
   esac
 fi
 own_ci_jobs=()
+own_ci_files=()
+own_ci_file_count=0
 has_own_ci=false
 starter_path_taken=false
 while IFS= read -r workflow; do
@@ -197,8 +209,15 @@ while IFS= read -r workflow; do
   case "$body_status" in 0) ;; 1) continue ;; *) exit 1 ;; esac
   if [ "$(runs_on_pull_request "$body")" != "true" ]; then continue ; fi
   has_own_ci=true
+  own_ci_files+=("$workflow"); own_ci_file_count=$((own_ci_file_count + 1))
   while IFS= read -r job; do
-    case "$job" in "") continue ;; esac
+    # Nothing that cannot go in the pasted roll-up's `needs`: its own two job keys (a job cannot
+    # depend on itself, and a second `check:` in one file is a duplicate key), and a name already
+    # listed, which two workflows sharing a job name would otherwise produce.
+    case "$job" in "" | "$rollup_check" | "$rollup_check-stub") continue ;; esac
+    for seen in ${own_ci_jobs[@]+"${own_ci_jobs[@]}"}; do
+      if [ "$seen" = "$job" ]; then continue 2; fi
+    done
     own_ci_jobs+=("$job")
   done <<<"$(job_keys "$body")"
 done <<<"$workflows"
@@ -212,8 +231,16 @@ caller_input() {
   local value
   value=$(awk -v key="$1:" '
     /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { in_merge_gate = ($1 == "merge-gate:") }
-    in_merge_gate && $1 == key { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }' <<<"$caller")
-  value=${value%\"}; value=${value#\"}
+    in_merge_gate && $1 == key {
+      sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print; exit }' <<<"$caller")
+  # A quoted scalar ends at its closing quote, so `'24'` is 24 and a `#` inside it is content.
+  # An unquoted one ends at a ` #` comment, which is where YAML ends it too. Neither is left in:
+  # `node-version: "'24'"` is a Node nobody has, and a comment carried through breaks the file.
+  case "$value" in
+    \"*) value=${value#\"}; value=${value%%\"*} ;;
+    \'*) value=${value#\'}; value=${value%%\'*} ;;
+    *)   value=${value%%[[:space:]]#*} ;;
+  esac
   printf '%s' "${value:-$2}"
 }
 
@@ -226,7 +253,10 @@ rollup() {
     { gsub(/__NEEDS__/, needs); print }' "$rollup_template"
 }
 starter_file() {
-  printf '%s\n' "$(rollup "[]" "$(printf '      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: "%s"\n      - run: %s\n      - run: %s' \
+  # The comment goes in the written file: the caller's test_command is run once per changed test
+  # file, so a target pointing it at a routing command (templates/routing-test-command.sh) gets a
+  # step here that is handed no file and passes having run nothing.
+  printf '%s\n' "$(rollup "[]" "$(printf '      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: "%s"\n      - run: %s\n      # From the caller. Replace it if it is a routing command: it runs the test\n      # file it is handed, and here it is handed none.\n      - run: %s' \
     "$(caller_input node_version 22)" "$(caller_input install_command "npm ci")" "$(caller_input test_command "node --test")")")"
 }
 
@@ -305,11 +335,24 @@ Name the checks its CI posts instead:
   write_starter=true
   echo "no workflow here runs on a pull request: $starter_path will publish $rollup_check"
 else
+  # `needs` names jobs in the one file the roll-up lives in, so the filled-in list is a
+  # starting point whenever more than one workflow contributed to it, and says so. A job that
+  # is skipped rather than run reports `skipped`, which the result test below reads as not
+  # success: take a path-filtered or conditional job out of `needs` rather than gating on it.
+  several_files=""
+  if [ "$own_ci_file_count" -gt 1 ]; then
+    several_files="\`needs\` reaches jobs in its own file only, and these came from several:
+  $(join_with ", " ${own_ci_files[@]+"${own_ci_files[@]}"})
+Keep the ones in the file you paste this into.
+"
+  fi
   refuse "$repo has no factory ruleset yet and no own check was named, and its CI is
 its own: onboarding never edits the CI of a target that has some.
 Add a roll-up to it, and this run then has a name to require. As it stands:
 
 $(rollup "$(printf '[%s]' "$(join_with ", " ${own_ci_jobs[@]+"${own_ci_jobs[@]}"})")" "")
+${several_files}Leave out any job that is skipped rather than run on some pull requests: a
+skipped job reports \`skipped\`, and the result test above wants \`success\`.
 
 Then:
   scripts/onboard.sh $repo $rollup_check

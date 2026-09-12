@@ -933,3 +933,42 @@ test("a check.yml already there is never overwritten, whatever it runs on", () =
   assert.deepEqual(writes(run.calls), [], "a refusal writes nothing at all");
   assert.equal(run.starterFile, undefined);
 });
+
+test("a pull-request trigger written inline is still a trigger, so that CI is never written to", () => {
+  // The misread that costs: `pull_request: {branches: [main]}` read as no trigger makes a
+  // target with a working build look empty, and onboarding then writes a file into it.
+  const inline = "name: ci\non:\n  pull_request: {branches: [main]}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n";
+  const run = onboardWith([], { workflows: { "ci.yml": inline } });
+  assert.notEqual(run.code, 0, "a target with CI refuses rather than taking the starter path");
+  assert.equal(run.starterFile, undefined);
+  assert.match(run.output, /needs: \[build\]/);
+});
+
+test("a workflow indented four spaces still fills needs, rather than rolling up nothing", () => {
+  // `needs: []` passes its own result test: a required check that is green whatever happens,
+  // which is worse than no roll-up at all.
+  const fourSpace = "name: ci\non:\n  pull_request:\njobs:\n    build:\n        runs-on: ubuntu-latest\n    unit:\n        runs-on: ubuntu-latest\n";
+  const run = onboardWith([], { workflows: { "ci.yml": fourSpace } });
+  assert.notEqual(run.code, 0);
+  assert.match(run.output, /needs: \[build, unit\]/, "the job names, whatever the file's indentation");
+});
+
+test("the pasted needs never names a job the roll-up cannot depend on", () => {
+  // A job the target already calls `check` is the roll-up's own key: in needs it is a job
+  // depending on itself. A name in two workflows is one name, listed once.
+  const run = onboardWith([], {
+    workflows: { "ci.yml": ownCi(["check", "build"]), "nightly.yml": ownCi(["build", "unit"]) },
+  });
+  assert.notEqual(run.code, 0);
+  assert.match(run.output, /needs: \[build, unit\]/, "no self-dependency, and no name twice");
+  assert.match(run.output, /ci\.yml, nightly\.yml/, "and it says the jobs came from several files");
+});
+
+test("a caller's single-quoted input reaches the starter file as its value, not with its quotes", () => {
+  // `node-version: "'24'"` is a Node nobody has, so the starter check is red forever and
+  // required from the same run.
+  const caller = CALLER.replace('node_version: "24"', "node_version: '24' # keep in step with ci");
+  const { starterFile } = onboardWith([], { workflows: { "factory.yml": caller } });
+  assert.match(starterFile!.content, /node-version: "24"/);
+  assert.doesNotMatch(starterFile!.content, /keep in step|'24'/);
+});

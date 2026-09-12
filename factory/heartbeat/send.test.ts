@@ -21,7 +21,8 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { INTERVAL_PHRASE } from "./interval.ts";
+import { DISAGREEING_PASSES, PASS_LOG_ENV } from "./cadence.ts";
+import { HEARTBEAT_INTERVAL_MINUTES, INTERVAL_PHRASE } from "./interval.ts";
 import { PAUSE_VARIABLE } from "./pause.ts";
 import { TARGET_REPOS } from "./targets.ts";
 import { WAIVER_VARIABLE } from "./waiver.ts";
@@ -135,12 +136,20 @@ const passAgainstStub = ({
   waived = "",
   paused = "",
   variablesReadable = true,
+  passLog = "",
+  unwritablePassLog = false,
 }: {
   waived?: string;
   paused?: string;
   variablesReadable?: boolean;
-}): { stdout: string; stderr: string; status: number } => {
+  /** The pass log the cadence claim reads (#265), always under the temp dir: a test never touches a real host's. */
+  passLog?: string;
+  /** Point the pass log at a directory that does not exist, which is every way a host cannot keep it. */
+  unwritablePassLog?: boolean;
+}): { stdout: string; stderr: string; status: number; passLog: string } => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "heartbeat-"));
+  const passLogFile = unwritablePassLog ? path.join(dir, "no-such-directory", "passes") : path.join(dir, "passes");
+  if (passLog) fs.writeFileSync(passLogFile, passLog);
   fs.writeFileSync(
     path.join(dir, "gh"),
     `#!/usr/bin/env bash
@@ -167,6 +176,7 @@ exit 0
       ...process.env,
       PATH: `${dir}:${process.env.PATH}`,
       DRY_RUN: "",
+      [PASS_LOG_ENV]: passLogFile,
       GH_WAIVED: waived,
       GH_PAUSED: paused,
       // The count GitHub answers a list read with, which is "0" for a target
@@ -178,7 +188,12 @@ exit 0
   // so here rather than asserting against a null stdout further down.
   assert.ok(!result.error, `the pass ran: ${result.error?.message}`);
   assert.equal(result.signal, null, "the pass was not killed");
-  return { stdout: result.stdout, stderr: result.stderr, status: result.status ?? -1 };
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    status: result.status ?? -1,
+    passLog: fs.existsSync(passLogFile) ? fs.readFileSync(passLogFile, "utf8") : "",
+  };
 };
 
 test("a pass names an open waiver, with its reason and the target", () => {
@@ -427,4 +442,73 @@ test("both pages say what a pause stops, what it does not, and that the heartbea
       `${page} says in one sentence that the heartbeat is what stops waking a paused target`,
     );
   }
+});
+
+/** A pass log ending one gap before now, every gap the same, long enough to hold a run. */
+const recentPasses = (gapMinutes: number): string => {
+  const now = Date.now();
+  const behind = (passes: number): string => new Date(now - passes * gapMinutes * 60_000).toISOString();
+  return `${Array.from({ length: DISAGREEING_PASSES }, (_, index) => behind(DISAGREEING_PASSES - index)).join("\n")}\n`;
+};
+
+test("a pass run at a cadence that disagrees with the documented interval says so, once, and fails nothing", () => {
+  // Acceptance criteria 1 and 5 through the real script (#265). The pass log
+  // holds a run of gaps at twice the documented interval, which is a host whose
+  // schedule moved and a repo that did not, so the line is printed and the pass
+  // still exits 0: a cadence nobody noticed is a thing to tell a maintainer
+  // about, never a reason to stop sweeping.
+  const wrong = HEARTBEAT_INTERVAL_MINUTES * 2;
+  const { stdout, status, passLog } = passAgainstStub({ passLog: recentPasses(wrong) });
+  assert.equal(status, 0, stdout);
+  assert.equal([...stdout.matchAll(/heartbeat CADENCE:/g)].length, 1, `one claim per pass, not one per target: ${stdout}`);
+  assert.match(stdout, literal(String(wrong)), "the line names the cadence observed");
+  assert.match(stdout, literal(INTERVAL_PHRASE), "the line names the interval documented");
+  // And the pass leaves itself behind, which is the only state this has: the
+  // run the next pass judges, and nothing older.
+  assert.equal(passLog.trimEnd().split("\n").length, DISAGREEING_PASSES, passLog);
+});
+
+test("a pass at the documented cadence prints no cadence line", () => {
+  // Acceptance criterion 2 through the real script. Every pass printing one is
+  // how a maintainer learns to skip the pass that matters.
+  const { stdout, status } = passAgainstStub({ passLog: recentPasses(HEARTBEAT_INTERVAL_MINUTES) });
+  assert.equal(status, 0, stdout);
+  assert.doesNotMatch(stdout, /CADENCE/);
+});
+
+test("a first pass claims nothing and still leaves its own timestamp behind", () => {
+  // Acceptance criterion 4: a host onboarded a minute ago has no history, and a
+  // pass with nothing to compare against is not evidence of anything.
+  const { stdout, status, passLog } = passAgainstStub({});
+  assert.equal(status, 0, stdout);
+  assert.doesNotMatch(stdout, /CADENCE/);
+  // One line, and a timestamp rather than whatever else: the next pass has a
+  // gap to measure only if this one left a stamp it can read back.
+  const stamps = passLog.trimEnd().split("\n");
+  assert.equal(stamps.length, 1, passLog);
+  assert.ok(!Number.isNaN(new Date(stamps[0]!).getTime()), `the pass recorded a timestamp: ${passLog}`);
+});
+
+test("a dry run records no pass, so reporting the shape of a pass cannot move the cadence", () => {
+  // A dry run reads no target and invents its answers, so counting it as a pass
+  // would leave a gap no host ever took in the one file the claim is made from.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "heartbeat-"));
+  const passLogFile = path.join(dir, "passes");
+  execFileSync(process.execPath, ["--experimental-strip-types", ENTRYPOINT], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { DRY_RUN: "1", PATH: "", [PASS_LOG_ENV]: passLogFile },
+  });
+  assert.equal(fs.existsSync(passLogFile), false, "a dry run wrote a pass log");
+});
+
+test("a pass log that cannot be written costs the pass nothing", () => {
+  // Acceptance criterion 5. The claim is worth less than the sweep, so a pass
+  // log the host cannot write is a line on stderr at most. That is the property
+  // the sender kept when it started holding state at all: no pass waits on
+  // another pass's file.
+  const { stdout, status } = passAgainstStub({ unwritablePassLog: true });
+  assert.equal(status, 0, stdout);
+  assert.doesNotMatch(stdout, /CADENCE/);
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s)`), "the pass still reported every target");
 });

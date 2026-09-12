@@ -12,8 +12,11 @@
  * no read either, so every target answers as a running one with work and the
  * pass reports the shape a busy interval takes.
  *
- * It holds no state: no log file of its own, no lock, nothing carried between
- * passes. Every outcome is a line on stdout and a failure is a line on stderr,
+ * It holds one piece of state and no more: the timestamps of the last few
+ * passes, so it can say when the cadence it is run at stops agreeing with the
+ * documented interval (#265, and `cadence.ts` holds the reason). No lock, and
+ * no pass waiting on another. Every outcome is a line on stdout and a failure
+ * is a line on stderr,
  * each stamped with the time as the script this replaces stamped its own log,
  * since a host's log keeps the history and cron and launchd timestamp nothing.
  * Its alerting sees the non-zero exit a failed target ends on. Where the whole
@@ -22,10 +25,14 @@
  * Builtins only, imported with explicit `.ts`, so it runs with no `npm ci`
  * (`send.test.ts` pins that).
  */
+import * as fs from "node:fs";
+import * as os from "node:os";
+
 import { parseItems } from "../dispatch/gh-read.ts";
 import { errorMessage } from "../lib/errors.ts";
 import { GhError, gh } from "../lib/gh.ts";
 import { READY_LABEL } from "../lib/labels.ts";
+import { cadenceLine, passLogPath, withPass } from "./cadence.ts";
 import { type TargetOutcome, sendHeartbeat } from "./heartbeat.ts";
 import { PAUSE_VARIABLE, pauseLine, pauseReadArgs, pauseReason } from "./pause.ts";
 import { TARGET_REPOS } from "./targets.ts";
@@ -117,6 +124,35 @@ const readWaiverReason = (target: string): string | undefined => {
   }
 };
 
+/**
+ * The cadence claim (#265), beside the waiver nag: this pass recorded, and one
+ * line if the last few passes disagree with the interval this repo documents.
+ * The only state the sender holds, and `cadence.ts` carries the reason that was
+ * worth it.
+ *
+ * Every failure is swallowed after a line on stderr: a pass log that cannot be
+ * read or written is a claim not made, and never a sweep not sent. A dry run
+ * records nothing, because it invents its answers and a pass nobody made would
+ * leave a gap no host ever took.
+ */
+const claimCadence = (): void => {
+  if (dryRun) return;
+  const file = passLogPath(process.env, os.homedir());
+  try {
+    // One read, like every other question the pass asks: a missing file is a
+    // host with no history, which is the same answer as a log too short to
+    // judge.
+    const before = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+    const now = new Date();
+    const line = cadenceLine(before, now);
+    if (line) console.log(`${at()} ${line}`);
+    fs.writeFileSync(file, withPass(before, now));
+  } catch (error) {
+    console.error(`${at()} could not keep the pass log at ${file}: ${errorMessage(error)}`);
+  }
+};
+
+claimCadence();
 for (const target of TARGET_REPOS) nagIfWaived(target);
 
 const outcomes = sendHeartbeat({

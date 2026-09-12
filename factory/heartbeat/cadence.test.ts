@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DISAGREEING_PASSES, PASS_LOG_ENV, cadenceLine, passLogPath, withPass } from "./cadence.ts";
+import { AGREEING_BAND, DISAGREEING_PASSES, PASS_LOG_ENV, cadenceLine, passLogPath, withPass } from "./cadence.ts";
 import { HEARTBEAT_INTERVAL_MINUTES, INTERVAL_PHRASE } from "./interval.ts";
 
 /** A pass log of gaps, newest last, ending the moment before `now`. */
@@ -76,7 +76,7 @@ test("a run of passes faster than the documented interval is drift too", () => {
 test("the log keeps the run being judged and no more, so the sender's state stays a few lines", () => {
   const many = logOfGaps(NOW, HEARTBEAT_INTERVAL_MINUTES, DISAGREEING_PASSES * 5);
   const lines = withPass(many, NOW).trimEnd().split("\n");
-  assert.equal(lines.length, DISAGREEING_PASSES + 1, "one more timestamp than the gaps the claim needs");
+  assert.equal(lines.length, DISAGREEING_PASSES, "the run the next pass judges, and nothing older");
   assert.equal(lines.at(-1), NOW.toISOString(), "this pass is the newest");
   // And a log kept this way is exactly long enough to make the claim on the
   // next pass, which is the only reason the length is what it is.
@@ -90,8 +90,35 @@ test("an unreadable line in the log costs a gap and not the claim", () => {
   // A pass a host killed mid-write leaves a partial line. Dropping it is one
   // gap fewer to judge on, which is the cheap answer; throwing would be a line
   // that says the cadence cannot be read, which nobody asked about.
-  const good = logOfGaps(NOW, HEARTBEAT_INTERVAL_MINUTES, DISAGREEING_PASSES);
-  assert.equal(cadenceLine(`not a timestamp\n${good}`, NOW), undefined);
+  //
+  // Pinned against the claim the same log makes whole, so this says "one gap
+  // fewer" rather than only "nothing thrown": a run of disagreeing gaps whose
+  // oldest stamp is unreadable is a run one short, and that is no claim.
+  const wrong = HEARTBEAT_INTERVAL_MINUTES * 2;
+  const whole = logOfGaps(NOW, wrong, DISAGREEING_PASSES).trimEnd().split("\n");
+  assert.ok(cadenceLine(whole.join("\n"), NOW), "the whole log claims");
+  assert.equal(cadenceLine(["half a timest", ...whole.slice(1)].join("\n"), NOW), undefined);
+});
+
+test("a gap exactly on the edge of the band disagrees, because half the interval is twice the bill", () => {
+  // The band is the other half of what counts as disagreement, and it is
+  // pinned here rather than left to the numbers the tests above happen to use:
+  // widened, a halved host interval would stop being said out loud.
+  const onTheEdge = HEARTBEAT_INTERVAL_MINUTES * (1 - AGREEING_BAND);
+  assert.ok(cadenceLine(logOfGaps(NOW, onTheEdge, DISAGREEING_PASSES), NOW), "the edge is not agreement");
+  // And just inside it is, so the band is a band and not a point.
+  const justInside = onTheEdge + HEARTBEAT_INTERVAL_MINUTES / 10;
+  assert.equal(cadenceLine(logOfGaps(NOW, justInside, DISAGREEING_PASSES), NOW), undefined);
+});
+
+test("a log out of order claims nothing, so a clock that moved backwards invents no cadence", () => {
+  // The log is append-only, so its order is the order the passes ran in and it
+  // is read that way. Sorting it would turn a clock change into a run of
+  // plausible gaps and report a cadence nothing was ever run at.
+  const wrong = HEARTBEAT_INTERVAL_MINUTES * 2;
+  const stamps = logOfGaps(NOW, wrong, DISAGREEING_PASSES).trimEnd().split("\n");
+  const shuffled = [stamps[1]!, stamps[0]!, ...stamps.slice(2)];
+  assert.equal(cadenceLine(shuffled.join("\n"), NOW), undefined);
 });
 
 test("the pass log is one file, overridable, so nothing here writes a real host's state", () => {

@@ -463,9 +463,9 @@ test("a pass run at a cadence that disagrees with the documented interval says s
   assert.equal([...stdout.matchAll(/heartbeat CADENCE:/g)].length, 1, `one claim per pass, not one per target: ${stdout}`);
   assert.match(stdout, literal(String(wrong)), "the line names the cadence observed");
   assert.match(stdout, literal(INTERVAL_PHRASE), "the line names the interval documented");
-  // And the pass leaves itself behind, which is the only state this has: the run
-  // it judged, plus this pass, and nothing older.
-  assert.equal(passLog.trimEnd().split("\n").length, DISAGREEING_PASSES + 1, passLog);
+  // And the pass leaves itself behind, which is the only state this has: the
+  // run the next pass judges, and nothing older.
+  assert.equal(passLog.trimEnd().split("\n").length, DISAGREEING_PASSES, passLog);
 });
 
 test("a pass at the documented cadence prints no cadence line", () => {

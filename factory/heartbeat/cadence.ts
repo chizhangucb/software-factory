@@ -39,28 +39,30 @@ import { HEARTBEAT_INTERVAL_MINUTES, INTERVAL_PHRASE } from "./interval.ts";
 /**
  * How many consecutive gaps have to disagree before the pass says so.
  *
- * Four, which at the documented interval is about an hour of unbroken
- * disagreement. One gap is a sleeping laptop and two is a laptop that slept
- * twice; four in a row is a rhythm rather than an interruption, and a host
- * whose schedule really did move produces them on the first hour after the
- * change and every hour after that. The cost of the number is how long the
- * nag takes to arrive, and an hour is nothing against a number that went a day
- * unnoticed.
+ * Four, which is four intervals of unbroken disagreement. One gap is a
+ * sleeping laptop and two is a laptop that slept twice; four in a row is a
+ * rhythm rather than an interruption, and a host whose schedule really did move
+ * produces them from the fourth pass after the change onwards. The cost of the
+ * number is how long the claim takes to arrive, which is nothing against a
+ * number that went a day unnoticed.
  */
 export const DISAGREEING_PASSES = 4;
 
 /**
  * How far a gap may be from the documented interval and still agree with it:
- * half of it either way, so the interval halved or doubled disagrees and a
- * pass merely late does not.
+ * half of it either way, exclusive, so a halved or doubled interval disagrees
+ * and a pass merely late does not.
  *
- * A host fires the sender on its own clock and only while the machine is awake,
- * so gaps run a little over the schedule always and never under it by much.
  * The band is wide because the failure it must not produce is a nag a
- * maintainer learns to skip; it is the reason a small change to the interval,
- * inside the band, is not caught at all, which is the trade taken.
+ * maintainer learns to skip, and a laptop that is used intermittently takes
+ * gaps a little over its schedule all afternoon without anything being
+ * misconfigured. So what this catches is a host whose number was halved or
+ * doubled, which is the shape a hand edit takes, and what it misses is a
+ * smaller edit inside the band. That is the trade, and the exclusive edge is
+ * deliberate: exactly half the interval is exactly twice the billed minutes,
+ * which is worth a line.
  */
-const AGREEING_BAND = 0.5;
+export const AGREEING_BAND = 0.5;
 
 /** Where the sender leaves the timestamps, overridable so a test never touches a real host's. */
 export const PASS_LOG_ENV = "FACTORY_HEARTBEAT_PASS_LOG";
@@ -74,12 +76,14 @@ export const passLogPath = (env: Record<string, string | undefined>, home: strin
   env[PASS_LOG_ENV] || path.join(home, ".factory-heartbeat-passes");
 
 /**
- * The log with this pass in it, and nothing older than the run being judged:
- * the file is bounded by the claim rather than by a truncation nobody owns.
+ * The log with this pass in it, and nothing older than the next claim can use:
+ * `DISAGREEING_PASSES` stamps, which with the pass that reads them back is
+ * exactly the run being judged. The file is bounded by the claim rather than by
+ * a truncation nobody owns.
  */
 export const withPass = (raw: string, now: Date): string =>
   `${[...stamps(raw), now]
-    .slice(-(DISAGREEING_PASSES + 1))
+    .slice(-DISAGREEING_PASSES)
     .map((at) => at.toISOString())
     .join("\n")}\n`;
 
@@ -96,29 +100,29 @@ export const withPass = (raw: string, now: Date): string =>
 export const cadenceLine = (raw: string, now: Date): string | undefined => {
   const gaps = gapMinutes([...stamps(raw), now]).slice(-DISAGREEING_PASSES);
   if (gaps.length < DISAGREEING_PASSES) return undefined;
-  // A gap of zero or less is two passes stamped out of order, or a clock that
-  // moved backwards. Neither is a cadence, and both would otherwise be
-  // reported as one, since any such gap is outside the band.
+  // A gap of zero or less is a log out of order, which is a clock that moved
+  // backwards: the file is append-only, so its order is the order the passes
+  // ran in, and it is read in that order rather than sorted. Sorting would turn
+  // a clock change into plausible gaps and report a cadence nothing ran at.
   if (gaps.some((gap) => gap <= 0 || agrees(gap))) return undefined;
   const observed = Math.round(gaps.reduce((total, gap) => total + gap, 0) / gaps.length);
   return `heartbeat CADENCE: the last ${DISAGREEING_PASSES} passes arrived about ${observed} minutes apart, and this repo documents ${INTERVAL_PHRASE} (HEARTBEAT_INTERVAL_MINUTES in factory/heartbeat/interval.ts); change the host's schedule or that constant so the two agree`;
 };
 
-/** Whether one gap is the documented interval, within the band. */
+/** Whether one gap is the documented interval, inside the band and not on its edge. */
 const agrees = (gap: number): boolean =>
-  gap >= HEARTBEAT_INTERVAL_MINUTES * (1 - AGREEING_BAND) && gap <= HEARTBEAT_INTERVAL_MINUTES * (1 + AGREEING_BAND);
+  gap > HEARTBEAT_INTERVAL_MINUTES * (1 - AGREEING_BAND) && gap < HEARTBEAT_INTERVAL_MINUTES * (1 + AGREEING_BAND);
 
 /**
- * The timestamps in the log, oldest first, anything unreadable dropped. A
- * half-written line from a pass a host killed is not a pass, and dropping it
- * costs one gap rather than the claim.
+ * The timestamps in the log, in the order the passes wrote them, anything
+ * unreadable dropped. A half-written line from a pass a host killed is not a
+ * pass, and dropping it costs one gap rather than the claim.
  */
 const stamps = (raw: string): Date[] =>
   raw
     .split("\n")
     .map((line) => new Date(line.trim()))
-    .filter((at) => !Number.isNaN(at.getTime()))
-    .sort((a, b) => a.getTime() - b.getTime());
+    .filter((at) => !Number.isNaN(at.getTime()));
 
 /** The gaps between consecutive passes, in minutes. */
 const gapMinutes = (at: readonly Date[]): number[] =>

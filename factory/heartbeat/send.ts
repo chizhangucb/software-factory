@@ -15,7 +15,8 @@
  * It holds one piece of state and no more: the timestamps of the last few
  * passes, so it can say when the cadence it is run at stops agreeing with the
  * documented interval (#265, and `cadence.ts` holds the reason). No lock, and
- * no pass waiting on another. Every outcome is a line on stdout and a failure is a line on stderr,
+ * no pass waiting on another. Every outcome is a line on stdout and a failure
+ * is a line on stderr,
  * each stamped with the time as the script this replaces stamped its own log,
  * since a host's log keeps the history and cron and launchd timestamp nothing.
  * Its alerting sees the non-zero exit a failed target ends on. Where the whole

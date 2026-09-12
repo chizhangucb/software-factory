@@ -8,12 +8,18 @@
  * not exist under that name is not a stale string, it is every factory job on
  * every target failing at checkout at once.
  *
- * That is why this is a constant with a test on it rather than prose. The repo
- * was `chizhangucb/software-factory` until 2026-09-12 and is `chizhangucb/tomte`
- * now, and the rename had to touch eight defaults in this repo and seven
- * `uses:` lines in each of three callers. A name in that many places is one
- * that drifts, which is the lesson #261 wrote down for the heartbeat's
- * interval and this is the same shape.
+ * **This is a test's constant, not a single source of truth.** Nothing imports
+ * it but `factory-repo.test.ts`, and it cannot be otherwise: the copies that
+ * matter are YAML, and a workflow cannot import a TypeScript constant. The
+ * address is still written in every one of those places. What this buys is
+ * that each of them is checked against this one on every run. Same arrangement
+ * as `heartbeat/interval.ts`, and the same reason.
+ *
+ * The repo was `chizhangucb/software-factory` until 2026-09-12 and is
+ * `chizhangucb/tomte` now. The rename touched eight `factory_repo` defaults and
+ * the caller template here, and seven `uses:` lines in each of three callers
+ * that live in other repos. A name in that many places is one that drifts,
+ * which is the lesson #261 wrote down for the heartbeat's interval.
  *
  * **What this does not cover.** A caller lives in the target repo, outside this
  * repo's reach, so `factory-repo.test.ts` holds only this repo's own copies to

@@ -58,11 +58,7 @@ const RECORDS = new Set([
 ]);
 
 test("every workflow that checks the factory out defaults to the factory's name", () => {
-  // The copy that fails loudly. `dispatch.yml` feeds `factory_repo` to
-  // `actions/checkout` as `repository:`, and a caller pins @main, so a default
-  // naming a repo that is not there is every factory job on every target dying
-  // at checkout at once, which is how a removed workflow input broke callers
-  // before.
+  // The copy that fails loudly, for the reason `factory-repo.ts` gives.
   const withInput = tracked().filter((f) => f.startsWith(".github/workflows/") && read(f).includes("factory_repo:"));
   assert.ok(withInput.length > 0, "no workflow declares a factory_repo input, so this test is checking nothing");
   for (const file of withInput) {
@@ -70,6 +66,16 @@ test("every workflow that checks the factory out defaults to the factory's name"
     assert.ok(declared, `${file} declares factory_repo with no default, so a caller that omits it checks out nothing`);
     assert.equal(declared[1], FACTORY_REPO, `${file} defaults factory_repo to ${declared[1]}`);
   }
+});
+
+test("the caller template calls the factory by name, and calls only this factory", () => {
+  // Asserted positively, not just left to the old-name hunt. The template is
+  // what every new target's caller is copied from, so a third name there --
+  // neither the current one nor the one being hunted -- would reach a target
+  // and fail at checkout with nothing here having gone red.
+  const uses = [...read("templates/factory.yml").matchAll(/^\s*uses:\s*(\S+?)\/\.github\/workflows\/\S+$/gm)].map((m) => m[1]);
+  assert.ok(uses.length > 0, "the template calls no reusable workflow at all, so this test is checking nothing");
+  assert.deepEqual([...new Set(uses)], [FACTORY_REPO], `the template calls ${[...new Set(uses)].join(", ")}`);
 });
 
 test("no file still addresses the factory by the name it has left behind", () => {

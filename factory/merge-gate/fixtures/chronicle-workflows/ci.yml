@@ -1,0 +1,247 @@
+# Gate `main` on typecheck, tests, build, and E2E success.
+#
+# This workflow runs the TypeScript type gate (tsc -b), the full unit test
+# suite (via node --test), the Vite production build, and the Playwright E2E
+# smoke suite (a seeded big fixture — 120 subagents, 5000 messages — driven
+# through a real Chromium) on every pull request targeting `main`, and on a
+# manual run. It enforces that:
+# - All TypeScript compiles without errors (the type gate)
+# - All unit tests pass (test suite)
+# - The Vite client bundle builds without errors
+# - The E2E smoke suite passes (function, overflow, data-scale, perf floor),
+#   run parallel and split across three shards — see the `e2e-shard` job
+#
+# Node 24 is REQUIRED — the server + tests run .ts natively via Node's
+# type-stripping, which requires Node 24+.
+#
+# Lint (eslint/prettier) is a later phase; do not add it here.
+#
+# It does NOT run on a push to `main` (#365). Branch protection's
+# `required_status_checks.strict` means a pull request may only merge when its
+# branch is up to date, so what lands on `main` is what the pull request just
+# checked and the re-run only repeats it. `workflow_dispatch` is how `main`
+# gets checked after a merge that bypassed the gate, and it runs the same jobs
+# a pull request does. `test/ci-triggers.test.mjs` pins both halves.
+name: CI Gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Secret scan (issue #175). Replaces the hand-rolled confidentiality guard:
+  # gitleaks scans the PR's own commits on a pull request and the full history
+  # on a manual run, so a leaked credential fails the merge. GitHub's secret
+  # scanning push protection is the first line and this is the backstop that
+  # catches the shapes GitHub's providers do not know.
+  #
+  # The staleness job that used to sit here is gone too: branch protection's
+  # `required_status_checks.strict` on main enforces branches-up-to-date
+  # natively, which is all that guard was hand-rolling.
+  #
+  # Keep the job id `gitleaks` stable: branch protection requires it by name.
+  #
+  # The binary rather than gitleaks-action: no marketplace dependency, no
+  # licence-key path, and the download is pinned by version AND checksum, so a
+  # retagged release cannot change what runs. Bump both values together.
+  gitleaks:
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: '8.30.1'
+      GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks (pinned)
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # --redact keeps a finding's value out of the public build log; the file
+      # and line in the report are enough to act on.
+      - name: Scan for secrets
+        run: |
+          set -euo pipefail
+          args=(git --redact --verbose)
+          if [ -n "${PR_BASE_SHA}" ]; then
+            args+=(--log-opts="${PR_BASE_SHA}..${PR_HEAD_SHA}")
+          fi
+          gitleaks "${args[@]}" .
+        env:
+          # Read the PR SHAs through the environment rather than interpolating
+          # `${{ }}` into the script body, so nothing from the event payload is
+          # ever spliced into the shell as code.
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  # Which surfaces did this change touch (issue #246)? A PR confined to docs,
+  # the website or root markdown cannot break the e2e suite, so it does not
+  # pay for it. `scripts/ci/e2e-applies.sh` holds the classification, and
+  # test/e2e-parallel-config.test.mjs drives that script directly.
+  #
+  # Only a pull request is filtered. A manual dispatch runs the full gate:
+  # it is the run that checks `main` itself, its green is the record of what
+  # shipped, and it is not in anyone's merge path.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      e2e: ${{ steps.classify.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The merge-base of the PR needs both sides of the history.
+          fetch-depth: 0
+
+      - id: classify
+        run: |
+          set -euo pipefail
+          if [ -z "${PR_BASE_SHA}" ]; then
+            echo "not a pull request; running the full gate"
+            echo "e2e=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Three-dot: diff from the merge base, which is exactly what this PR
+          # changes. `base.sha` is the base branch's tip when the event fired,
+          # so the two-dot form would report base commits the PR merely lacks
+          # and classify a docs-only PR as touching code.
+          #
+          # --no-renames so a move reports both sides. Git detects renames by
+          # default, and `git mv server/a.ts docs/a.ts` then reports only the
+          # exempt destination, hiding a deletion that can break the app.
+          changed=$(git diff --name-only --no-renames "${PR_BASE_SHA}...${PR_HEAD_SHA}")
+          echo "changed files:"
+          echo "${changed}"
+          result=$(printf '%s\n' "${changed}" | bash scripts/ci/e2e-applies.sh)
+          echo "e2e applies: ${result}"
+          echo "e2e=${result}" >> "$GITHUB_OUTPUT"
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+  # The E2E suite, sharded across 3 runners (issue #245). Each shard is a full
+  # independent runner: its own install, its own Chromium, its own build, and
+  # its own seeded Chronicle instances (globalSetup provisions one per worker,
+  # so a shard seeds `workers` of them). Nothing is shared between shards.
+  #
+  # Why 3: the fixed setup — checkout, npm ci, browser download, build — is
+  # ~34s a shard and does not shrink. Past 3 shards it dominates the test time
+  # they are splitting, and the next real lever is caching the browser and
+  # node_modules, which is deliberately out of scope here.
+  #
+  # `e2e-shard` is the matrix; `e2e` below is the roll-up. Branch protection
+  # requires the name `e2e`, and a matrix job publishes one check PER shard
+  # (`e2e-shard (1)` …), which would leave the required check unsatisfiable.
+  # Keep the roll-up job id `e2e` stable for that reason.
+  e2e-shard:
+    runs-on: ubuntu-latest
+    needs: changes
+    # `!= 'false'`, not `== 'true'`, and `!cancelled()` rather than the
+    # implicit `success()`: if the classifier itself fails, its output is the
+    # empty string, and gating on `== 'true'` would skip the gate entirely.
+    # A skipped required check reads as passing, so that would let a red PR
+    # merge on the strength of a broken classifier. Only an explicit `false`
+    # buys a skip; anything else pays for the gate.
+    if: ${{ !cancelled() && needs.changes.outputs.e2e != 'false' }}
+    strategy:
+      # Let every shard finish: a failure in shard 2 should not hide whether
+      # shards 1 and 3 were green.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright's Chromium (+ OS deps)
+        run: npx playwright install chromium --with-deps
+
+      - name: Build client
+        run: npm run build
+
+      - name: Run E2E smoke suite (shard ${{ matrix.shard }}/3)
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/3
+
+  # Roll-up so the three shards satisfy the single required `e2e` check.
+  # `needs` alone is not enough: a skipped or failed dependency makes this job
+  # skip, and a skipped check reads as neutral, not failed. The explicit
+  # result test is what turns any non-success shard into a red `e2e`.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [changes, e2e-shard]
+    # Same fail-closed condition as the shards. `!cancelled()` rather than
+    # `always()` so the roll-up still runs when a shard went red (that is the
+    # case it exists to catch) but not after a cancelled run.
+    if: ${{ !cancelled() && needs.changes.outputs.e2e != 'false' }}
+    steps:
+      - name: Verify every shard succeeded
+        run: |
+          set -euo pipefail
+          echo "shard result: ${SHARD_RESULT}"
+          [ "${SHARD_RESULT}" = "success" ]
+        env:
+          SHARD_RESULT: ${{ needs.e2e-shard.result }}
+
+  # The stub that keeps the required check satisfiable on a change the gate
+  # does not apply to (issue #246). It publishes under the check name `e2e`,
+  # the name branch protection requires.
+  #
+  # Relying on GitHub's "a skipped job counts as a passing required check"
+  # convention instead would work today and be invisible when it stops. This
+  # says the green out loud.
+  #
+  # Both this job and the real `e2e` roll-up publish a check run named `e2e`
+  # on every run, one of them skipped; the PR checks list shows two rows, and
+  # branch protection resolves the required context to the most recent. That
+  # ordering favours the real job, which finishes minutes after this stub
+  # skips. The conditions are strict complements on the classifier's own
+  # `false`, so the skipped one is never the one carrying the verdict.
+  e2e-stub:
+    name: e2e
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.e2e == 'false'
+    steps:
+      - name: Report the gate as not applicable
+        run: echo "No change outside docs/, website/ or root markdown; the e2e gate does not apply."

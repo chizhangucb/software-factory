@@ -1,0 +1,171 @@
+# Platform smoke (issue #200): does `npx chronicle-cli` work off macOS?
+#
+# Chronicle is developed on macOS and every other CI job runs on
+# ubuntu-latest against the REPO CHECKOUT. So the thing an operator actually
+# installs (the npm tarball, launched by bin/chronicle.mjs) was never run on
+# Windows at all, and its Windows-only paths (`cmd /c start`, the
+# APP_BROWSERS.win32 list) had never executed.
+#
+# This workflow packs the package with `npm pack`, installs THAT into a
+# scratch project, and drives it:
+#   scripts/ci/platform-smoke.mjs         launch, port scan, data folder
+#                                         (ADR 0008), source discovery + the
+#                                         write token (ADR 0009)
+#   scripts/ci/platform-screenshots.mjs   sidebar, one Playback session and a
+#                                         glyph sheet, per OS, uploaded as an
+#                                         artifact for a human to look at. The
+#                                         --mono stack names no face that
+#                                         ships on Windows or Linux, so tofu is
+#                                         a real risk and a human verdict.
+#
+# NOT a required check. A Windows runner is slow, and this guards the release
+# rather than every PR: it runs on dispatch, on a PR that touches what it
+# guards, and (through workflow_call) ahead of the npm publish, so a broken
+# platform blocks the release instead of shipping.
+#
+# test/platform-smoke-workflow.test.mjs pins all of that.
+name: Platform Smoke
+
+on:
+  workflow_dispatch: {}
+  # Called by publish.yml before it publishes.
+  workflow_call: {}
+  pull_request:
+    branches: [main]
+    paths:
+      - 'bin/**'
+      - 'package.json'
+      - 'scripts/ci/platform-smoke.mjs'
+      - 'scripts/ci/platform-screenshots.mjs'
+      - '.github/workflows/platform-smoke.yml'
+
+# `github.workflow` is the CALLER's workflow name when this runs through
+# workflow_call, so a publish-triggered smoke gets its own group. Without it a
+# re-pushed tag would cancel the in-flight publish run's smoke (publish.yml
+# sets cancel-in-progress: false precisely to avoid that), failing a release
+# run at its `needs:`.
+concurrency:
+  group: platform-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# windows-latest defaults to pwsh and ubuntu-latest to bash, which would make
+# one `run:` block mean two different things. Git Bash ships on the Windows
+# runner, so one shell covers both.
+defaults:
+  run:
+    shell: bash
+
+# Every path below is RELATIVE to the workspace. `runner.temp` on Windows is a
+# backslash path (`D:\a\_temp`), which the bash these steps run in mangles; a
+# relative path has no drive letter and no separators to get wrong, and bash,
+# npm, node and the artifact actions all resolve it the same way on both OSes.
+jobs:
+  # Pack once, on Linux, and hand the same bytes to both legs. Two reasons
+  # over packing per OS: `prepack` is a POSIX shell line (`rm -rf`), which npm
+  # would run through cmd.exe on the Windows runner, and an operator installs
+  # ONE published tarball, so testing one set of bytes is the truer test.
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm pack` runs prepack: the Vite client build + the publish compile
+      # (tsc to dist-server/). That is the tarball npm would publish.
+      - name: Pack the package
+        run: |
+          set -euo pipefail
+          mkdir -p pack
+          npm pack --pack-destination pack
+          ls -l pack
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-smoke-tarball
+          path: pack/*.tgz
+          if-no-files-found: error
+
+  smoke:
+    name: smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [pack]
+    strategy:
+      # Let both finish: a Windows failure should not hide whether Linux was
+      # green, and vice versa.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 is what the launcher's own preflight demands.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      # The checkout is here for the smoke SCRIPTS and Playwright's Chromium
+      # only. Nothing under test is served from it.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright's Chromium (+ OS deps)
+        run: npx playwright install chromium --with-deps
+
+      - name: Download the packed tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: platform-smoke-tarball
+          path: pack
+
+      # Its own project, with its own package.json and its own node_modules,
+      # so the launcher under test resolves its dependencies from the install
+      # and not from the checkout it happens to sit beside.
+      - name: Install the tarball as an operator would
+        run: |
+          set -euo pipefail
+          tarball="$(ls pack/*.tgz)"
+          mkdir -p smoke-install
+          cd smoke-install
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "../${tarball}"
+          ls node_modules/chronicle-cli
+
+      # The bin shim npx itself would run: this is the only step that goes
+      # through node_modules/.bin (a .cmd shim on Windows, a symlink on Linux).
+      - name: The installed bin shim answers
+        run: |
+          set -euo pipefail
+          cd smoke-install
+          npx --no-install chronicle-cli --help
+
+      - name: Launch, port scan, data folder, source discovery
+        run: node scripts/ci/platform-smoke.mjs --package-dir smoke-install/node_modules/chronicle-cli
+
+      - name: Screenshot the sidebar, a Playback session and the glyph sheet
+        id: shots
+        run: node scripts/ci/platform-screenshots.mjs --package-dir smoke-install/node_modules/chronicle-cli --out screenshots
+
+      # One artifact per OS. upload-artifact@v4 SEALS an artifact when it
+      # closes, so two legs uploading under one name is a 409, not a merge
+      # (that was v3's behaviour). The file names carry the platform too, so
+      # the two download into one folder without colliding. `always()`
+      # because a red run is exactly when the pictures are worth having, but
+      # only once the shot step has actually run: an earlier failure skips it,
+      # and uploading an empty folder then would add a second red step (and an
+      # `if-no-files-found: error` that is not the failure anyone needs to read).
+      - name: Upload the screenshots
+        if: always() && steps.shots.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-screenshots-${{ matrix.os }}
+          path: screenshots
+          if-no-files-found: error

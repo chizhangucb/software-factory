@@ -15,6 +15,48 @@ const diffOf = (file: string, added: string[]): string =>
     "",
   ].join("\n");
 
+const workflow = (jobs: string): string => ["name: CI", "on:", "  pull_request:", "jobs:", jobs].join("\n");
+
+test("an added job no required name stands for fails, naming the job and the roll-up", () => {
+  const base = workflow("  check:\n    needs: [build]\n  build:\n    runs-on: x");
+  const verdict = checkTestIntegrity({
+    files: parseNameStatus("M\t.github/workflows/ci.yml\n"),
+    diff: "",
+    workflows: [{ path: ".github/workflows/ci.yml", head: `${base}\n  lint:\n    runs-on: x`, base }],
+    requiredContexts: ["check"],
+  });
+  assert.equal(verdict.ok, false);
+  assert.deepEqual(verdict.reasons, [
+    "new CI job `lint` in .github/workflows/ci.yml is required by nothing: add it to the `needs:` of the roll-up `check`",
+  ]);
+});
+
+test("a silenced test and an added unrequired job report both reasons", () => {
+  const base = workflow("  check:\n    runs-on: x");
+  const verdict = checkTestIntegrity({
+    files: parseNameStatus("M\ttest/truncate.test.js\nM\t.github/workflows/ci.yml\n"),
+    diff: diffOf("test/truncate.test.js", ['test.skip("truncates", () => {});']),
+    workflows: [{ path: ".github/workflows/ci.yml", head: `${base}\n  lint:\n    runs-on: x`, base }],
+    requiredContexts: ["check"],
+  });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.reasons.length, 2);
+  assert.match(verdict.reasons[0], /new skip\/only\/todo marker/);
+  assert.match(verdict.reasons[1], /new CI job `lint`/);
+});
+
+test("an added job with no roll-up in its file names the required checks instead", () => {
+  const verdict = checkTestIntegrity({
+    files: parseNameStatus("A\t.github/workflows/lint.yml\n"),
+    diff: "",
+    workflows: [{ path: ".github/workflows/lint.yml", head: workflow("  lint:\n    runs-on: x") }],
+    requiredContexts: ["check"],
+  });
+  assert.deepEqual(verdict.reasons, [
+    "new CI job `lint` in .github/workflows/lint.yml is required by nothing: roll it up under one of the required checks (check)",
+  ]);
+});
+
 test("a clean diff passes", () => {
   const verdict = checkTestIntegrity({
     files: parseNameStatus("A\ttest/truncate.test.js\nM\tsrc/truncate.js\n"),

@@ -64,6 +64,7 @@ test("a failed call throws a GhError carrying the command, the exit status, stde
   assert.equal(error.status, 3);
   assert.match(error.stderr, /gh: not found/);
   assert.equal(error.signal, null);
+  assert.equal(error.timedOut, false);
 });
 
 test("a killed call carries the signal and no exit status", () => {
@@ -71,6 +72,7 @@ test("a killed call carries the signal and no exit status", () => {
   const error = thrownBy(() => gh(["api", "x"]));
   assert.equal(error.signal, "SIGTERM");
   assert.equal(error.status, null);
+  assert.equal(error.timedOut, false, "a call killed from outside is not a call the wrapper timed out");
 });
 
 test("the description names the command and never the token, which travels in env", () => {
@@ -105,6 +107,14 @@ test("a failure that is not a failed call at all is still described and still ca
   assert.equal(error.status, null);
   assert.equal(error.stderr, "");
   assert.equal(error.signal, null);
+  assert.equal(error.timedOut, false);
+});
+
+test("a spawn that never happened is a failure, and not a timeout", () => {
+  const enoent = Object.assign(new Error("spawnSync gh ENOENT"), { code: "ENOENT", status: null, stderr: "" });
+  const error = new GhError(["pr", "list"], enoent);
+  assert.equal(error.timedOut, false);
+  assert.equal(error.message, "gh pr list failed: ENOENT (spawnSync gh ENOENT)");
 });
 
 test("never inherits stdin, so a gh prompt cannot hang the job", () => {

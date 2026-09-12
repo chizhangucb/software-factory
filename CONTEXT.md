@@ -11,7 +11,7 @@ It binds the factory's own prose, not vendored text: where a name is sandcastle'
 **tomte**:
 This thing, and the repo it lives in, `chizhangucb/tomte`. Its fixture target is `chizhangucb/tomte-fixture`. Lower case, the way a command is. Named 2026-09-12 (#116); it was `software-factory` before, and GitHub redirects that name rather than freeing it.
 _Avoid_: Software Factory, software-factory, the platform, the system.
-_Except_ in a dated record: `docs/research/` and the dispatcher's recorded API fixtures were written against the old name and keep it, as does any ADR paragraph arguing from what was true before the rename. `factory/lib/factory-repo.ts` is the one place the address is written down, and `factory-repo.test.ts` holds every other copy to it.
+_Except_ in a dated record: `docs/research/` and the dispatcher's recorded API fixtures were written against the old name and keep it, as does any ADR paragraph arguing from what was true before the rename, and so do the two pages telling the rename's own story, `docs/adr/0003` and `docs/pipeline.md`. `factory/lib/factory-repo.ts` is the constant every other copy is checked against, not the only place the address is written: each of the seven `factory_repo` defaults and the caller template spells it out, because a workflow cannot import a constant, and `factory-repo.test.ts` holds every one of them to it.
 
 The factory stays the ordinary word for what tomte does, and every term below still uses it: a factory PR, the factory's reusable workflows, the `factory` ruleset, `FACTORY_PAUSED`. The name changed, the common noun did not.
 

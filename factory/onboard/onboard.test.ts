@@ -871,7 +871,7 @@ test("a workflow that runs on no pull request is not CI for this purpose", () =>
   assert.ok(run.starterFile);
 });
 
-test("chronicle and factory-fixture each take the path their current shape implies", () => {
+test("chronicle and tomte-fixture each take the path their current shape implies", () => {
   // Both carry a workflow that runs on a pull request, so neither is ever written to, and
   // both keep the own checks their ruleset already requires. Shown here rather than by
   // running the script against them.

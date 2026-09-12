@@ -16,10 +16,11 @@
  * as `heartbeat/interval.ts`, and the same reason.
  *
  * The repo was `chizhangucb/software-factory` until 2026-09-12 and is
- * `chizhangucb/tomte` now. The rename touched eight `factory_repo` defaults and
- * the caller template here, and seven `uses:` lines in each of three callers
- * that live in other repos. A name in that many places is one that drifts,
- * which is the lesson #261 wrote down for the heartbeat's interval.
+ * `chizhangucb/tomte` now. The rename touched seven `factory_repo` defaults,
+ * one per reusable workflow, and the caller template here, and seven `uses:`
+ * lines in each of three callers that live in other repos. A name in that many
+ * places is one that drifts, which is the lesson #261 wrote down for the
+ * heartbeat's interval.
  *
  * **What this does not cover.** A caller lives in the target repo, outside this
  * repo's reach, so `factory-repo.test.ts` holds only this repo's own copies to
@@ -28,8 +29,9 @@
  * The redirect is a grace period and not a fix: a caller still naming the old
  * repo works until someone takes that name.
  *
- * Builtins only, so it stays reachable from the sender's cone the way
- * `heartbeat/targets.ts` does.
+ * Builtins only, the way `heartbeat/targets.ts` is, so importing it from the
+ * sender's cone would never cost that cone its bare
+ * `node --experimental-strip-types` run.
  */
 
 /** `chizhangucb/tomte`. The repo holding the factory's scripts and workflows. */

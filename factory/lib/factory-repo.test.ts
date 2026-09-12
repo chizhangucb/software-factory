@@ -2,7 +2,7 @@
  * The factory's address is written in one constant and checked everywhere
  * else (#116).
  *
- * Two checks, because neither catches the other's failure. One holds the eight
+ * Two checks, because neither catches the other's failure. One holds the seven
  * `factory_repo` defaults to the constant, which is the copy that breaks a
  * target's jobs when it is wrong. One hunts the old name across every tracked
  * file, which is the copy that breaks nothing and is therefore never noticed:
@@ -67,9 +67,17 @@ test("every workflow that checks the factory out defaults to the factory's name"
   const withInput = tracked().filter((f) => f.startsWith(".github/workflows/") && read(f).includes("factory_repo:"));
   assert.ok(withInput.length > 0, "no workflow declares a factory_repo input, so this test is checking nothing");
   for (const file of withInput) {
-    const declared = /factory_repo:[\s\S]*?default:\s*(\S+)/.exec(read(file));
+    // Scoped to the input's own block, and not to the next `default:` anywhere
+    // below it: a `factory_repo` declared with no default would otherwise read
+    // the following input's default, so the missing-default case could never
+    // fire and the failure would name another input's value.
+    const block = /^([ \t]*)factory_repo:[^\n]*\n((?:\1[ \t]+[^\n]*\n)*)/m.exec(read(file));
+    assert.ok(block, `${file} mentions factory_repo but declares no such input`);
+    const declared = /^[ \t]*default:[ \t]*(.+?)[ \t]*$/m.exec(block[2]!);
     assert.ok(declared, `${file} declares factory_repo with no default, so a caller that omits it checks out nothing`);
-    assert.equal(declared[1], FACTORY_REPO, `${file} defaults factory_repo to ${declared[1]}`);
+    // Unquoted in every workflow today, and YAML lets either, so a quoted
+    // default is a pass and not a spurious red.
+    assert.equal(declared[1]!.replace(/^(['"])(.*)\1$/, "$2"), FACTORY_REPO, `${file} defaults factory_repo to ${declared[1]}`);
   }
 });
 

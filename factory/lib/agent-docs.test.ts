@@ -8,17 +8,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { test } from "node:test";
 
+import { allRepoFiles } from "./repo-files.ts";
+
 const repoUrl = (file: string): URL => new URL(`../../${file}`, import.meta.url);
 const readRepo = (file: string): string => fs.readFileSync(repoUrl(file), "utf8");
 const linesOf = (file: string): string[] => readRepo(file).split("\n");
-
-/** Named roots rather than a walk from the top: `.claude/` holds other sessions' worktrees. */
-const ROOTS = ["README.md", "CONTEXT.md", "AGENTS.md", "docs", "templates", "scripts", "factory", ".github"];
-const filesUnder = (entry: string): string[] => {
-  if (!fs.existsSync(repoUrl(entry))) return [];
-  if (!fs.statSync(repoUrl(entry)).isDirectory()) return [entry];
-  return fs.readdirSync(repoUrl(entry)).flatMap((name) => (name === "node_modules" ? [] : filesUnder(`${entry}/${name}`)));
-};
 
 const REMOVED = ["docs/agents/hold.md", "docs/agents/tracker-conventions.md", "factory/lib/vendored-agent-docs.test.ts"];
 
@@ -26,7 +20,7 @@ test("the removed pages and test are gone, and no file names them", () => {
   for (const file of REMOVED) assert.ok(!fs.existsSync(repoUrl(file)), `${file} is gone`);
   // A whole name only, so `threshold.md` is not `hold.md`.
   const names = REMOVED.map((file) => new RegExp(`(?<![\\w.-])${file.split("/").at(-1)!.replaceAll(".", "\\.")}`));
-  for (const file of ROOTS.flatMap(filesUnder).filter((file) => file !== "factory/lib/agent-docs.test.ts")) {
+  for (const file of allRepoFiles().filter((file) => file !== "factory/lib/agent-docs.test.ts")) {
     const text = readRepo(file);
     for (const name of names) assert.doesNotMatch(text, name, `${file} names a removed file`);
   }

@@ -65,6 +65,20 @@ Do not reach for `gh workflow disable factory.yml` instead. That file is the cal
 
 The gate lives in the caller, so it drifts like the trigger set: a target that has not re-copied `templates/factory.yml` since this landed has no gate, and setting the variable there does nothing at all. Re-copy the caller.
 
+## Waive the factory's checks on a target
+
+The complement of a pause, for a factory that cannot run at all (PAT expired, Actions down): its checks stop being required on one target, and the target keeps merging on its own CI.
+
+```
+scripts/waive-factory-checks.sh owner/repo on "factory PAT expired, see #244"
+scripts/waive-factory-checks.sh owner/repo off   # put them back
+```
+
+- `on` sets `FACTORY_CHECKS_WAIVED` to the reason, then takes `factory/verdict`, `factory/red-green` and `factory/test-integrity` out of the target's `factory` ruleset. The target's own check names are untouched.
+- The variable is written first on purpose: a failure between the two leaves a waiver visible and not yet in effect, never one in effect and invisible. `off` reverses the order for the same reason.
+- Only a human runs it. `FACTORY_PAT` cannot write repo variables, and nothing in the factory sets or clears this one: a broken factory restoring its own required checks is how a silent green happens.
+- Nothing closes a waiver automatically. The heartbeat names an open one, with its reason, every run until somebody runs `off`.
+
 ## Where to read more
 
 - `docs/pipeline.md`: the reference. Every caller input, every pipeline stage, the engine, and the layout of the tree.

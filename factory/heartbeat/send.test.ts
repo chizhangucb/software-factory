@@ -20,6 +20,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 
 import { TARGET_REPOS } from "./targets.ts";
+import { WAIVER_VARIABLE } from "./waiver.ts";
 
 const repoRoot = new URL("../../", import.meta.url);
 const ENTRYPOINT = "factory/heartbeat/send.ts";
@@ -78,6 +79,18 @@ test("the command a host runs completes a pass on bare node, with nothing instal
   // Every outcome in the summary, so a pass that skipped a target says so
   // rather than reading as a quiet repo.
   assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), ${TARGET_REPOS.length} woken, 0 skipped, 0 failed`));
+});
+
+test("a pass names an open waiver on every target it finds one on", () => {
+  // A dry run reads no target and answers as one that is waived, so the pass
+  // prints the shape a waived interval takes without touching a live repo.
+  const stdout = execFileSync(process.execPath, ["--experimental-strip-types", ENTRYPOINT], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { DRY_RUN: "1", PATH: "" },
+  });
+  for (const target of TARGET_REPOS) assert.match(stdout, literal(`${target} WAIVED:`));
+  assert.match(stdout, literal(WAIVER_VARIABLE));
 });
 
 test("the runnable reaches only builtins and .ts files, so it runs with no npm install", () => {

@@ -22,10 +22,12 @@
  * (`send.test.ts` pins that).
  */
 import { parseItems } from "../dispatch/gh-read.ts";
+import { errorMessage } from "../lib/errors.ts";
 import { gh } from "../lib/gh.ts";
 import { READY_LABEL } from "../lib/labels.ts";
 import { type TargetOutcome, sendHeartbeat } from "./heartbeat.ts";
 import { TARGET_REPOS } from "./targets.ts";
+import { WAIVER_VARIABLE, isUnset, waiverLine, waiverReadArgs, waiverReason } from "./waiver.ts";
 import { type OpenSubject, fromGitHub, openWorkArgs } from "./work.ts";
 
 const dryRun = process.env.DRY_RUN === "1";
@@ -48,6 +50,32 @@ const readOpenWork = (target: string): OpenSubject[] => fromGitHub(parseItems(gh
 
 /** A dry run reads no target, and answers as one with a ready ticket on it. */
 const asIfBusy = (): OpenSubject[] => [{ pullRequest: false, labels: [READY_LABEL] }];
+
+/**
+ * The waiver nag (#244), every run: a target whose factory checks a human took
+ * off is named until they are put back, because nothing closes a waiver
+ * automatically. A read that fails for any reason other than the variable not
+ * being there is said out loud and fails no target: the nag is not the pass.
+ * It goes in the digest instead once there is one.
+ */
+const nagIfWaived = (target: string): void => {
+  const reason = dryRun ? `the pass reports the shape a waived target takes (${WAIVER_VARIABLE} unread)` : readWaiverReason(target);
+  const line = waiverLine(target, reason);
+  if (line) console.log(`${at()} ${line}${dryRun ? " (dry run)" : ""}`);
+};
+
+/** One target's waiver reason, or nothing: an unset variable is a 404 and means no waiver. */
+const readWaiverReason = (target: string): string | undefined => {
+  try {
+    return waiverReason(gh(waiverReadArgs(target)));
+  } catch (error) {
+    const message = errorMessage(error);
+    if (!isUnset(message)) console.error(`${at()} could not read ${WAIVER_VARIABLE} on ${target}: ${message}`);
+    return undefined;
+  }
+};
+
+for (const target of TARGET_REPOS) nagIfWaived(target);
 
 const outcomes = sendHeartbeat({
   targets: TARGET_REPOS,

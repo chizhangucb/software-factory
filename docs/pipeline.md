@@ -54,6 +54,16 @@ The circuit breaker for one target: the repository variable `FACTORY_PAUSED`, re
 - **Visible while it is on.** The variable, plus a `paused` job in every factory run for as long as it is set: a `::warning::` annotation and a step summary naming the reason and what is still running. It is the caller's only job that calls no reusable workflow, and it earns its place because a skipped job is still an absence, which is the inference the ticket refuses. It costs one runner minute per event answered while paused. For an event that wakes a job unpaused that is what the event already cost; for one that wakes nothing, a label outside the factory's vocabulary going on or one of the factory's own coming off, it is a minute the pause adds.
 - **It lives in the caller, so it drifts silently**, the same way the trigger set does. A target that has not re-copied `templates/factory.yml` since #171 has no gate at all and `FACTORY_PAUSED` set there does nothing; nothing in the factory can see a target's copy. Until the re-copy, `gh workflow disable` is still that target's only breaker, with the cost above.
 
+## Waiver
+
+A pause's complement, for a factory that cannot run: `scripts/waive-factory-checks.sh owner/repo on "<reason>"` takes the factory's three contexts out of the target's `factory` ruleset, `off` puts them back. README has the commands.
+
+- **Where it lives.** The repository variable `FACTORY_CHECKS_WAIVED`, beside `FACTORY_PAUSED`, so both switches sit together in the target's settings. Unlike a pause it is not read by the caller: nothing in the factory reads it except the heartbeat, and nothing in the factory writes it at all.
+- **The write order is the interface.** Variable, then ruleset, on `on`. A failure between them leaves a nag with nothing waived. `off` writes the ruleset first, so a half-failed close leaves the target gated with the nag still up. Both half-states are the safe one.
+- **Nothing closes it.** The heartbeat names an open waiver every run. A broken factory restoring its own required checks is how a silent green happens, so no signal clears one.
+- **It replaces the admin bypass**, which was per pull request, by hand, with no record of why.
+- **It is not a standing policy.** A waiver is for a factory that cannot run, and it leaves the target merging on its own CI alone.
+
 ## Dispatcher
 
 Runs on the caller's `issues: [closed, labeled, unassigned, unlabeled]`, on `workflow_dispatch`, on the `repository_dispatch` event `factory-sweep`, and on the caller's `schedule` every 10 minutes.

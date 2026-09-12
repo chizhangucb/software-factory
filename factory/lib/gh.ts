@@ -45,8 +45,7 @@ const GH_MAX_BUFFER = 64 * 1024 * 1024;
  * call and not a throttled one, and killing it leaves the 5 minute dispatcher
  * four minutes to finish its sweep and log what happened. A false fire is
  * cheap: one skipped sweep, and a sweep runs on the heartbeat's interval,
- * which is itself the tightest of those deadlines
- * (`factory/heartbeat/interval.ts`).
+ * which is itself the tightest of those deadlines (`heartbeat/interval.ts`).
  *
  * One number for every caller, decided once. A caller that could pick its own
  * re-opens the decision at every call site, which is the drift a single

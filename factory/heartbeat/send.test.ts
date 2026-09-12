@@ -21,7 +21,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { intervalPhrase } from "./interval.ts";
+import { INTERVAL_PHRASE } from "./interval.ts";
 import { PAUSE_VARIABLE } from "./pause.ts";
 import { TARGET_REPOS } from "./targets.ts";
 import { WAIVER_VARIABLE } from "./waiver.ts";
@@ -283,8 +283,64 @@ test("both pages say how often to run the sender, and say the same thing", () =>
   // day the heartbeat moved to 15.
   for (const page of DOC_PAGES) {
     const text = fs.readFileSync(new URL(page, repoRoot), "utf8");
-    assert.match(text, literal(intervalPhrase()), `${page} says how often the sender runs`);
+    assert.match(text, literal(INTERVAL_PHRASE), `${page} says how often the sender runs`);
   }
+});
+
+/**
+ * A cadence written as a number of minutes, in the shapes this repo's prose
+ * actually uses. Not just `every N minutes`: the site this test missed on its
+ * first pass said "waiting up to ten minutes for the next heartbeat", in a
+ * file the same commit edited thirteen lines lower.
+ */
+const NUMBER = String.raw`(?:\d+|ten|fifteen|twenty|thirty)`;
+const STATED_CADENCE = new RegExp(
+  // Two fences against the things that are a number of minutes without being
+  // a cadence. "after 15 minutes" is a deadline, which is what
+  // `retry/decide.test.ts` is full of, so the lead-ins are only the ones that
+  // say "repeatedly" or "at worst". And the second form is fenced on its noun,
+  // because "the 5 minute dispatcher" in `lib/gh.ts` is that job's own budget.
+  String.raw`(?:every|within|up to) ${NUMBER} minutes|\b${NUMBER}[- ]minute (?:sweep|heartbeat|interval)\b`,
+  "i",
+);
+
+/**
+ * Prose that is about the heartbeat at all, which is the only cadence this
+ * test owns. `sweep` is in the list because that is what most of the repo
+ * calls the thing the interval drives: `agent-implement.yml` describes the
+ * dispatcher's sweep at length and never uses either of the other two words,
+ * so a scope without it skipped that file whole, and the stale cadence in it
+ * with the scan green.
+ */
+const ABOUT_THE_HEARTBEAT = /heartbeat|factory-sweep|\bsweep\b/i;
+
+/** Comment markers and line breaks gone, so a pattern can cross the wrap of a comment block. */
+const asProse = (raw: string): string => raw.replace(/^\s*(?:\*|#|\/\/)\s?/gm, " ").replace(/\s+/g, " ");
+
+test("the cadence scanner matches the shapes this repo writes, so it cannot pass by failing to look", () => {
+  // The positive control. The first draft of the scan below could not cross a
+  // line break, so it was green against all twelve sites it existed to find,
+  // and nothing said so. A scan is only evidence if the pattern is known to
+  // match what it is hunting.
+  // Every shape below is one this repo actually wrote, and each of the last
+  // three got past an earlier draft of this pattern.
+  const shouldMatch = [
+    "the heartbeat, sent from outside GitHub every 10 minutes",
+    "* GitHub every 15 minutes; the schedule is\n * the fallback",
+    "instead of waiting up to ten minutes for the next heartbeat",
+    "the dispatcher's ten minute sweep re-dispatches exactly that shape",
+    "so a 10-minute sweep costs seconds",
+  ];
+  for (const prose of shouldMatch) assert.match(asProse(prose), STATED_CADENCE, `the scanner would miss: ${prose}`);
+  // And the things that are a number of minutes without being this cadence.
+  const shouldNotMatch = [
+    "the heartbeat's interval, which interval.ts names",
+    "instead of waiting for the next heartbeat",
+    "killing it leaves the 5 minute dispatcher four minutes to finish its sweep",
+    "no call outlives 60 seconds",
+    '- cron: "4,14,24,34,44,54 * * * *"',
+  ];
+  for (const prose of shouldNotMatch) assert.doesNotMatch(asProse(prose), STATED_CADENCE, `the scanner would flag: ${prose}`);
 });
 
 test("no other page or module restates the interval, so there is one copy to keep true", () => {
@@ -292,32 +348,45 @@ test("no other page or module restates the interval, so there is one copy to kee
   // other site says "the heartbeat interval" and defers, so a change to the
   // number is a change to one page and a constant.
   //
-  // The caller's own `schedule` cron is a genuinely separate cadence and is
-  // not this number, so files are matched for the phrase rather than for the
-  // digits: `templates/factory.yml` still documents its cron in minutes and
-  // must go on doing so.
-  const owners = new Set([...DOC_PAGES, "factory/heartbeat/interval.ts", "factory/heartbeat/interval.test.ts", "factory/heartbeat/send.test.ts"]);
+  // Scoped to files that talk about the heartbeat at all. A repo-wide hunt for
+  // "N minutes" would fail on any unrelated cadence somebody writes down: a
+  // vendored fixture's own cron, a rate-limit note, a target's CI. Those are
+  // not this number and this test has no business judging them.
+  //
+  // The caller's own `schedule` is a genuinely separate cadence in a file that
+  // does mention the heartbeat, so it earns its keep by stating itself as a
+  // cron expression rather than as prose, which `STATED_CADENCE` does not
+  // match.
+  // Judged per statement and not per file, so the two owner pages are scanned
+  // like everything else. An exempt file is a file nothing checks: the draft
+  // that exempted them left `docs/pipeline.md` asserting the number is stated
+  // "nowhere else" a hundred lines above a second, stale statement of it.
+  //
+  // A sentence about the caller's `schedule` is the one other cadence allowed,
+  // because it is a real and separate one: the caller's cron fires on its own
+  // rhythm and README and this page both describe it.
+  const skipped = new Set(["factory/heartbeat/interval.ts", "factory/heartbeat/interval.test.ts", "factory/heartbeat/send.test.ts"]);
   const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: fileURLToPath(repoRoot), encoding: "utf8" }).split("\0").filter(Boolean);
   assert.ok(tracked.length > 0, "the walk found no tracked files at all");
   const restating: string[] = [];
+  let scanned = 0;
   for (const file of tracked) {
-    if (owners.has(file) || !/\.(md|ts|yml|sh)$/.test(file)) continue;
-    // Comment markers and line breaks stripped before matching: every site
-    // this is looking for is wrapped prose inside a `*` or `#` comment, and a
-    // pattern that could not cross a line break passed this vacuously.
-    const text = fs
-      .readFileSync(new URL(file, repoRoot), "utf8")
-      .replace(/^\s*(?:\*|#|\/\/)\s?/gm, " ")
-      .replace(/\s+/g, " ");
-    // Any cadence stated as a number of minutes, spelled or in digits. Broad
-    // on purpose: the caller's `schedule` states its own cadence as a cron
-    // expression rather than this phrase, so nothing legitimate is caught, and
-    // a narrower pattern tied to nearby words let four of the twelve sites
-    // through on the first draft of this test.
-    const stated = text.match(/every (?:\d+|ten|fifteen|twenty|thirty) minutes/i);
-    if (stated) restating.push(`${file} ("${stated[0]}")`);
+    if (skipped.has(file) || !/\.(md|ts|yml|sh)$/.test(file)) continue;
+    const text = asProse(fs.readFileSync(new URL(file, repoRoot), "utf8"));
+    if (!ABOUT_THE_HEARTBEAT.test(text)) continue;
+    scanned += 1;
+    for (const sentence of text.split(/(?<=[.:])\s/)) {
+      const stated = sentence.match(STATED_CADENCE);
+      if (!stated) continue;
+      if (/\bschedule\b|\bcron\b/i.test(sentence)) continue;
+      if (stated[0].toLowerCase() === `every ${INTERVAL_PHRASE}`) continue;
+      restating.push(`${file} ("${stated[0]}")`);
+    }
   }
-  assert.deepEqual(restating, [], `these restate the heartbeat interval instead of naming it: ${restating.join(", ")}`);
+  // A scope that matched nothing would pass this for the wrong reason, and the
+  // heartbeat is named across the caller, the workflows and the dispatcher.
+  assert.ok(scanned > 5, `only ${scanned} files mention the heartbeat, so the scope has stopped reaching them`);
+  assert.deepEqual(restating, [], `these state the heartbeat's cadence instead of naming the interval: ${restating.join(", ")}`);
 });
 
 test("both pages say what a pause stops, what it does not, and that the heartbeat is what stops waking the target", () => {

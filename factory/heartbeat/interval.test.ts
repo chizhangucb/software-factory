@@ -12,8 +12,28 @@ import { test } from "node:test";
 import { DEFAULT_DEADLINES } from "../dispatch/reconcile.ts";
 import { HEARTBEAT_INTERVAL_MINUTES } from "./interval.ts";
 
-/** The deadlines as a list, so a deadline added to the type is covered without being named here. */
+/**
+ * The deadlines the interval samples, as a list.
+ *
+ * Every member of `Deadlines` is a number of minutes today, so this takes all
+ * of them rather than naming three and going stale when a fourth lands. The
+ * test below pins the set, so a member added in some other unit, or one that
+ * is not a deadline at all, fails here and is looked at rather than silently
+ * tightening the interval.
+ */
 const deadlines = (): number[] => Object.values(DEFAULT_DEADLINES);
+
+test("every deadline sampled is a deadline, in minutes, so taking all of them is safe", () => {
+  // The set is pinned because the two tests below take `Object.values` of it.
+  // A member added in seconds, or one that is not a deadline at all, would
+  // pull the minimum down and tighten the interval with nobody deciding to.
+  // Adding a deadline means adding it here, and the name says the unit.
+  assert.deepEqual(Object.keys(DEFAULT_DEADLINES).sort(), ["stuckMinutes", "updateMinutes", "verdictMinutes"]);
+  for (const [name, value] of Object.entries(DEFAULT_DEADLINES)) {
+    assert.match(name, /Minutes$/, `${name} is sampled as minutes and is not named as minutes`);
+    assert.ok(Number.isInteger(value) && value > 0, `${name} is ${value}, which is not a number of minutes`);
+  }
+});
 
 test("the interval is no larger than the tightest reconciler deadline", () => {
   // A deadline is only ever checked when a sweep runs, so the interval is the

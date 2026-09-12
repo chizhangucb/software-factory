@@ -41,4 +41,4 @@ export const HEARTBEAT_INTERVAL_MINUTES = 15;
  * test rather than by being retyped. `send.test.ts` holds both onboarding
  * pages to it.
  */
-export const intervalPhrase = (): string => `${HEARTBEAT_INTERVAL_MINUTES} minutes`;
+export const INTERVAL_PHRASE = `${HEARTBEAT_INTERVAL_MINUTES} minutes`;

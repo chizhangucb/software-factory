@@ -47,7 +47,15 @@ case "$args" in
   "label create"*) ;;
   "repo edit"*) ;;
   "api --method POST"*) cat > "$GH_PAYLOAD"; echo 4242 ;;
+  "api --method PUT"*contents/*) cat > "$GH_FILE_PAYLOAD" ;;
   "api --method PUT"*)  cat > "$GH_PAYLOAD" ;;
+  "api -H Accept: application/vnd.github.raw"*)
+    name="\${args##*/}"
+    if [ "$name" = "factory.yml" ] && [ -n "\${GH_CALLER_ERROR:-}" ]; then echo "$GH_CALLER_ERROR" >&2; exit 1; fi
+    if [ -f "$GH_WORKFLOWS/$name" ]; then cat "$GH_WORKFLOWS/$name"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
+  *"contents/.github/workflows --jq"*)
+    if [ -n "\${GH_WORKFLOWS_ERROR:-}" ]; then echo "$GH_WORKFLOWS_ERROR" >&2; exit 1; fi
+    if [ -n "$(ls -A "$GH_WORKFLOWS")" ]; then ls "$GH_WORKFLOWS"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
   *"contents/.github/workflows/factory.yml"*)
     if [ -n "\${GH_CALLER_ERROR:-}" ]; then echo "$GH_CALLER_ERROR" >&2; exit 1
     elif [ "$GH_HAS_CALLER" = "true" ]; then exit 0
@@ -79,18 +87,28 @@ type OnboardOptions = {
   rulesetError?: string;
   /** When set, the listing that finds the ruleset fails first, before there is an id to read. */
   rulesetsError?: string;
+  /** The target's `.github/workflows`, by file name, as the raw fetch would return them. */
+  workflows?: Record<string, string>;
 };
 
 /** A temp directory holding the stub `gh`, and the environment that reaches it. */
 const sandbox = (options: OnboardOptions = {}) => {
-  const { existingRulesetId, hasCaller = true, callerError, ruleset, rulesetError, rulesetsError } = options;
+  const { existingRulesetId, hasCaller = true, callerError, ruleset, rulesetError, rulesetsError, workflows } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
+  const filePayloadFile = path.join(dir, "file-payload.json");
   const callsFile = path.join(dir, "calls.tsv");
+  // The target's workflow directory, as files the stub serves. A caller is one of them, so
+  // `hasCaller` puts a factory.yml there unless the test named its own.
+  const workflowDir = path.join(dir, "workflows");
+  fs.mkdirSync(workflowDir);
+  const files = { ...(hasCaller && !workflows?.["factory.yml"] ? { "factory.yml": CALLER } : {}), ...workflows };
+  for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(workflowDir, name), body);
   return {
     dir,
     payloadFile,
+    filePayloadFile,
     callsFile,
     env: {
       ...process.env,
@@ -106,6 +124,8 @@ const sandbox = (options: OnboardOptions = {}) => {
       GH_RULESETS_ERROR: rulesetsError ?? "",
       GH_HAS_CALLER: hasCaller ? "true" : "false",
       GH_CALLER_ERROR: callerError ?? "",
+      GH_WORKFLOWS: workflowDir,
+      GH_FILE_PAYLOAD: filePayloadFile,
     },
   };
 };
@@ -149,6 +169,29 @@ const createdLabels = (calls: string[][]): Map<string, string> => {
   return labels;
 };
 
+/**
+ * A caller as a target carries it: the jobs it wires up, and the three inputs the starter
+ * CI file takes its values from. Trimmed to those lines, since that is all onboard.sh reads.
+ */
+const CALLER = `name: factory
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+jobs:
+  merge-gate:
+    uses: chizhangucb/software-factory/.github/workflows/merge-gate.yml@main
+    with:
+      factory_ref: main
+      node_version: "24"
+      install_command: pnpm install --frozen-lockfile
+      test_command: pnpm vitest run
+`;
+
+/** A target's own CI: the jobs named, each running on a pull request. */
+const ownCi = (jobs: string[] = ["check"]) =>
+  `name: ci\non:\n  pull_request:\njobs:\n` +
+  jobs.map((job) => `  ${job}:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${job}\n`).join("");
+
 type Run = {
   code: number;
   /** stdout and stderr interleaved, which is the one stream a terminal shows. */
@@ -159,6 +202,25 @@ type Run = {
   labels: Map<string, string>;
   /** Every `gh` call the run made, for the claims that are about what it did not do. */
   calls: string[][];
+  /** The starter CI file the run wrote to the target, or undefined when it wrote none. */
+  starterFile?: { path: string; content: string };
+};
+
+/**
+ * The starter CI file the run asked GitHub to commit: the path off the call, the content
+ * decoded off the payload. Undefined when the run wrote no file, which is the claim most
+ * of these tests make.
+ */
+const starterFile = (filePayloadFile: string, calls: string[][]): { path: string; content: string } | undefined => {
+  if (!fs.existsSync(filePayloadFile)) return undefined;
+  // The write, not the reads: every run fetches workflow files from the same endpoint.
+  const write = calls.find((args) => args.includes("PUT") && args.some((arg) => arg.includes("contents/")));
+  const endpoint = write?.find((arg) => arg.includes("contents/.github/workflows/")) ?? "";
+  const payload = JSON.parse(fs.readFileSync(filePayloadFile, "utf8"));
+  return {
+    path: endpoint.slice(endpoint.indexOf(".github/")),
+    content: Buffer.from(payload.content, "base64").toString("utf8"),
+  };
 };
 
 /** Onboard the target with these own checks. See `OnboardOptions` for `options`. */
@@ -178,6 +240,7 @@ const onboardWith = (ownChecks: string[], options: OnboardOptions = {}): Run => 
       payload: fs.existsSync(box.payloadFile) ? fs.readFileSync(box.payloadFile, "utf8") : "",
       labels: createdLabels(calls),
       calls,
+      starterFile: starterFile(box.filePayloadFile, calls),
     };
   } finally {
     fs.rmSync(box.dir, { recursive: true, force: true });
@@ -246,9 +309,10 @@ test("--no-own-checks on a target whose ruleset requires some is a drop like any
 });
 
 test("a first run with no own check named and no flag refuses, and writes nothing on the way", () => {
-  // No ruleset to keep a list from and no list given: the two ways forward are stated rather
-  // than one of them being taken silently, which is what the old empty guess did.
-  const run = onboardWith([]);
+  // No ruleset to keep a list from, no list given, and CI of the target's own, which onboarding
+  // never edits: the ways forward are stated rather than one of them being taken silently.
+  // A target with no CI at all is the other case, and it writes a starter file instead (#242).
+  const run = onboardWith([], { workflows: { "ci.yml": ownCi(["build"]) } });
   assert.notEqual(run.code, 0);
   assert.deepEqual(writes(run.calls), [], "no label create, no repo edit, no ruleset write");
   assert.match(run.output, /--no-own-checks/, "the flag that says the target genuinely has none");
@@ -719,4 +783,192 @@ test("a template the script cannot read never takes the warning down with it", (
   } finally {
     fs.rmSync(box.dir, { recursive: true, force: true });
   }
+});
+
+/**
+ * The roll-up (#242). A target with no workflow that runs on a pull request has no check
+ * name for its merge rule to require, so onboarding writes one: a starter CI file built
+ * from `templates/rollup-check.yml`, holding a roll-up job named `check`. A target that
+ * already has CI is never edited, in any of the three cases.
+ */
+const ROLLUP_TEMPLATE = "templates/rollup-check.yml";
+
+test("a target with no pull-request workflow is onboarded in one command, with no flag", () => {
+  const run = onboardWith([], { workflows: {}, hasCaller: false });
+  assert.equal(run.code, 0, `no CI is the case that should not refuse at all:\n${run.output}`);
+  assert.deepEqual(run.requiredChecks, ["check"], "the roll-up's name is required from the first run");
+  assert.ok(run.starterFile, "and the file publishing that name is written");
+  assert.equal(run.starterFile!.path, ".github/workflows/check.yml");
+});
+
+test("the starter file is a roll-up: a check job, the combined-result test, and the stub", () => {
+  const { starterFile } = onboardWith([], { workflows: {}, hasCaller: false });
+  const content = starterFile!.content;
+  assert.match(content, /^ {2}check:$/m, "the job the merge rule requires");
+  assert.match(content, /^ {2}check-stub:$/m, "and the stub publishing the same name");
+  assert.match(content, /name: check/, "the stub reports under the required name");
+  assert.match(content, /needs\.\*\.result/, "the combined result is tested out loud, not left to GitHub");
+  assert.match(content, /pull_request/, "a roll-up that does not run on a pull request gates nothing");
+});
+
+test("the starter file's commands and Node version come from the target's caller", () => {
+  // One place for them. A caller that says pnpm and Node 24 must not produce a starter file
+  // that says npm and 22, or the merge gate and the target's own CI test different trees.
+  const { starterFile } = onboardWith([], { workflows: {} });
+  assert.match(starterFile!.content, /pnpm install --frozen-lockfile/);
+  assert.match(starterFile!.content, /pnpm vitest run/);
+  assert.match(starterFile!.content, /node-version: "24"/);
+});
+
+test("--no-own-checks still requires no own check and still writes no starter file", () => {
+  const run = onboardWith(["--no-own-checks"], { workflows: {} });
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, factoryChecks);
+  assert.equal(run.starterFile, undefined, "the flag is the way to ask for no file at all");
+});
+
+test("a target that has a pull-request workflow is never edited, however it is onboarded", () => {
+  // The foot-gun this ticket must not build: a setup script that damages a working build.
+  for (const run of [
+    onboardWith([], { workflows: { "ci.yml": ownCi(["build", "unit"]) } }),
+    onboardWith(["build"], { workflows: { "ci.yml": ownCi(["build", "unit"]) } }),
+    onboardWith(["--no-own-checks"], { workflows: { "ci.yml": ownCi(["build", "unit"]) } }),
+  ]) {
+    assert.equal(run.starterFile, undefined, "onboarding writes no workflow file to a target that has CI");
+  }
+});
+
+test("with CI and no names, the refusal prints the roll-up with that repo's own jobs in needs", () => {
+  // #228's refusal, one step from being resolved: what to add, not only what is missing.
+  const run = onboardWith([], { workflows: { "ci.yml": ownCi(["build", "unit"]) } });
+  assert.notEqual(run.code, 0);
+  assert.deepEqual(writes(run.calls), [], "a refusal writes nothing at all");
+  assert.match(run.output, /needs: \[build, unit\]/, "the repo's own job names, already filled in");
+  assert.match(run.output, /check-stub/, "and the stub, so the paste is the whole shape");
+});
+
+test("with CI and names given, behaviour is exactly what it was", () => {
+  const run = onboardWith(["build"], { workflows: { "ci.yml": ownCi(["build"]) } });
+  assert.equal(run.code, 0);
+  assert.deepEqual(run.requiredChecks, [...factoryChecks, "build"]);
+  assert.doesNotMatch(run.output, /needs: \[/, "nothing to paste: the maintainer named what their CI posts");
+});
+
+test("the caller is not the target's own CI, so a repo carrying only one still gets a starter file", () => {
+  // Every target carries factory.yml, and it runs on a pull request. Counting it as CI would
+  // mean no target ever took the starter path.
+  const run = onboardWith([], { workflows: { "factory.yml": CALLER } });
+  assert.equal(run.code, 0);
+  assert.ok(run.starterFile, "the caller posts the factory's checks, never the target's own");
+});
+
+test("a workflow that runs on no pull request is not CI for this purpose", () => {
+  // A publish or docs workflow posts nothing on a pull request, so it leaves the merge rule
+  // with no name to require, which is the case the starter file exists for.
+  const publish = "name: publish\non:\n  push:\n    tags: ['v*']\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n";
+  const run = onboardWith([], { workflows: { "publish.yml": publish } });
+  assert.equal(run.code, 0);
+  assert.ok(run.starterFile);
+});
+
+test("chronicle and factory-fixture each take the path their current shape implies", () => {
+  // Both carry a workflow that runs on a pull request, so neither is ever written to, and
+  // both keep the own checks their ruleset already requires. Shown here rather than by
+  // running the script against them.
+  const chronicle = onboardWith([], {
+    workflows: { "ci.yml": ownCi(["gitleaks", "check", "changes", "e2e-shard", "e2e", "e2e-stub"]) },
+    ruleset: [...factoryChecks, "check", "e2e", "gitleaks"],
+  });
+  assert.equal(chronicle.code, 0);
+  assert.equal(chronicle.starterFile, undefined, "chronicle's CI is never touched");
+  assert.deepEqual(chronicle.requiredChecks, [...factoryChecks, "check", "e2e", "gitleaks"]);
+
+  const fixture = onboardWith([], {
+    workflows: { "check.yml": ownCi(["check"]), "verify-secrets.yml": ownCi(["verify"]) },
+    ruleset: [...factoryChecks, "check"],
+  });
+  assert.equal(fixture.code, 0);
+  assert.equal(fixture.starterFile, undefined);
+  assert.deepEqual(fixture.requiredChecks, [...factoryChecks, "check"]);
+});
+
+test("the roll-up template names the shape and no stack fact", () => {
+  // The same rule templates/factory.yml keeps: what installs and what tests is the target's,
+  // and it reaches the starter file from the caller rather than from a second copy here.
+  const template = fs.readFileSync(new URL(`../../${ROLLUP_TEMPLATE}`, import.meta.url), "utf8");
+  assert.match(template, /needs\.\*\.result/, "the explicit combined-result test");
+  assert.match(template, /-stub:/, "and the stub publishing the same check name");
+  for (const stackFact of ["npm", "pnpm", "node-version", "setup-node", "yarn", "cargo", "pytest"]) {
+    assert.ok(!template.includes(stackFact), `${ROLLUP_TEMPLATE} names ${stackFact}, which is the target's fact`);
+  }
+});
+
+test("the starter file's fallbacks are the caller's own defaults, not a second set of values", () => {
+  // A caller that leaves an input commented out runs merge-gate.yml's default for it, so the
+  // starter file has to run the same thing. Read off that workflow rather than pinned here:
+  // this goes red the day the two disagree, which is the drift the one-place rule is about.
+  const mergeGate = fs.readFileSync(new URL("../../.github/workflows/merge-gate.yml", import.meta.url), "utf8");
+  const defaultOf = (input: string) =>
+    mergeGate.split(`${input}:`)[1]?.match(/^\s+default:\s*(.+)$/m)?.[1]?.trim().replace(/^"|"$/g, "");
+  const { starterFile } = onboardWith([], { workflows: { "factory.yml": "name: factory\non:\n  pull_request:\njobs:\n  merge-gate:\n    with:\n      factory_ref: main\n" } });
+  for (const input of ["install_command", "test_command", "node_version"]) {
+    assert.match(starterFile!.content, new RegExp(defaultOf(input)!), `${input}'s default should reach the starter file`);
+  }
+});
+
+test("the merge-gate job's inputs are the ones the starter file takes, not another job's", () => {
+  // install_command, test_command and node_version are inputs on several of the caller's jobs.
+  // The merge-gate's are the ones that say what this target installs and how it tests.
+  const caller = CALLER.replace("jobs:\n", "jobs:\n  implement:\n    with:\n      node_version: \"18\"\n      test_command: never run this\n");
+  const { starterFile } = onboardWith([], { workflows: { "factory.yml": caller } });
+  assert.match(starterFile!.content, /pnpm vitest run/);
+  assert.doesNotMatch(starterFile!.content, /never run this|node-version: "18"/);
+});
+
+test("a check.yml already there is never overwritten, whatever it runs on", () => {
+  // The starter file is the one file onboarding writes, and it writes it only where there is
+  // nothing to damage. A file at that path that runs on no pull request is still somebody's.
+  const run = onboardWith([], { workflows: { "check.yml": "name: check\non:\n  workflow_dispatch:\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n" } });
+  assert.notEqual(run.code, 0);
+  assert.deepEqual(writes(run.calls), [], "a refusal writes nothing at all");
+  assert.equal(run.starterFile, undefined);
+});
+
+test("a pull-request trigger written inline is still a trigger, so that CI is never written to", () => {
+  // The misread that costs: `pull_request: {branches: [main]}` read as no trigger makes a
+  // target with a working build look empty, and onboarding then writes a file into it.
+  const inline = "name: ci\non:\n  pull_request: {branches: [main]}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n";
+  const run = onboardWith([], { workflows: { "ci.yml": inline } });
+  assert.notEqual(run.code, 0, "a target with CI refuses rather than taking the starter path");
+  assert.equal(run.starterFile, undefined);
+  assert.match(run.output, /needs: \[build\]/);
+});
+
+test("a workflow indented four spaces still fills needs, rather than rolling up nothing", () => {
+  // `needs: []` passes its own result test: a required check that is green whatever happens,
+  // which is worse than no roll-up at all.
+  const fourSpace = "name: ci\non:\n  pull_request:\njobs:\n    build:\n        runs-on: ubuntu-latest\n    unit:\n        runs-on: ubuntu-latest\n";
+  const run = onboardWith([], { workflows: { "ci.yml": fourSpace } });
+  assert.notEqual(run.code, 0);
+  assert.match(run.output, /needs: \[build, unit\]/, "the job names, whatever the file's indentation");
+});
+
+test("the pasted needs never names a job the roll-up cannot depend on", () => {
+  // A job the target already calls `check` is the roll-up's own key: in needs it is a job
+  // depending on itself. A name in two workflows is one name, listed once.
+  const run = onboardWith([], {
+    workflows: { "ci.yml": ownCi(["check", "build"]), "nightly.yml": ownCi(["build", "unit"]) },
+  });
+  assert.notEqual(run.code, 0);
+  assert.match(run.output, /needs: \[build, unit\]/, "no self-dependency, and no name twice");
+  assert.match(run.output, /ci\.yml, nightly\.yml/, "and it says the jobs came from several files");
+});
+
+test("a caller's single-quoted input reaches the starter file as its value, not with its quotes", () => {
+  // `node-version: "'24'"` is a Node nobody has, so the starter check is red forever and
+  // required from the same run.
+  const caller = CALLER.replace('node_version: "24"', "node_version: '24' # keep in step with ci");
+  const { starterFile } = onboardWith([], { workflows: { "factory.yml": caller } });
+  assert.match(starterFile!.content, /node-version: "24"/);
+  assert.doesNotMatch(starterFile!.content, /keep in step|'24'/);
 });

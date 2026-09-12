@@ -4,8 +4,13 @@
 # An own check is a required context in the target's `factory` ruleset not starting with `factory/`.
 # Nothing is read off the target's commits: the script guesses no check, ever.
 #   named: required as listed. None named: a re-run keeps what the ruleset already requires.
-#   None named and no ruleset yet: refused, unless --no-own-checks.
+#   None named, no ruleset yet, and no workflow that runs on a pull request: a starter CI file
+#     is written from templates/rollup-check.yml, publishing the roll-up check `check`, and
+#     `check` is required. One command, no flag. --no-own-checks still writes no file.
+#   None named, no ruleset yet, and the target has such a workflow: refused, with the roll-up to
+#     paste and that repo's own job names already in its `needs`.
 #   A write that would drop an own check: refused, unless --allow-drop.
+# The CI of a target that has some is never edited, ever.
 # Every refusal is before the first write.
 set -euo pipefail
 repo="${1:?usage: onboard.sh owner/repo [--no-own-checks] [--allow-drop] [own-check ...]}"
@@ -32,6 +37,14 @@ esac
 
 no_own_checks=false
 allow_drop=false
+write_starter=false
+
+# `a, b, c` from a list, since ${array[*]} joins on one character and the separator here is two.
+join_with() {
+  local separator="$1" joined="" item; shift
+  for item in "$@"; do joined+="${joined:+$separator}$item"; done
+  printf '%s' "$joined"
+}
 named=()
 # A count of its own: bash 3.2, which is what macOS ships, reads an empty array as unset under
 # `set -u`, so every array below is counted as it is filled and expanded with the `+` guard.
@@ -105,16 +118,147 @@ note_judged_path() {
   } >&2
 }
 
+rollup_template="$(dirname "${BASH_SOURCE[0]}")/../templates/rollup-check.yml"
+# The roll-up's name, and where the starter file that publishes it goes.
+rollup_check="check"
+starter_path=".github/workflows/check.yml"
+
+# One workflow file off the target, raw. A 404 is an answer (it is not there) and returns 1;
+# anything else is not an answer and returns 2, having said why. Reading a failure as "not
+# there" is how a target with CI would be read as empty and then written to. The caller cannot
+# `exit` here: this runs in a command substitution, where an exit ends the subshell alone.
+workflow_body() {
+  local body error text status=0
+  error=$(mktemp)
+  body=$(gh api -H "Accept: application/vnd.github.raw" "repos/$repo/contents/.github/workflows/$1" 2>"$error") || status=$?
+  text=$(cat "$error"); rm -f "$error"
+  if [ "$status" -ne 0 ]; then
+    case "$text" in
+      *"HTTP 404"*) return 1 ;;
+      *) echo "onboard.sh: could not read $repo's .github/workflows/$1: $text" >&2; return 2 ;;
+    esac
+  fi
+  printf '%s\n' "$body"
+}
+
 # Reads first, every one of them, so a refusal below happens before anything is written.
 default_branch=$(gh api "repos/$repo" --jq .default_branch)
-if caller_error=$(gh api "repos/$repo/contents/.github/workflows/factory.yml" 2>&1 >/dev/null); then
-  has_caller=true
-elif [[ "$caller_error" == *"HTTP 404"* ]]; then
-  has_caller=false
-else
-  echo "onboard.sh: could not tell whether $repo carries a caller: $caller_error" >&2
-  exit 1
+caller_status=0
+caller=$(workflow_body factory.yml) || caller_status=$?
+case "$caller_status" in
+  0) has_caller=true ;;
+  1) has_caller=false; caller="" ;;
+  *) exit 1 ;;
+esac
+
+# The target's own CI is a workflow that runs on a pull request and is not the caller: the caller
+# runs on one too, and posts the factory's checks, never the target's own. Three forms of the
+# trigger, and the whole file is read rather than the `on:` block alone: a job keyed
+# `pull_request` would read as a trigger and the target as having CI, which refuses, where
+# assuming `on:` comes before `jobs:` risks the other error, writing into a CI that exists.
+# `on: [pull_request]` and `"on":` both read, since YAML 1.1 makes a bare `on` a boolean and a
+# target is free to quote it, and so does the flow form, `pull_request: {branches: [main]}`:
+# whatever follows the key is not read, so a trigger written inline is still a trigger. A false
+# negative here is the expensive one, since it is what writes a starter file into a live CI.
+# `pull_request_target` is not it: the character after `pull_request` has to end the key.
+runs_on_pull_request() {
+  awk '/^("?on"?:).*pull_request([]},:[:space:]]|$)/ { found = 1 }
+       /^[[:space:]]*-?[[:space:]]*pull_request:?([[:space:]].*)?$/ { found = 1 }
+       END { print found ? "true" : "false" }' <<<"$1"
+}
+# The job keys of a workflow: the keys at the first indentation seen under `jobs:`, whatever that
+# indentation is, and no deeper. Pinning it to two spaces read a four-space file as having no job
+# at all, and `needs: []` is a roll-up that rolls up nothing and is green forever.
+job_keys() {
+  awk '/^jobs:/ { in_jobs = 1; next }
+       in_jobs && /^[A-Za-z]/ { exit }
+       in_jobs && /^[[:space:]]+[A-Za-z0-9_.-]+:([[:space:]]*(#.*)?$|[[:space:]]*\{)/ {
+         indent = match($0, /[^[:space:]]/)
+         if (job_indent == 0) job_indent = indent
+         if (indent != job_indent) next
+         sub(/:.*$/, ""); gsub(/ /, ""); print }' <<<"$1"
+}
+
+workflows_error_file=$(mktemp)
+workflows_status=0
+workflows=$(gh api "repos/$repo/contents/.github/workflows" --jq '.[].name' 2>"$workflows_error_file") ||
+  workflows_status=$?
+workflows_error=$(cat "$workflows_error_file")
+rm -f "$workflows_error_file"
+if [ "$workflows_status" -ne 0 ]; then
+  case "$workflows_error" in
+    # No workflow directory at all: the empty target, which is the case the starter file is for.
+    *"HTTP 404"*) workflows="" ;;
+    *) refuse "$repo's workflows could not be listed:
+  $workflows_error
+That listing is what says whether the target has CI of its own, and a target
+that has some is never written to." ;;
+  esac
 fi
+own_ci_jobs=()
+own_ci_files=()
+own_ci_file_count=0
+has_own_ci=false
+starter_path_taken=false
+while IFS= read -r workflow; do
+  case "$workflow" in "") continue ;; esac
+  if [ ".github/workflows/$workflow" = "$starter_path" ]; then starter_path_taken=true; fi
+  case "$workflow" in factory.yml) continue ;; esac
+  body_status=0
+  body=$(workflow_body "$workflow") || body_status=$?
+  case "$body_status" in 0) ;; 1) continue ;; *) exit 1 ;; esac
+  if [ "$(runs_on_pull_request "$body")" != "true" ]; then continue ; fi
+  has_own_ci=true
+  own_ci_files+=("$workflow"); own_ci_file_count=$((own_ci_file_count + 1))
+  while IFS= read -r job; do
+    # Nothing that cannot go in the pasted roll-up's `needs`: its own two job keys (a job cannot
+    # depend on itself, and a second `check:` in one file is a duplicate key), and a name already
+    # listed, which two workflows sharing a job name would otherwise produce.
+    case "$job" in "" | "$rollup_check" | "$rollup_check-stub") continue ;; esac
+    for seen in ${own_ci_jobs[@]+"${own_ci_jobs[@]}"}; do
+      if [ "$seen" = "$job" ]; then continue 2; fi
+    done
+    own_ci_jobs+=("$job")
+  done <<<"$(job_keys "$body")"
+done <<<"$workflows"
+
+# What the starter file runs, from the caller's merge-gate job, so the values live in one place.
+# That job and not the file at large: the same input names appear on implement, review and audit
+# too, and the merge-gate's are the ones that say what this target installs and how it tests.
+# A caller leaving one unset runs .github/workflows/merge-gate.yml's default for it, and the
+# fallbacks below are those defaults; onboard.test.ts fails the day the two disagree.
+caller_input() {
+  local value
+  value=$(awk -v key="$1:" '
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { in_merge_gate = ($1 == "merge-gate:") }
+    in_merge_gate && $1 == key {
+      sub(/^[^:]*:[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print; exit }' <<<"$caller")
+  # A quoted scalar ends at its closing quote, so `'24'` is 24 and a `#` inside it is content.
+  # An unquoted one ends at a ` #` comment, which is where YAML ends it too. Neither is left in:
+  # `node-version: "'24'"` is a Node nobody has, and a comment carried through breaks the file.
+  case "$value" in
+    \"*) value=${value#\"}; value=${value%%\"*} ;;
+    \'*) value=${value#\'}; value=${value%%\'*} ;;
+    *)   value=${value%%[[:space:]]#*} ;;
+  esac
+  printf '%s' "${value:-$2}"
+}
+
+# The roll-up, as templates/rollup-check.yml holds it, with the jobs it rolls up and the work it
+# runs itself filled in. Both paths use it: the starter file writes it, the refusal prints it.
+rollup() {
+  # The steps go through the environment: `awk -v` takes no newline in a value.
+  STEPS="$2" awk -v needs="$1" '
+    /^__STEPS__$/ { if (ENVIRON["STEPS"] != "") print ENVIRON["STEPS"]; next }
+    { gsub(/__NEEDS__/, needs); print }' "$rollup_template"
+}
+starter_file() {
+  # The comment goes in the written file: the caller's test_command is run once per changed test
+  # file, so a target pointing it at a routing command (templates/routing-test-command.sh) gets a
+  # step here that is handed no file and passes having run nothing.
+  printf '%s\n' "$(rollup "[]" "$(printf '      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: "%s"\n      - run: %s\n      # From the caller. Replace it if it is a routing command: it runs the test\n      # file it is handed, and here it is handed none.\n      - run: %s' \
+    "$(caller_input node_version 22)" "$(caller_input install_command "npm ci")" "$(caller_input test_command "node --test")")")"
+}
 
 # One assignment, no `| head`: a pipeline here either swallows a failed listing or SIGPIPEs gh on
 # a repo with several rulesets, and either way onboarding cannot tell a first run from a re-run.
@@ -178,12 +322,43 @@ elif [ -n "$existing_ruleset_id" ]; then
   else
     echo "no own check to keep: the factory ruleset (id $existing_ruleset_id) requires none"
   fi
+elif [ "$has_own_ci" = "false" ]; then
+  # No CI to name a check from, so onboarding writes one rather than refusing: the roll-up's
+  # name exists before the first test does, and the factory's first test lands inside it.
+  if [ "$starter_path_taken" = "true" ]; then
+    refuse "$repo has no workflow that runs on a pull request, so onboarding would write
+$starter_path, and that file is already there. Nothing here overwrites it.
+Name the checks its CI posts instead:
+  scripts/onboard.sh $repo <check> ..."
+  fi
+  own=("$rollup_check")
+  write_starter=true
+  echo "no workflow here runs on a pull request: $starter_path will publish $rollup_check"
 else
-  refuse "$repo has no factory ruleset yet and no own check was named, so there is
-nothing to keep and nothing to require. Onboarding does not guess.
-Two ways on:
-  scripts/onboard.sh $repo <check> ...   name the checks its CI posts
-  scripts/onboard.sh $repo --no-own-checks   it genuinely has none yet"
+  # `needs` names jobs in the one file the roll-up lives in, so the filled-in list is a
+  # starting point whenever more than one workflow contributed to it, and says so. A job that
+  # is skipped rather than run reports `skipped`, which the result test below reads as not
+  # success: take a path-filtered or conditional job out of `needs` rather than gating on it.
+  several_files=""
+  if [ "$own_ci_file_count" -gt 1 ]; then
+    several_files="\`needs\` reaches jobs in its own file only, and these came from several:
+  $(join_with ", " ${own_ci_files[@]+"${own_ci_files[@]}"})
+Keep the ones in the file you paste this into.
+"
+  fi
+  refuse "$repo has no factory ruleset yet and no own check was named, and its CI is
+its own: onboarding never edits the CI of a target that has some.
+Add a roll-up to it, and this run then has a name to require. As it stands:
+
+$(rollup "$(printf '[%s]' "$(join_with ", " ${own_ci_jobs[@]+"${own_ci_jobs[@]}"})")" "")
+${several_files}Leave out any job that is skipped rather than run on some pull requests: a
+skipped job reports \`skipped\`, and the result test above wants \`success\`.
+
+Then:
+  scripts/onboard.sh $repo $rollup_check
+Or name the checks its CI already posts:
+  scripts/onboard.sh $repo <check> ...
+Or --no-own-checks, if it genuinely has none yet."
 fi
 
 # A write that takes an own check off the ruleset is the foot-gun, whatever put the list together.
@@ -264,6 +439,15 @@ payload=$(jq -cn --arg branch "$default_branch" --argjson checks "$checks" '{
   ]
 }')
 if [ "$own_checks" -eq 0 ]; then warn_no_own_check; fi
+# Before the ruleset, so the check the rule is about to require is already published. Only ever
+# on a target with no workflow that runs on a pull request: nothing here edits CI that exists.
+if [ "$write_starter" = "true" ]; then
+  jq -n --arg content "$(starter_file)" --arg branch "$default_branch" \
+    '{ message: "ci: a roll-up check, so the merge rule never names a test",
+       branch: $branch, content: ($content + "\n" | @base64) }' |
+    gh api --method PUT "repos/$repo/contents/$starter_path" --input - >/dev/null
+  echo "starter CI file written: $starter_path, publishing $rollup_check"
+fi
 if [ -n "$existing_ruleset_id" ]; then
   gh api --method PUT "repos/$repo/rulesets/$existing_ruleset_id" --input - <<<"$payload" >/dev/null
   echo "ruleset factory updated (id $existing_ruleset_id)"

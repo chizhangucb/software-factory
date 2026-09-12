@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { HOLD_LABEL, HOLD_LABELS } from "../lib/labels.ts";
 
 const onboard = fileURLToPath(new URL("../../scripts/onboard.sh", import.meta.url));
-const target = "chizhangucb/factory-fixture";
+const target = "chizhangucb/tomte-fixture";
 const factoryChecks = ["factory/verdict", "factory/red-green", "factory/test-integrity"];
 
 /**
@@ -179,7 +179,7 @@ on:
     types: [opened, synchronize, reopened, closed]
 jobs:
   merge-gate:
-    uses: chizhangucb/software-factory/.github/workflows/merge-gate.yml@main
+    uses: chizhangucb/tomte/.github/workflows/merge-gate.yml@main
     with:
       factory_ref: main
       node_version: "24"

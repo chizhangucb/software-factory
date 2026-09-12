@@ -22,7 +22,7 @@ import { WAIVER_VARIABLE } from "../heartbeat/waiver.ts";
 
 const script = fileURLToPath(new URL("../../scripts/waive-factory-checks.sh", import.meta.url));
 const repoRoot = new URL("../../", import.meta.url);
-const target = "chizhangucb/factory-fixture";
+const target = "chizhangucb/tomte-fixture";
 const FACTORY_CHECKS = ["factory/verdict", "factory/red-green", "factory/test-integrity"];
 const RULESET_ID = "7";
 

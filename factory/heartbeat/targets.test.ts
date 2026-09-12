@@ -18,5 +18,5 @@ test("the fixture repo is on the list, since an idle target costs nothing now", 
   // It came off as a stopgap while an idle private target billed a minute every
   // interval (#221), and the idle skip is what put it back (#212). Taking it off
   // again is a decision to say out loud here, as its absence was.
-  assert.ok(TARGET_REPOS.includes("chizhangucb/factory-fixture"), "the fixture is considered every pass");
+  assert.ok(TARGET_REPOS.includes("chizhangucb/tomte-fixture"), "the fixture is considered every pass");
 });

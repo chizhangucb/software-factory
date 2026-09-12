@@ -5,7 +5,7 @@
 # merge gate at it:
 #
 #     merge-gate:
-#       uses: chizhangucb/software-factory/.github/workflows/merge-gate.yml@main
+#       uses: chizhangucb/tomte/.github/workflows/merge-gate.yml@main
 #       with:
 #         test_command: ./scripts/factory-test-command.sh
 #         install_command: <this target's install, plus anything its second kind needs>

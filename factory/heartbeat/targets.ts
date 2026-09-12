@@ -15,7 +15,7 @@
  * `node --experimental-strip-types`.
  */
 export const TARGET_REPOS: readonly string[] = [
-  "chizhangucb/factory-fixture",
+  "chizhangucb/tomte-fixture",
   "chizhangucb/chronicle",
   "chizhangucb/chizhang-2",
 ];

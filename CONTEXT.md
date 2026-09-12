@@ -1,4 +1,4 @@
-# Software Factory
+# tomte
 
 Autonomous pipeline that turns well-scoped tickets into merged code with as little human time as possible.
 
@@ -7,6 +7,13 @@ This file is the glossary: the words the specs, prompts, and docs all use for th
 It binds the factory's own prose, not vendored text: where a name is sandcastle's and the behaviour under it is his, his name stays and the term's `_Except_` line says so.
 
 ## Language
+
+**tomte**:
+This thing, and the repo it lives in, `chizhangucb/tomte`. Its fixture target is `chizhangucb/tomte-fixture`. Lower case, the way a command is. Named 2026-09-12 (#116); it was `software-factory` before, and GitHub redirects that name rather than freeing it.
+_Avoid_: Software Factory, software-factory, the platform, the system.
+_Except_ in a dated record: `docs/research/` and the dispatcher's recorded API fixtures were written against the old name and keep it, as does any ADR paragraph arguing from what was true before the rename. `factory/lib/factory-repo.ts` is the one place the address is written down, and `factory-repo.test.ts` holds every other copy to it.
+
+The factory stays the ordinary word for what tomte does, and every term below still uses it: a factory PR, the factory's reusable workflows, the `factory` ruleset, `FACTORY_PAUSED`. The name changed, the common noun did not.
 
 **Spec**:
 A grilled, human-approved description of a feature. Produced by a grilling session then /to-spec. The parent issue of its tickets.

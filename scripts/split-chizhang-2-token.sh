@@ -193,21 +193,59 @@ STILL_SHARED=("chizhangucb/chronicle" "chizhangucb/factory-fixture")  # still on
 # the wake started. A secret that exists and a secret that works are different
 # claims (#251), and this is the one that checks the second.
 prove() {
-  local target="$1" before="" id="" status="" concl="" waited=0
-  before=$(gh run list --repo "$target" --workflow factory.yml --event repository_dispatch \
-    --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || true)
-  say "waking $target"
-  gh api --method POST "repos/$target/dispatches" -f event_type=factory-sweep --silent
+  local target="$1" before="" id="" status="" concl="" waited=0 since="" paused="" ids="" candidate=""
 
-  while (( waited < 60 )); do
+  # A paused target skips the dispatch job, so a sweep would prove nothing. Say so
+  # now rather than after ten minutes of polling a run that was never going to run.
+  # Listed rather than fetched by name: `gh api` on an unset variable answers 404 and
+  # prints the error body to stdout, so reading that would take "not paused" for a
+  # pause reason on every healthy target. A list exits non-zero only on a real read
+  # failure, which is refused rather than read as no pause.
+  if ! paused=$(gh variable list --repo "$target" --json name,value \
+    --jq '.[] | select(.name=="FACTORY_PAUSED") | .value'); then
+    warn "$target: couldn't read its variables, so whether it is paused is unknown"
+    return 1
+  fi
+  if [[ -n "$paused" ]]; then
+    warn "$target: FACTORY_PAUSED is set (\"$paused\"), so a sweep proves nothing"
+    return 1
+  fi
+
+  # Not `|| true`: a read that failed leaves it unknown which runs predate the wake,
+  # and a stale run would then pass for a new one, which is the one thing this must
+  # not do.
+  if ! before=$(gh run list --repo "$target" --workflow factory.yml --event repository_dispatch \
+    --limit 1 --json databaseId --jq '.[0].databaseId // ""'); then
+    warn "$target: couldn't list runs before the wake, so nothing here could be trusted"
+    return 1
+  fi
+  since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  say "waking $target"
+  if ! gh api --method POST "repos/$target/dispatches" -f event_type=factory-sweep --silent; then
+    warn "$target: the wake itself was refused, so nothing was dispatched"
+    return 1
+  fi
+
+  # A run started after the POST, and carrying a dispatch job. Both clauses matter:
+  # the heartbeat and the review workflow send their own repository_dispatch events at
+  # these repos, and a factory-update-branch run has no dispatch job at all, so taking
+  # the newest run on the event would read someone else's and call the token broken.
+  while (( waited < 120 )); do
     sleep 3; waited=$((waited + 3))
-    id=$(gh run list --repo "$target" --workflow factory.yml --event repository_dispatch \
-      --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || true)
-    [[ -n "$id" && "$id" != "$before" ]] && break
-    id=""
+    ids=$(gh run list --repo "$target" --workflow factory.yml --event repository_dispatch \
+      --limit 10 --json databaseId,createdAt \
+      --jq "[.[] | select(.createdAt >= \"$since\")] | reverse | .[].databaseId" 2>/dev/null || true)
+    for candidate in $ids; do
+      [[ "$candidate" == "$before" ]] && continue
+      if gh run view "$candidate" --repo "$target" --json jobs \
+           --jq '.jobs[] | select(.name | startswith("dispatch")) | .name' 2>/dev/null | grep -q .; then
+        id="$candidate"; break
+      fi
+    done
+    [[ -n "$id" ]] && break
   done
   if [[ -z "$id" ]]; then
-    warn "$target: no run appeared within 60s of the wake"
+    warn "$target: no sweep run with a dispatch job appeared within 120s of the wake"
     return 1
   fi
   note "  run $id"
@@ -228,7 +266,8 @@ prove() {
   case "$concl" in
     success) printf '  %s✓%s %s: dispatch succeeded\n' "$GREEN" "$RESET" "$target" ;;
     skipped) warn "$target: dispatch was SKIPPED, so nothing was proved. FACTORY_PAUSED set?"; return 1 ;;
-    *)       printf '  %s✗%s %s: dispatch %s, see %s\n' "$RED" "$RESET" "$target" "${concl:-missing}" \
+    *)       printf '  %s✗%s %s: dispatch %s, see %s\n' "$RED" "$RESET" "$target" \
+               "${concl:-missing (job never instantiated: paused, or the caller is out of date)}" \
                "$(gh run view "$id" --repo "$target" --json url --jq .url)"; return 1 ;;
   esac
 }
@@ -258,13 +297,16 @@ stage "Set it as FACTORY_PAT on chizhang-2"
 say "Pasted hidden, piped straight to gh. It is not written to disk or echoed."
 ask_secret NEW_PAT "Paste the new token:"
 if [[ -z "${NEW_PAT:-}" ]]; then
-  warn "nothing pasted; set it by hand: gh secret set FACTORY_PAT --repo $SUBJECT"
+  warn "nothing pasted, so stop here. Carrying on would prove the OLD shared token in"
+  warn "stage 3 and then withdraw it in stage 4, leaving chizhang-2 with no credential."
+  warn "Set it by hand and re-run: gh secret set FACTORY_PAT --repo $SUBJECT"
   SKIPPED+=("FACTORY_PAT on $SUBJECT")
-else
-  printf '%s' "$NEW_PAT" | gh secret set FACTORY_PAT --repo "$SUBJECT"
-  NEW_PAT=""
-  printf '  %s✓ set%s FACTORY_PAT on %s\n' "$GREEN" "$RESET" "$SUBJECT"
+  finish
+  exit 1
 fi
+printf '%s' "$NEW_PAT" | gh secret set FACTORY_PAT --repo "$SUBJECT"
+NEW_PAT=""
+printf '  %s✓ set%s FACTORY_PAT on %s\n' "$GREEN" "$RESET" "$SUBJECT"
 pause
 
 # ── 3 ─────────────────────────────────────────────────────────────────────
@@ -309,3 +351,6 @@ finish
 say "Close #251 when every box above is ticked. chronicle and factory-fixture"
 say "moving to their own tokens is #253."
 printf '\n'
+# Anything on the still-to-do list means the hole is open or a target is not
+# dispatching, so the wizard must not exit 0 on it.
+if (( ${#SKIPPED[@]} )); then exit 1; fi

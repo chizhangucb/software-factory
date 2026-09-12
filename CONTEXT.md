@@ -92,6 +92,10 @@ _Avoid_: human ticket, manual, hold (a **hold** says not yet, this says not the 
 One check name in a target's own CI that stands for every test behind it: a job that runs no test itself, reports on every pull request, and is red if any job it rolls up is red. What a target's merge rule names, so the rule never names a test. chronicle's `e2e` is the worked example and the source of the word, rolling up three shards plus a stub for the change it does not apply to.
 _Avoid_: summary check (too vague to say what it promises), aggregate, gate and bare roll-up.
 
+**Starter CI file**:
+The one workflow file `scripts/onboard.sh` writes into a target that has none that runs on a pull request: `templates/rollup-check.yml` with the target caller's install command, test command and Node version in it, publishing the **roll-up check** `check`. The only file onboarding ever writes to a target, and only where there is no CI to damage.
+_Avoid_: scaffold, bootstrap CI, template file (the template is what it is written from).
+
 **Unrequired job**:
 A job in a target's CI that no name in the target's merge rule stands for, directly or through a roll-up. Sometimes deliberate: chronicle's `smoke` is path-filtered Windows coverage nobody gates on. The merge gate refuses only one a pull request *adds*, so a deliberate one already in the target stays as the maintainer left it.
 _Avoid_: ungated job, unwired job, missing check.

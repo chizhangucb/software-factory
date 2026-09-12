@@ -902,3 +902,34 @@ test("the roll-up template names the shape and no stack fact", () => {
     assert.ok(!template.includes(stackFact), `${ROLLUP_TEMPLATE} names ${stackFact}, which is the target's fact`);
   }
 });
+
+test("the starter file's fallbacks are the caller's own defaults, not a second set of values", () => {
+  // A caller that leaves an input commented out runs merge-gate.yml's default for it, so the
+  // starter file has to run the same thing. Read off that workflow rather than pinned here:
+  // this goes red the day the two disagree, which is the drift the one-place rule is about.
+  const mergeGate = fs.readFileSync(new URL("../../.github/workflows/merge-gate.yml", import.meta.url), "utf8");
+  const defaultOf = (input: string) =>
+    mergeGate.split(`${input}:`)[1]?.match(/^\s+default:\s*(.+)$/m)?.[1]?.trim().replace(/^"|"$/g, "");
+  const { starterFile } = onboardWith([], { workflows: { "factory.yml": "name: factory\non:\n  pull_request:\njobs:\n  merge-gate:\n    with:\n      factory_ref: main\n" } });
+  for (const input of ["install_command", "test_command", "node_version"]) {
+    assert.match(starterFile!.content, new RegExp(defaultOf(input)!), `${input}'s default should reach the starter file`);
+  }
+});
+
+test("the merge-gate job's inputs are the ones the starter file takes, not another job's", () => {
+  // install_command, test_command and node_version are inputs on several of the caller's jobs.
+  // The merge-gate's are the ones that say what this target installs and how it tests.
+  const caller = CALLER.replace("jobs:\n", "jobs:\n  implement:\n    with:\n      node_version: \"18\"\n      test_command: never run this\n");
+  const { starterFile } = onboardWith([], { workflows: { "factory.yml": caller } });
+  assert.match(starterFile!.content, /pnpm vitest run/);
+  assert.doesNotMatch(starterFile!.content, /never run this|node-version: "18"/);
+});
+
+test("a check.yml already there is never overwritten, whatever it runs on", () => {
+  // The starter file is the one file onboarding writes, and it writes it only where there is
+  // nothing to damage. A file at that path that runs on no pull request is still somebody's.
+  const run = onboardWith([], { workflows: { "check.yml": "name: check\non:\n  workflow_dispatch:\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n" } });
+  assert.notEqual(run.code, 0);
+  assert.deepEqual(writes(run.calls), [], "a refusal writes nothing at all");
+  assert.equal(run.starterFile, undefined);
+});

@@ -152,12 +152,15 @@ case "$caller_status" in
 esac
 
 # The target's own CI is a workflow that runs on a pull request and is not the caller: the caller
-# runs on one too, and posts the factory's checks, never the target's own. `on:` ends at `jobs:`,
-# so a job called pull_request-something below there is not read as a trigger.
+# runs on one too, and posts the factory's checks, never the target's own. Three forms of the
+# trigger, and the whole file is read rather than the `on:` block alone: a job keyed
+# `pull_request` would read as a trigger and the target as having CI, which refuses, where
+# assuming `on:` comes before `jobs:` risks the other error, writing into a CI that exists.
+# `on: [pull_request]` and `"on":` both read, since YAML 1.1 makes a bare `on` a boolean and a
+# target is free to quote it.
 runs_on_pull_request() {
-  awk '/^jobs:/ { exit }
-       /^on:.*pull_request([],[:space:]]|$)/ { found = 1 }
-       /^[[:space:]]+pull_request:?[[:space:]]*(#.*)?$/ { found = 1 }
+  awk '/^("?on"?:).*pull_request([],[:space:]]|$)/ { found = 1 }
+       /^[[:space:]]*-?[[:space:]]*pull_request:?[[:space:]]*(#.*)?$/ { found = 1 }
        END { print found ? "true" : "false" }' <<<"$1"
 }
 job_keys() {
@@ -183,7 +186,6 @@ that has some is never written to." ;;
   esac
 fi
 own_ci_jobs=()
-own_ci_jobs_count=0
 has_own_ci=false
 starter_path_taken=false
 while IFS= read -r workflow; do
@@ -197,16 +199,20 @@ while IFS= read -r workflow; do
   has_own_ci=true
   while IFS= read -r job; do
     case "$job" in "") continue ;; esac
-    own_ci_jobs+=("$job"); own_ci_jobs_count=$((own_ci_jobs_count + 1))
+    own_ci_jobs+=("$job")
   done <<<"$(job_keys "$body")"
 done <<<"$workflows"
 
-# What the starter file runs, from the caller, so the values live in one place. A caller that
-# leaves one unset runs the factory's own default for it, named in templates/factory.yml, and
-# the starter file runs the same thing.
+# What the starter file runs, from the caller's merge-gate job, so the values live in one place.
+# That job and not the file at large: the same input names appear on implement, review and audit
+# too, and the merge-gate's are the ones that say what this target installs and how it tests.
+# A caller leaving one unset runs .github/workflows/merge-gate.yml's default for it, and the
+# fallbacks below are those defaults; onboard.test.ts fails the day the two disagree.
 caller_input() {
   local value
-  value=$(awk -v key="$1:" '$1 == key { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }' <<<"$caller")
+  value=$(awk -v key="$1:" '
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { in_merge_gate = ($1 == "merge-gate:") }
+    in_merge_gate && $1 == key { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }' <<<"$caller")
   value=${value%\"}; value=${value#\"}
   printf '%s' "${value:-$2}"
 }

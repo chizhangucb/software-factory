@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import { test } from "node:test";
 
 import { issuesClosedBy, linkedIssueNumber } from "../lib/linked-issue.ts";
-import { REPO_ROOTS, repoFiles } from "../lib/repo-files.ts";
+import { repoFiles } from "../lib/repo-files.ts";
 
 /**
  * The agreed bytes, copied out of #181 programmatically rather than retyped, and the pin.
@@ -37,7 +37,7 @@ test("every copy of the instruction in the tree is the agreed one, not a near mi
   // Anchored on the bullet's own name, so a copy reworded anywhere after it is still found,
   // and then held to the whole literal rather than to the anchor.
   const anchor = "Opening a pull request yourself";
-  const carrying = repoFiles(REPO_ROOTS)
+  const carrying = repoFiles()
     .map((file) => ({ file, lines: readRepo(file).split("\n").filter((line) => line.includes(anchor)) }))
     .filter(({ lines }) => lines.length > 0);
   assert.ok(carrying.some(({ file }) => file === JUDGED_PATH_TEMPLATE), `${JUDGED_PATH_TEMPLATE} carries the instruction`);
@@ -124,7 +124,7 @@ test("no page reads the factory as a producer except the ADR line that carries t
   // "a producer other than the factory" is the one phrasing that only parses if the factory is
   // one, so a second copy of it anywhere is a second reading of the word. Test files are left
   // out, since the pin above quotes the phrase.
-  const carrying = repoFiles(REPO_ROOTS)
+  const carrying = repoFiles()
     .flatMap((file) => readRepo(file).split("\n").map((line) => ({ file, line })))
     .filter(({ line }) => /producers? other than the factory/.test(line));
   // Or the loop below asserts nothing the day the ADR's phrasing changes.

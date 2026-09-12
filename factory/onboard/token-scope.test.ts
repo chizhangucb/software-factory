@@ -68,10 +68,9 @@ test("the correction says why per-target rather than a split by visibility tier"
   const line = decisionLine();
   // A tier is the cheaper-looking answer, so the correction owes the reader both halves of why it
   // is not the answer: a tier token reaches the whole tier, and a repo can move between tiers.
-  const tier = line.slice(line.indexOf("tier"));
   assert.ok(line.includes("tier"), "the correction addresses the tier split at all");
-  assert.match(tier, /every repo in its tier|the whole tier|the rest of its tier/);
-  assert.match(tier, /tier can change|changes tier|going public/);
+  assert.match(line, /every repo in its tier|the whole tier|the rest of its tier/);
+  assert.match(line, /tier can change|changes tier|going public/);
 });
 
 test("onboarding says how a lapsed token is noticed and what its failure looks like", () => {

@@ -24,10 +24,14 @@ const pullRequest = (...labels: string[]): OpenSubject => ({ pullRequest: true, 
 /** A target with a ready ticket on it: work, whatever the rest of the pass is testing. */
 const someWork = (): OpenSubject[] => [ticket(READY_LABEL)];
 
+/** No target is paused, which is every test that is not about the pause. */
+const running = (): undefined => undefined;
+
 test("every target on the list is woken, and each gets one outcome", () => {
   const woken: string[] = [];
   const outcomes = sendHeartbeat({
     targets: ["owner/one", "owner/two"],
+    readPause: running,
     readOpenWork: someWork,
     wake: (target) => woken.push(target),
     report: () => {},
@@ -44,6 +48,7 @@ test("a target that cannot be woken is reported, and the targets behind it are s
   const reported: TargetOutcome[] = [];
   const outcomes = sendHeartbeat({
     targets: ["owner/bad", "owner/two", "owner/three"],
+    readPause: running,
     readOpenWork: someWork,
     wake: (target) => {
       if (target === "owner/bad") throw new Error("HTTP 404: Not Found");
@@ -66,6 +71,7 @@ test("a target with nothing open is skipped as idle, and never woken", () => {
   const woken: string[] = [];
   const outcomes = sendHeartbeat({
     targets: ["owner/idle"],
+    readPause: running,
     readOpenWork: () => [],
     wake: (target) => woken.push(target),
     report: () => {},
@@ -92,6 +98,7 @@ for (const { state, open, outcome } of states) {
     const woken: string[] = [];
     const outcomes = sendHeartbeat({
       targets: ["owner/one"],
+      readPause: running,
       readOpenWork: () => open,
       wake: (target) => woken.push(target),
       report: () => {},
@@ -106,6 +113,7 @@ test("a target whose open work cannot be read is reported, and the targets behin
   const reported: TargetOutcome[] = [];
   const outcomes = sendHeartbeat({
     targets: ["owner/unreadable", "owner/busy", "owner/idle"],
+    readPause: running,
     readOpenWork: (target) => {
       if (target === "owner/unreadable") throw new Error("HTTP 403: Resource not accessible by personal access token");
       return target === "owner/busy" ? someWork() : [];
@@ -123,4 +131,121 @@ test("a target whose open work cannot be read is reported, and the targets behin
     { target: "owner/idle", outcome: "skipped" },
   ]);
   assert.deepEqual(reported, outcomes);
+});
+
+test("a paused target is not woken, and its outcome carries the reason", () => {
+  // Acceptance criterion 1. The pause stopped the work and not the run: the
+  // heartbeat woke the target every interval, GitHub created a run, and the
+  // caller's `paused` job billed a minute to say nothing was happening.
+  const woken: string[] = [];
+  const outcomes = sendHeartbeat({
+    targets: ["owner/paused"],
+    readPause: () => "runaway sweep, see #123",
+    // Plenty waiting: the pause is what stops the wake, not the absence of work.
+    readOpenWork: someWork,
+    wake: (target) => woken.push(target),
+    report: () => {},
+  });
+  assert.deepEqual(woken, []);
+  assert.deepEqual(outcomes, [{ target: "owner/paused", outcome: "paused", reason: "runaway sweep, see #123" }]);
+});
+
+test("a paused target is told from an idle one, so a forgotten pause is visible in the pass", () => {
+  // Acceptance criterion 2. Both are skipped and neither is woken, and that is
+  // exactly why they may not share an outcome: a pause that reads as an idle
+  // target in the log is how a pause left on for a week goes unnoticed.
+  const reported: TargetOutcome[] = [];
+  sendHeartbeat({
+    targets: ["owner/paused", "owner/idle"],
+    readPause: (target) => (target === "owner/paused" ? "incident" : undefined),
+    readOpenWork: () => [],
+    wake: () => {},
+    report: (outcome) => reported.push(outcome),
+  });
+  assert.deepEqual(reported, [
+    { target: "owner/paused", outcome: "paused", reason: "incident" },
+    { target: "owner/idle", outcome: "skipped" },
+  ]);
+});
+
+test("a target with the pause lifted is woken on the next pass, with nothing else done to it", () => {
+  // Acceptance criterion 3. The heartbeat holds no state between passes, so
+  // the only thing a resume needs is the variable gone.
+  const pass = (reason: string | undefined): { woken: string[]; outcomes: TargetOutcome[] } => {
+    const woken: string[] = [];
+    const outcomes = sendHeartbeat({
+      targets: ["owner/one"],
+      readPause: () => reason,
+      readOpenWork: someWork,
+      wake: (target) => woken.push(target),
+      report: () => {},
+    });
+    return { woken, outcomes };
+  };
+  assert.deepEqual(pass("incident").woken, []);
+  const resumed = pass(undefined);
+  assert.deepEqual(resumed.woken, ["owner/one"]);
+  assert.deepEqual(resumed.outcomes, [{ target: "owner/one", outcome: "woken" }]);
+});
+
+test("one paused target changes nothing for the others in the same pass", () => {
+  // Acceptance criterion 4. A pause is a property of one target, so it may not
+  // reach the targets either side of it in the list.
+  const woken: string[] = [];
+  const outcomes = sendHeartbeat({
+    targets: ["owner/busy", "owner/paused", "owner/also-busy"],
+    readPause: (target) => (target === "owner/paused" ? "incident" : undefined),
+    readOpenWork: someWork,
+    wake: (target) => woken.push(target),
+    report: () => {},
+  });
+  assert.deepEqual(woken, ["owner/busy", "owner/also-busy"]);
+  assert.deepEqual(outcomes, [
+    { target: "owner/busy", outcome: "woken" },
+    { target: "owner/paused", outcome: "paused", reason: "incident" },
+    { target: "owner/also-busy", outcome: "woken" },
+  ]);
+});
+
+test("a target whose pause cannot be read is failed, not taken for running and woken", () => {
+  // Acceptance criterion 6, and the same rule the open-work read already
+  // follows: a read that failed says nothing about the target, and treating
+  // silence as "not paused" is how a pause a maintainer set goes on billing a
+  // minute a pass behind a read nobody noticed was broken.
+  const woken: string[] = [];
+  const reported: TargetOutcome[] = [];
+  const outcomes = sendHeartbeat({
+    targets: ["owner/unreadable", "owner/busy"],
+    readPause: (target) => {
+      if (target === "owner/unreadable") throw new Error("HTTP 403: Resource not accessible by personal access token");
+      return undefined;
+    },
+    readOpenWork: someWork,
+    wake: (target) => woken.push(target),
+    report: (outcome) => reported.push(outcome),
+  });
+  assert.deepEqual(woken, ["owner/busy"]);
+  assert.deepEqual(outcomes, [
+    { target: "owner/unreadable", outcome: "failed", error: "HTTP 403: Resource not accessible by personal access token" },
+    { target: "owner/busy", outcome: "woken" },
+  ]);
+  assert.deepEqual(reported, outcomes);
+});
+
+test("a paused target's open work is never read, so the pause is one call and no more", () => {
+  // The pause is the first question because it is the cheapest answer to the
+  // only one that matters: a target that will not be woken whatever is open on
+  // it has nothing to learn from reading what is open on it.
+  const read: string[] = [];
+  sendHeartbeat({
+    targets: ["owner/paused"],
+    readPause: () => "incident",
+    readOpenWork: (target) => {
+      read.push(target);
+      return someWork();
+    },
+    wake: () => {},
+    report: () => {},
+  });
+  assert.deepEqual(read, []);
 });

@@ -16,26 +16,20 @@
  * `node --experimental-strip-types`.
  */
 
+import { variableReadArgs, variableValue } from "./variable.ts";
+
 /** The repository variable holding the reason, beside `FACTORY_PAUSED`. */
 export const WAIVER_VARIABLE = "FACTORY_CHECKS_WAIVED";
 
 /**
  * The one read: a GET of the variable, with no `--method`, so asking whether a
  * target is waived cannot itself start a job on it. Unset is a 404, which
- * `isUnset` tells from a read that genuinely failed.
+ * `variable.ts`'s `isUnset` tells from a read that genuinely failed.
  */
-export const waiverReadArgs = (target: string): string[] => [
-  "api",
-  `repos/${target}/actions/variables/${WAIVER_VARIABLE}`,
-  "--jq",
-  ".value",
-];
+export const waiverReadArgs = (target: string): string[] => variableReadArgs(target, WAIVER_VARIABLE);
 
 /** The variable's value, or nothing: a variable set to blank carries no reason to act on. */
-export const waiverReason = (raw: string): string | undefined => raw.trim() || undefined;
-
-/** Is this failed read the variable simply not being there? */
-export const isUnset = (error: string): boolean => error.includes("HTTP 404");
+export const waiverReason = (raw: string): string | undefined => variableValue(raw);
 
 /**
  * What the sender prints for one target, or nothing when it is not waived. It says the

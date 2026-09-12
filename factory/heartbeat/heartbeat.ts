@@ -7,10 +7,10 @@
  * behind it nothing: a heartbeat that died on its first bad target would stop
  * the factory everywhere behind it.
  *
- * Nor is a target whose open work has nothing due (#264): open work is not the
- * same question as work a sweep would act on this pass, and the difference was
- * a billed minute per interval for as long as a subject sat there. `work.ts`
- * owns that rule and the reasoning behind it.
+ * A target whose open work has nothing due is not woken (#264): open work is
+ * not the same question as work a sweep would act on this pass, and the
+ * difference was a billed minute per interval for as long as a subject sat
+ * there. `work.ts` owns that rule and the reasoning behind it.
  *
  * A paused target is not woken either (#256). The caller gates every work job
  * on the same variable, so waking one bought a run whose only job was the

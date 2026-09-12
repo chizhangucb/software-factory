@@ -93,9 +93,11 @@ export const withPass = (raw: string, now: Date): string =>
  * in it: this line is a claim about the schedule, and a maintainer who reads it
  * on a morning after a sleep would be right to stop reading it.
  *
- * The observed number is the mean of the run, rounded: a host fires on its own
+ * The observed number is the middle of the run, rounded: a host fires on its own
  * clock, so no two gaps are identical and reporting one of them would read as
- * precision the observation does not have.
+ * precision the observation does not have. The middle and not the mean, because
+ * a sleep inside an otherwise steady run is exactly the thing the threshold
+ * already tolerates, and averaged in it would name a cadence nothing ran at.
  */
 export const cadenceLine = (raw: string, now: Date): string | undefined => {
   const gaps = gapMinutes([...stamps(raw), now]).slice(-DISAGREEING_PASSES);
@@ -105,8 +107,15 @@ export const cadenceLine = (raw: string, now: Date): string | undefined => {
   // ran in, and it is read in that order rather than sorted. Sorting would turn
   // a clock change into plausible gaps and report a cadence nothing ran at.
   if (gaps.some((gap) => gap <= 0 || agrees(gap))) return undefined;
-  const observed = Math.round(gaps.reduce((total, gap) => total + gap, 0) / gaps.length);
+  const observed = Math.round(middle(gaps));
   return `heartbeat CADENCE: the last ${DISAGREEING_PASSES} gaps between passes were about ${observed} minutes each, and this repo documents ${INTERVAL_PHRASE} (HEARTBEAT_INTERVAL_MINUTES in factory/heartbeat/interval.ts); change the host's schedule or that constant so the two agree`;
+};
+
+/** The middle of a run of gaps: the median, taken as the mean of the middle two when the run is even. */
+const middle = (gaps: readonly number[]): number => {
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const half = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[half - 1]! + sorted[half]!) / 2 : sorted[half]!;
 };
 
 /** Whether one gap is the documented interval, inside the band and not on its edge. */

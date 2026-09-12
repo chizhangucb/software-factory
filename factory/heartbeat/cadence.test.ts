@@ -116,6 +116,20 @@ test("a stamp truncated to something a Date still parses is dropped too, not rea
   assert.ok(!withPass([cut, ...whole.slice(1)].join("\n"), NOW).split("\n").includes(cut), "the bad line is not carried forward");
 });
 
+test("a sleep inside a disagreeing run does not move the number the line reports", () => {
+  // A host really running at twice the documented interval, that also slept
+  // once: every gap disagrees, so the claim is made, and the number it names has
+  // to be the one a maintainer will find in their host's own schedule. Averaged,
+  // the sleep would name a cadence nothing ran at.
+  const wrong = HEARTBEAT_INTERVAL_MINUTES * 2;
+  const stamps = logOfGaps(NOW, wrong, DISAGREEING_PASSES).trimEnd().split("\n");
+  // The oldest stamp of the run moved back, so the sleep is a gap inside the
+  // window being judged rather than one the slice drops.
+  const slept = [new Date(new Date(stamps[0]!).getTime() - 9 * 60 * 60_000).toISOString(), ...stamps.slice(1)];
+  const line = cadenceLine(slept.join("\n"), NOW);
+  assert.ok(line?.includes(String(wrong)), `the line names the cadence the host ran at: ${line}`);
+});
+
 test("a gap exactly on the edge of the band disagrees, because half the interval is twice the bill", () => {
   // The band is the other half of what counts as disagreement, and it is
   // pinned here rather than left to the numbers the tests above happen to use:

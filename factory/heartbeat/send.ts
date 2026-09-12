@@ -6,7 +6,8 @@
  * on the interval `interval.ts` names, with a token that has contents write,
  * issues and pull requests read, and Actions variables read on every target in
  * `targets.ts` and nothing else: the issues read says whether a target has anything
- * waiting, and the variables read says whether it is paused (#256) and whether
+ * waiting and when each subject last changed, which is what is due (#264), and
+ * the variables read says whether it is paused (#256) and whether
  * its checks are waived (#244). `DRY_RUN=1` reports the pass without touching
  * a target at all, as `dispatch/sweep.ts` reads the same var: no dispatch, and
  * no read either, so every target answers as a running one with work and the
@@ -157,6 +158,9 @@ for (const target of TARGET_REPOS) nagIfWaived(target);
 
 const outcomes = sendHeartbeat({
   targets: TARGET_REPOS,
+  // The one clock in the pass, read once per target: what is due is measured
+  // against it (#264).
+  now: () => new Date(),
   readPause: dryRun ? asIfRunning : readPause,
   readOpenWork: dryRun ? asIfBusy : readOpenWork,
   wake: dryRun ? () => {} : wake,
@@ -166,6 +170,7 @@ const outcomes = sendHeartbeat({
     if (outcome.outcome === "failed") console.error(`${at()} factory-sweep FAILED for ${outcome.target}: ${outcome.error}`);
     else if (outcome.outcome === "paused") console.log(`${at()} ${pauseLine(outcome.target, outcome.reason)}`);
     else if (outcome.outcome === "skipped") console.log(`${at()} ${outcome.target} skipped: nothing waiting`);
+    else if (outcome.outcome === "nothing-due") console.log(`${at()} ${outcome.target} not woken: work open, nothing due`);
     else console.log(`${at()} factory-sweep dispatched to ${outcome.target}${dryRun ? " (dry run)" : ""}`);
   },
 });
@@ -175,7 +180,9 @@ const outcomes = sendHeartbeat({
 const count = (outcome: TargetOutcome["outcome"]): number => outcomes.filter((each) => each.outcome === outcome).length;
 const failed = count("failed");
 console.log(
-  `${at()} ${outcomes.length} target(s), ${count("woken")} woken, ${count("skipped")} skipped, ${count("paused")} paused, ${failed} failed${dryRun ? " (dry run)" : ""}.`,
+  // The new count goes last so the line reads as the old one with a column
+  // added, which is what a host's log history is full of.
+  `${at()} ${outcomes.length} target(s), ${count("woken")} woken, ${count("skipped")} skipped, ${count("paused")} paused, ${failed} failed, ${count("nothing-due")} with nothing due${dryRun ? " (dry run)" : ""}.`,
 );
 // `exitCode`, not `process.exit`: stdout is a pipe when a host logs the pass,
 // pipe writes are asynchronous, and exiting in place can drop the lines that

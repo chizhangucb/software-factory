@@ -7,6 +7,11 @@
  * behind it nothing: a heartbeat that died on its first bad target would stop
  * the factory everywhere behind it.
  *
+ * Nor is a target whose open work has nothing due (#264): open work is not the
+ * same question as work a sweep would act on this pass, and the difference was
+ * a billed minute per interval for as long as a subject sat there. `work.ts`
+ * owns that rule and the reasoning behind it.
+ *
  * A paused target is not woken either (#256). The caller gates every work job
  * on the same variable, so waking one bought a run whose only job was the
  * `paused` announcement: a billed minute per interval to say nothing was
@@ -17,13 +22,20 @@
  * `node --experimental-strip-types`.
  */
 import { errorMessage } from "../lib/errors.ts";
-import { type OpenSubject, needsSweep } from "./work.ts";
+import { type OpenSubject, sweepNeed } from "./work.ts";
 
 /** What happened to one target in one pass. */
 export type TargetOutcome =
   | { readonly target: string; readonly outcome: "woken" }
-  /** Nothing open needs a sweep, so the target was left asleep. */
+  /** Nothing is open on the target at all, so it was left asleep. */
   | { readonly target: string; readonly outcome: "skipped" }
+  /**
+   * Work is open and a sweep would find nothing to do on any of it this pass
+   * (#264). Its own outcome rather than a `skipped`, for the reason the pause
+   * has one: a working target reads as an idle estate otherwise, and these are
+   * the passes a maintainer weighs the interval against.
+   */
+  | { readonly target: string; readonly outcome: "nothing-due" }
   /**
    * A human has paused the target, so it was left asleep whatever is open on
    * it. Its own outcome rather than a `skipped` with a note, because a pause
@@ -36,6 +48,12 @@ export type TargetOutcome =
 export type Pass = {
   /** The targets to consider, one line each in `targets.ts`. */
   readonly targets: readonly string[];
+  /**
+   * When this pass is running, which is what a deadline is measured against
+   * (#264). Injected rather than read here, so a test drives the clock instead
+   * of waiting on one.
+   */
+  readonly now: () => Date;
   /**
    * One target's pause reason, or nothing when it is running. Throwing fails
    * that target and no other; answering nothing is a target that is genuinely
@@ -64,11 +82,13 @@ export type Pass = {
  * paused target is not woken whatever is open on it, so reading its open work
  * would answer nothing (#256).
  */
-const answerOne = (target: string, { readPause, readOpenWork, wake }: Pass): TargetOutcome => {
+const answerOne = (target: string, { now, readPause, readOpenWork, wake }: Pass): TargetOutcome => {
   try {
     const reason = readPause(target);
     if (reason !== undefined) return { target, outcome: "paused", reason };
-    if (!needsSweep(readOpenWork(target))) return { target, outcome: "skipped" };
+    const need = sweepNeed(readOpenWork(target), now());
+    if (need === "nothing-waiting") return { target, outcome: "skipped" };
+    if (need === "nothing-due") return { target, outcome: "nothing-due" };
     wake(target);
     return { target, outcome: "woken" };
   } catch (error) {

@@ -18,7 +18,12 @@
 /** jq programs, one item per line: each keeps the fields `reconcile.ts` maps, under the raw GitHub names. */
 export const PROJECTIONS = {
   runs: ".workflow_runs[] | {id, event, display_title, head_branch, status, conclusion, created_at, updated_at}",
-  issues: ".[] | {number, title, pull_request: (.pull_request != null), labels: [.labels[] | {name}]}",
+  /**
+   * `updated_at` is the heartbeat's clock (#264): the same call, one field
+   * more, and the sweep ignores it. Nothing else needs it, because the sweep
+   * reads a label event or a head commit for an exact age.
+   */
+  issues: ".[] | {number, title, pull_request: (.pull_request != null), labels: [.labels[] | {name}], updated_at}",
   /** The sweep mark sits at the head of a comment; 64 chars cover `<!-- factory:sweep miss=n tries=m -->`. */
   timeline: ".[] | {event, created_at, label: (if .label == null then null else {name: .label.name} end), body: ((.body // \"\") | .[0:64])}",
   /**

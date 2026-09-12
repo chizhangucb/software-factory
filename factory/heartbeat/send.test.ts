@@ -21,6 +21,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { IMPLEMENT_LABEL } from "../lib/labels.ts";
 import { DISAGREEING_PASSES, PASS_LOG_ENV } from "./cadence.ts";
 import { HEARTBEAT_INTERVAL_MINUTES, INTERVAL_PHRASE } from "./interval.ts";
 import { PAUSE_VARIABLE } from "./pause.ts";
@@ -138,6 +139,7 @@ const passAgainstStub = ({
   variablesReadable = true,
   passLog = "",
   unwritablePassLog = false,
+  open = "",
 }: {
   waived?: string;
   paused?: string;
@@ -146,6 +148,8 @@ const passAgainstStub = ({
   passLog?: string;
   /** Point the pass log at a directory that does not exist, which is every way a host cannot keep it. */
   unwritablePassLog?: boolean;
+  /** The open-work read's answer: projected items, one JSON line each. Empty is a target with nothing open. */
+  open?: string;
 }): { stdout: string; stderr: string; status: number; passLog: string } => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "heartbeat-"));
   const passLogFile = unwritablePassLog ? path.join(dir, "no-such-directory", "passes") : path.join(dir, "passes");
@@ -162,7 +166,7 @@ case "$args" in
   *"actions/variables/${WAIVER_VARIABLE}"*) answer "\${GH_WAIVED:-}" ;;
   *"actions/variables/${PAUSE_VARIABLE}"*) answer "\${GH_PAUSED:-}" ;;
   *"actions/variables"*) answer "\${GH_VARS_LIST:-}" ;;
-  *"issues?state=open"*) ;;
+  *"issues?state=open"*) printf '%s' "\${GH_OPEN:-}" ;;
   *) echo "stub gh: unexpected call: $args" >&2; exit 1 ;;
 esac
 exit 0
@@ -179,6 +183,7 @@ exit 0
       [PASS_LOG_ENV]: passLogFile,
       GH_WAIVED: waived,
       GH_PAUSED: paused,
+      GH_OPEN: open,
       // The count GitHub answers a list read with, which is "0" for a target
       // that has no variables at all: an answer, and not the absence of one.
       GH_VARS_LIST: variablesReadable ? "0" : "",
@@ -222,6 +227,22 @@ test("a paused target is skipped for the pause, and the pass says so rather than
   // a pause does not read as a quiet estate.
   assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), 0 woken, 0 skipped, ${TARGET_REPOS.length} paused, 0 failed`));
   assert.match(stdout, literal(PAUSE_VARIABLE));
+});
+
+test("a target with work open and nothing due is not woken, and the pass says that rather than calling it idle", () => {
+  // #264, through the real script: the stub knows no dispatch, so a pass that
+  // wakes this target exits non-zero rather than passing quietly. One ticket in
+  // a factory state label, untouched for long enough that every deadline on it
+  // has been and gone, which is the shape that woke a target every pass.
+  const settled = new Date(Date.now() - 90 * 60_000).toISOString();
+  const item = JSON.stringify({ number: 7, title: "a ticket", pull_request: false, labels: [{ name: IMPLEMENT_LABEL }], updated_at: settled });
+  const { stdout, status } = passAgainstStub({ open: `${item}\n` });
+  assert.equal(status, 0, stdout);
+  for (const target of TARGET_REPOS) assert.match(stdout, literal(`${target} not woken: work open, nothing due`));
+  assert.doesNotMatch(stdout, /dispatched to/);
+  // Not idle and not paused: three reasons a target is left asleep, counted apart.
+  assert.doesNotMatch(stdout, /skipped: nothing waiting/);
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), 0 woken, 0 skipped, 0 paused, 0 failed, ${TARGET_REPOS.length} with nothing due`));
 });
 
 test("a token that cannot read a target's variables fails it, rather than reading every pause as unset", () => {

@@ -44,8 +44,9 @@ const GH_MAX_BUFFER = 64 * 1024 * 1024;
  * `gh api` has no retry or backoff of its own, so a 60s call is a stalled
  * call and not a throttled one, and killing it leaves the 5 minute dispatcher
  * four minutes to finish its sweep and log what happened. A false fire is
- * cheap: one skipped sweep, and sweeps run every 10 minutes against deadlines
- * of 15 to 30.
+ * cheap: one skipped sweep, and the next one is a heartbeat interval away
+ * (`heartbeat/interval.ts`), which is the tightest reconciler deadline. So a
+ * repair waits one more pass, not indefinitely.
  *
  * One number for every caller, decided once. A caller that could pick its own
  * re-opens the decision at every call site, which is the drift a single

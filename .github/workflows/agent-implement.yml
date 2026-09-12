@@ -380,8 +380,8 @@ jobs:
         # Only on the way out clean: on a failure the `retry` job owns the label and drops it
         # itself, once it is about to relabel. Dropping it here would leave the ticket with no
         # factory label for the minutes that job spends on a fresh runner, and the dispatcher's
-        # ten minute sweep re-dispatches exactly that shape: a `ready-for-agent` ticket with no
-        # `agent:*` label and no open PR. That run would start before the retry marker comment
+        # sweep re-dispatches exactly that shape on its next pass: a `ready-for-agent` ticket
+        # with no `agent:*` label and no open PR. That run would start before the retry comment
         # and the `factory:retry-1` label exist, so it would begin from main with no RETRY
         # section, which is the resume the handler is there to arrange (#51).
         if: steps.shape.outputs.proceed == 'true' && steps.preflight.outputs.refused != 'true'

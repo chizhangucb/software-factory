@@ -7,10 +7,10 @@ on:
   issues:
     # unlabeled and unassigned: a ticket held back by hold or by an
     # assignee reaches the factory the moment the human removes the blocker,
-    # instead of waiting up to ten minutes for the next heartbeat. Which of
-    # those removals the dispatcher actually answers is its own condition's
-    # job, below: the factory's own removals are dropped there, and so is any
-    # edit at all on a closed ticket, a label going on included.
+    # instead of waiting for the next heartbeat. Which of those removals the
+    # dispatcher actually answers is its own condition's job, below: the
+    # factory's own removals are dropped there, and so is any edit at all on a
+    # closed ticket, a label going on included.
     types: [closed, labeled, unassigned, unlabeled]
   pull_request_target:
     types: [labeled]
@@ -21,9 +21,11 @@ on:
   repository_dispatch:
     # factory-update-branch: sent by the review workflow on a passing verdict.
     # factory-sweep: the heartbeat, and what actually drives the sweep. Required, not optional.
-    # Send it every 10 minutes from outside GitHub, with a token that has contents write and issues
-    # and pull requests read on the targets and nothing else. It is sent only when something is
-    # waiting here. One sender covers any number of targets, from the factory repo:
+    # Send it from outside GitHub on the interval factory/heartbeat/interval.ts names (that file
+    # and the factory repo's README are the only places it is written down), with a token that has
+    # contents write and issues and pull requests read on the targets and nothing else.
+    # It is sent only when something is waiting here. One sender covers any number of targets,
+    # from the factory repo:
     # add this repo to factory/heartbeat/targets.ts and run
     #   GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts
     types: [factory-update-branch, factory-sweep]

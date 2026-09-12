@@ -192,6 +192,11 @@ test("a subject whose clock was not read is waiting, rather than skipped on an a
   // unprojected read is where that arrives: the field is absent, not stale.
   assert.equal(sweepNeed([{ pullRequest: false, labels: [IMPLEMENT_LABEL] }], NOW), "waiting");
   assert.equal(sweepNeed([{ pullRequest: true, labels: [] }], NOW), "waiting");
+  // And a timestamp that is there but says nothing is the same answer, not the
+  // opposite one: an unparseable age is past no deadline and inside no window,
+  // so reading it as arithmetic would leave the subject asleep for good.
+  assert.equal(sweepNeed([{ pullRequest: false, labels: [IMPLEMENT_LABEL], changedAt: "" }], NOW), "waiting");
+  assert.equal(sweepNeed([{ pullRequest: true, labels: [], changedAt: "yesterday" }], NOW), "waiting");
 });
 
 test("a subject that changed since the last pass is waiting, whatever its deadlines say", () => {

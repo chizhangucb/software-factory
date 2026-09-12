@@ -94,9 +94,13 @@ export const fromGitHub = (raw: readonly unknown[]): OpenSubject[] =>
  * fallback for a missed pass either way, and waking on the defaults beats
  * waking always (#264).
  */
-const deadlinesFor = (pullRequest: boolean): number[] => [
-  ...new Set(pullRequest ? Object.values(DEFAULT_DEADLINES) : [DEFAULT_DEADLINES.stuckMinutes]),
-];
+const DEADLINES = {
+  /** Built once: the set is the same for every subject of a kind, and a pass reads it per subject. */
+  pullRequest: [...new Set(Object.values(DEFAULT_DEADLINES))],
+  ticket: [...new Set([DEFAULT_DEADLINES.stuckMinutes])],
+} as const;
+
+const deadlinesFor = (pullRequest: boolean): readonly number[] => (pullRequest ? DEADLINES.pullRequest : DEADLINES.ticket);
 
 /**
  * Would a sweep act on this subject now? A deadline is only ever checked when a
@@ -105,10 +109,16 @@ const deadlinesFor = (pullRequest: boolean): number[] => [
  * the subject is *past* a deadline is what woke a target every pass, because it
  * stays true forever.
  *
- * - Clock never read: due, as the reconciler treats a state whose age it does
- *   not know as overdue.
+ * - Clock never read, or read and unparseable: due, as the reconciler treats a
+ *   state whose age it does not know as overdue. An age of `NaN` is past no
+ *   deadline and inside no window, so a timestamp nobody can parse would
+ *   otherwise read as a subject to leave alone forever.
  * - A ready ticket the factory has not picked up: due whatever its age, since
- *   the dispatcher has no deadline and no clock has started.
+ *   the dispatcher has no deadline and no clock has started. That is the one
+ *   subject this rule still wakes a target for on every pass, and it is the
+ *   shape of a ticket the dispatcher refuses for good, no acceptance criteria
+ *   or an assignee, which nothing else here can tell from one it would
+ *   dispatch.
  * - Changed since the last pass: due. Every deadline runs from the change, and
  *   a hold taken off is the release CONTEXT.md promises on the first sweep.
  * - A deadline fell during the last interval: due, that being the repair's pass.
@@ -126,6 +136,7 @@ const due = (subject: OpenSubject, now: Date): boolean => {
   if (subject.changedAt === undefined) return true;
   if (!subject.pullRequest && subject.labels.includes(READY_LABEL) && !FACTORY_STATE_LABELS.some((label) => subject.labels.includes(label))) return true;
   const age = (now.getTime() - Date.parse(subject.changedAt)) / 60_000;
+  if (Number.isNaN(age)) return true;
   if (age < HEARTBEAT_INTERVAL_MINUTES) return true;
   return deadlinesFor(subject.pullRequest).some((deadline) => age >= deadline && age < deadline + HEARTBEAT_INTERVAL_MINUTES);
 };

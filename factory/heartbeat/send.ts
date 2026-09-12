@@ -156,11 +156,14 @@ const claimCadence = (): void => {
 claimCadence();
 for (const target of TARGET_REPOS) nagIfWaived(target);
 
+const startedAt = new Date();
+
 const outcomes = sendHeartbeat({
   targets: TARGET_REPOS,
-  // The one clock in the pass, read once per target: what is due is measured
-  // against it (#264).
-  now: () => new Date(),
+  // One clock for the whole pass rather than one per target (#264): the reads
+  // take seconds, and a pass that answered its last target against a later
+  // clock than its first would judge two targets by two grids.
+  now: () => startedAt,
   readPause: dryRun ? asIfRunning : readPause,
   readOpenWork: dryRun ? asIfBusy : readOpenWork,
   wake: dryRun ? () => {} : wake,

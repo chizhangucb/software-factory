@@ -42,7 +42,8 @@ case "$args" in
   *"actions/variables/${WAIVER_VARIABLE}"*)
     if [ -n "\${GH_WAIVED:-}" ]; then printf '%s\\n' "$GH_WAIVED"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
   "variable set"*) ;;
-  "variable delete"*) ;;
+  "variable delete"*)
+    if [ -n "\${GH_DELETE_FAILS:-}" ]; then echo "$GH_DELETE_FAILS" >&2; exit 1; fi ;;
   "api --method PUT"*)
     cat > "$GH_PAYLOAD"
     if [ -n "\${GH_PUT_FAILS:-}" ]; then echo "$GH_PUT_FAILS" >&2; exit 1; fi ;;
@@ -78,6 +79,13 @@ const ruleset = (contexts: string[]) =>
     ],
   });
 
+/** The same ruleset with its required-status-checks rule gone: nothing to waive or restore. */
+const withoutChecksRule = (): string => {
+  const parsed = JSON.parse(ruleset([]));
+  parsed.rules = parsed.rules.filter((rule: { type: string }) => rule.type !== "required_status_checks");
+  return JSON.stringify(parsed);
+};
+
 type Options = {
   /** The contexts the target's `factory` ruleset requires today, the factory's own included. */
   contexts?: string[];
@@ -87,10 +95,14 @@ type Options = {
   noRuleset?: boolean;
   /** When set, the ruleset write fails with this text. */
   putFails?: string;
+  /** When set, clearing the variable fails with this text. */
+  deleteFails?: string;
+  /** A `factory` ruleset carrying no required-status-checks rule at all. */
+  noChecksRule?: boolean;
 };
 
 const run = (args: string[], options: Options = {}) => {
-  const { contexts = [...FACTORY_CHECKS, "check"], waived = "", noRuleset = false, putFails } = options;
+  const { contexts = [...FACTORY_CHECKS, "check"], waived = "", noRuleset = false, putFails, deleteFails, noChecksRule = false } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waive-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
@@ -103,9 +115,10 @@ const run = (args: string[], options: Options = {}) => {
       GH_PAYLOAD: payloadFile,
       GH_CALLS: callsFile,
       GH_EXISTING_ID: noRuleset ? "" : RULESET_ID,
-      GH_RULESET_JSON: ruleset(contexts),
+      GH_RULESET_JSON: noChecksRule ? withoutChecksRule() : ruleset(contexts),
       GH_WAIVED: waived,
       GH_PUT_FAILS: putFails ?? "",
+      GH_DELETE_FAILS: deleteFails ?? "",
     },
   });
   const calls: string[][] = fs.existsSync(callsFile)
@@ -143,6 +156,33 @@ test("on with no reason is refused, and nothing is written", () => {
   assert.match(stderr, /reason/i, "the refusal says a reason is what is missing");
   assert.equal(indexOf(calls, isVariableSet), -1, "no variable was set");
   assert.equal(indexOf(calls, isRulesetWrite), -1, "no ruleset was written");
+});
+
+test("a reason that is only whitespace is no reason", () => {
+  // The heartbeat trims the value, so a tab would waive a target with nothing to nag about.
+  const { status, calls } = run([target, "on", "  \t "]);
+  assert.notEqual(status, 0);
+  assert.equal(indexOf(calls, isVariableSet), -1, "no variable was set");
+});
+
+test("a ruleset requiring no status check at all is refused, rather than restored to nothing", () => {
+  const { status, stderr, calls } = run([target, "off"], { noChecksRule: true, waived: "stale" });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /requires no status check/i);
+  assert.equal(indexOf(calls, isRulesetWrite), -1, "nothing was written");
+});
+
+test("a clear that fails says so, rather than reporting a waiver closed that is still open", () => {
+  const { status, stderr } = run([target, "off"], { waived: "stale", deleteFails: "gh: API rate limit exceeded (HTTP 403)" });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /HALF DONE/);
+  assert.match(stderr, new RegExp(WAIVER_VARIABLE));
+});
+
+test("a variable already gone is not a failed clear", () => {
+  const { status, stdout } = run([target, "off"], { waived: "stale", deleteFails: "gh: Not Found (HTTP 404)" });
+  assert.equal(status, 0);
+  assert.match(stdout, /cleared/);
 });
 
 test("on sets the reason and then takes exactly the three factory contexts off, keeping own checks", () => {

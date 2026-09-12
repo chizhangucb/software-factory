@@ -57,11 +57,15 @@ const asIfBusy = (): OpenSubject[] => [{ pullRequest: false, labels: [READY_LABE
  * automatically. A read that fails for any reason other than the variable not
  * being there is said out loud and fails no target: the nag is not the pass.
  * It goes in the digest instead once there is one.
+ *
+ * A dry run reads no target here either, so it reports no waiver: the nag is
+ * about a target's real state, and a dry run that invented one would be the one
+ * output a maintainer could not trust.
  */
 const nagIfWaived = (target: string): void => {
-  const reason = dryRun ? `the pass reports the shape a waived target takes (${WAIVER_VARIABLE} unread)` : readWaiverReason(target);
-  const line = waiverLine(target, reason);
-  if (line) console.log(`${at()} ${line}${dryRun ? " (dry run)" : ""}`);
+  if (dryRun) return;
+  const line = waiverLine(target, readWaiverReason(target));
+  if (line) console.log(`${at()} ${line}`);
 };
 
 /** One target's waiver reason, or nothing: an unset variable is a 404 and means no waiver. */

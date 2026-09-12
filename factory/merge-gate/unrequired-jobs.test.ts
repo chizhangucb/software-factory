@@ -177,6 +177,43 @@ test("the roll-up named is one that rolls something up, not a required leaf", ()
   assert.deepEqual(found, [{ path: ".github/workflows/ci.yml", key: "lint", rollUp: "check" }]);
 });
 
+test("an apostrophe in a job name does not swallow the trailing comment", () => {
+  const after = workflowOf(["  gate:", "    name: Don't break  # the gate", "    needs: [build]", "  build:", "    runs-on: x"].join("\n"));
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after), required: ["Don't break"] }), []);
+});
+
+test("a quoted job-level uses: carries the requirement just as an unquoted one does", () => {
+  const caller = workflowOf('  check:\n    uses: "./.github/workflows/reusable.yml"');
+  const reusable = ["name: r", "on:", "  pull_request:", "  workflow_call:", "jobs:", "  build:", "    runs-on: x"].join("\n");
+  const workflows = [
+    { path: ".github/workflows/ci.yml", head: caller, base: caller },
+    { path: ".github/workflows/reusable.yml", head: reusable },
+  ];
+  assert.deepEqual(unrequiredAddedJobs({ workflows, required: ["check"] }), []);
+});
+
+test("a reusable caller counts under the `caller / inner` name GitHub publishes for it", () => {
+  const caller = workflowOf("  check:\n    uses: ./.github/workflows/reusable.yml");
+  const reusable = (jobs: string) =>
+    ["name: r", "on:", "  pull_request:", "  workflow_call:", "jobs:", jobs].join("\n");
+  const workflows = [
+    { path: ".github/workflows/ci.yml", head: caller, base: caller },
+    {
+      path: ".github/workflows/reusable.yml",
+      head: reusable("  build:\n    needs: [lint]\n  lint:\n    runs-on: x"),
+      base: reusable("  build:\n    runs-on: x"),
+    },
+  ];
+  assert.deepEqual(unrequiredAddedJobs({ workflows, required: ["check / build"] }), []);
+});
+
+test("a job whose name is an expression counts under what the expression resolved to", () => {
+  const after = workflowOf(
+    ["  gate:", "    name: check ${{ github.ref_name }}", "    needs: [lint]", "  lint:", "    runs-on: x"].join("\n"),
+  );
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after), required: ["check main"] }), []);
+});
+
 test("a workflow that does not run on a pull request is not judged", () => {
   const release = ["name: release", "on:", "  push:", "    tags: ['v*']", "jobs:", "  publish:", "    runs-on: x"].join(
     "\n",

@@ -50,6 +50,11 @@ const unquote = (value: string): string => (/^(['"]).*\1$/.test(value) ? value.s
  * A line with its trailing comment gone, blank and comment-only lines reported
  * as empty. A `#` inside quotes or a `${{ }}` expression is left alone, so a
  * job `name:` carrying one survives.
+ *
+ * A quote opens a scalar only where one can start, never mid-word: an
+ * apostrophe in `name: Don't break  # why` would otherwise open a string that
+ * never closes, leave the comment glued to the name, and refuse a job whose
+ * required context matches it perfectly.
  */
 const stripComment = (line: string): string => {
   let quote: string | undefined;
@@ -59,7 +64,7 @@ const stripComment = (line: string): string => {
       if (c === quote) quote = undefined;
       continue;
     }
-    if (c === '"' || c === "'") quote = c;
+    if ((c === '"' || c === "'") && (i === 0 || /[\s:,[{-]/.test(line[i - 1]))) quote = c;
     else if (c === "$" && line.startsWith("${{", i)) {
       const end = line.indexOf("}}", i);
       if (end < 0) return line.trimEnd();
@@ -129,7 +134,11 @@ const parseJobs = (source: string): Job[] => {
     else if (key === "needs") {
       current.needs.push(...parseNeeds(value));
       current.inNeeds = value === "";
-    } else if (key === "uses" && value.startsWith("./")) current.calls = unquote(value).slice(2);
+    } else if (key === "uses") {
+      // unquoted first: `uses: "./.github/workflows/x.yml"` is the same call.
+      const target = unquote(value);
+      if (target.startsWith("./")) current.calls = target.slice(2);
+    }
   }
   flush();
   return jobs;
@@ -196,15 +205,23 @@ const reachedFromRequired = (
 };
 
 /**
- * A required name stands for this job. A matrix job reports its name plus the
- * combination (`smoke (ubuntu-latest)`), and the name it carries may itself be
- * an expression, so the literal part before the first `${{` is what a required
- * context is matched against.
+ * A required name stands for this job. Three shapes beyond the plain name,
+ * each one a name GitHub publishes that the job's own is only a prefix of:
+ * a job calling another workflow reports `caller / inner` and never its own
+ * name; a matrix job reports its name plus the combination
+ * (`smoke (ubuntu-latest)`); a name carrying a `${{ }}` expression reports
+ * whatever the expression resolved to. In each case the literal part before
+ * the first `${{` is what a required context is matched against. Matching
+ * loosely here is the safe side: a wrong refusal has no judge after it.
  */
 const standsFor = (job: Job, required: readonly string[]): boolean => {
   if (required.includes(job.publishedName)) return true;
+  if (job.calls && required.some((ctx) => ctx.startsWith(`${job.publishedName} / `))) return true;
+  const literal = job.publishedName.split("${{")[0].trim();
+  if (job.publishedName.includes("${{") && literal.length > 0)
+    return required.some((ctx) => ctx.startsWith(literal));
   if (!job.matrix) return false;
-  const prefixes = [job.publishedName.split("${{")[0].trim(), job.key].filter((p) => p.length > 0);
+  const prefixes = [literal, job.key].filter((p) => p.length > 0);
   return required.some((ctx) => prefixes.some((p) => ctx === p || ctx.startsWith(`${p} (`)));
 };
 

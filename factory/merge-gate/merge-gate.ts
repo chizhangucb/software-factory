@@ -106,15 +106,22 @@ const summarize = (name: string, ok: boolean, reasons: readonly string[], detail
 
 const WORKFLOW_DIR = ".github/workflows";
 
+/**
+ * Single quotes, because the name comes from the pull request: a workflow file
+ * named with a backtick or `$(...)` would otherwise run in this job, which
+ * holds the factory's token.
+ */
+const quoteArg = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+
 /** Every workflow file at the head, with its merge-base content where it had one. */
 const workflowFiles = (mergeBase: string): WorkflowFile[] => {
   if (!fs.existsSync(WORKFLOW_DIR)) return [];
   return fs
-    .readdirSync(WORKFLOW_DIR)
-    .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
-    .map((name) => {
-      const p = `${WORKFLOW_DIR}/${name}`;
-      const base = safeSh(`git show "${mergeBase}:${p}"`);
+    .readdirSync(WORKFLOW_DIR, { withFileTypes: true })
+    .filter((e) => e.isFile() && (e.name.endsWith(".yml") || e.name.endsWith(".yaml")))
+    .map((e) => {
+      const p = `${WORKFLOW_DIR}/${e.name}`;
+      const base = safeSh(`git show ${quoteArg(`${mergeBase}:${p}`)}`);
       return { path: p, head: fs.readFileSync(p, "utf8"), ...(base ? { base } : {}) };
     });
 };
@@ -153,12 +160,12 @@ const main = (): void => {
     : "";
   const issueNumber = linkedIssue();
 
-  const required = requiredContexts();
+  const requiredNames = requiredContexts();
   const integrity = checkTestIntegrity({
     files,
     diff,
     workflows: workflowFiles(mergeBase),
-    requiredContexts: required,
+    requiredContexts: requiredNames,
   });
 
   const plan = redGreenPlan(files);
@@ -184,7 +191,7 @@ const main = (): void => {
     baseRef,
     mergeBase,
     issueNumber,
-    requiredContexts: required,
+    requiredContexts: requiredNames,
     files,
     redGreen: {
       ...redGreen,
@@ -217,8 +224,8 @@ const main = (): void => {
           : "no test file deleted",
         // Said out loud: a rule that is off because no required name could be
         // read looks exactly like a rule that found nothing.
-        required.length
-          ? `required checks read from the branch's rules: ${required.join(", ")}`
+        requiredNames.length
+          ? `required checks read from the branch's rules: ${requiredNames.join(", ")}`
           : "no required check could be read, so no job was judged unrequired",
       ].join("; "),
     ),

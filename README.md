@@ -39,7 +39,7 @@ A failing implementer run or check in steps 3 to 5 earns one informed retry, the
 
 5. **Let this repo serve its workflows.** Settings, Actions, General, Access. A private factory repo will not serve them otherwise.
 
-6. **Add a heartbeat.** The caller's `schedule` is the fallback, not the heartbeat: on one private target over 21 and a half hours it fired 6 times against about 129 expected. Add the target to `factory/heartbeat/targets.ts`, one line, and run `GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts` every 10 minutes, from anything that is not a GitHub cron, with a token that has contents write and issues and pull requests read on every target on that list and nothing else. One sender covers any number of targets, and it exits non-zero when a target failed to wake. It reads each target's open work first and wakes only a target something is waiting on (#212), so a target with nothing open costs nothing and one with work keeps the same interval. Without it the dispatcher and the reconciler run only as often as GitHub's cron fires, so a stranded run, a PR whose auto-merge failed, and a ticket whose blocker closed without firing an event on the target all wait.
+6. **Add a heartbeat.** The caller's `schedule` is the fallback, not the heartbeat: on one private target over 21 and a half hours it fired 6 times against about 129 expected. Add the target to `factory/heartbeat/targets.ts`, one line, and run `GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts` every 10 minutes, from anything that is not a GitHub cron, with a token that has contents write and issues and pull requests read, plus Actions variables read for the waiver nag (#244), on every target on that list and nothing else. One sender covers any number of targets, and it exits non-zero when a target failed to wake. It reads each target's open work first and wakes only a target something is waiting on (#212), so a target with nothing open costs nothing and one with work keeps the same interval. Without it the dispatcher and the reconciler run only as often as GitHub's cron fires, so a stranded run, a PR whose auto-merge failed, and a ticket whose blocker closed without firing an event on the target all wait.
 
 Then label a ticket `ready-for-agent` and the pipeline above runs. To hold a ready ticket back, add `hold`: the dispatcher never dispatches a ticket carrying it, and removing it releases the ticket on the next sweep (`docs/agents/triage-labels.md`). Labeling `agent:implement` by hand still works. `docs/pipeline.md` has the reasoning behind each step, what `FACTORY_PAT` cannot do, and the re-copy a target onboarded before #61 needs.
 
@@ -64,6 +64,20 @@ In an incident, **pause first, then cancel**. A pause does not stop a run alread
 Do not reach for `gh workflow disable factory.yml` instead. That file is the caller for every factory role, so disabling it takes `merge-gate` and `audit` down too, and their checks do not fail on a PR opened while it is off, they never appear.
 
 The gate lives in the caller, so it drifts like the trigger set: a target that has not re-copied `templates/factory.yml` since this landed has no gate, and setting the variable there does nothing at all. Re-copy the caller.
+
+## Waive the factory's checks on a target
+
+The complement of a pause, for a factory that cannot run at all (PAT expired, Actions down): its checks stop being required on one target, and the target keeps merging on its own CI.
+
+```
+scripts/waive-factory-checks.sh owner/repo on "factory PAT expired, see #244"
+scripts/waive-factory-checks.sh owner/repo off   # put them back
+```
+
+- `on` sets `FACTORY_CHECKS_WAIVED` to the reason, then takes `factory/verdict`, `factory/red-green` and `factory/test-integrity` out of the target's `factory` ruleset. The target's own check names are untouched.
+- The variable is written first on purpose: a failure between the two leaves a waiver visible and not yet in effect, never one in effect and invisible. `off` reverses the order for the same reason.
+- Only a human runs it. `FACTORY_PAT` cannot write repo variables, and nothing in the factory sets or clears this one: a broken factory restoring its own required checks is how a silent green happens.
+- Nothing closes a waiver automatically. The heartbeat names an open one, with its reason, every run until somebody runs `off`.
 
 ## Where to read more
 

@@ -16,10 +16,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 
 import { TARGET_REPOS } from "./targets.ts";
+import { WAIVER_VARIABLE } from "./waiver.ts";
 
 const repoRoot = new URL("../../", import.meta.url);
 const ENTRYPOINT = "factory/heartbeat/send.ts";
@@ -78,6 +80,49 @@ test("the command a host runs completes a pass on bare node, with nothing instal
   // Every outcome in the summary, so a pass that skipped a target says so
   // rather than reading as a quiet repo.
   assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), ${TARGET_REPOS.length} woken, 0 skipped, 0 failed`));
+});
+
+/**
+ * A pass against a stub `gh`, the way `factory/waiver/waive-factory-checks.test.ts`
+ * runs the script: the stub answers every target's variable read with `waived`
+ * and every open-work read with nothing, so no target is woken and no network is
+ * touched. A call it does not recognise fails, so a reshaped `gh` line breaks
+ * this loudly rather than answering empty.
+ */
+const passAgainstStub = (waived: string): string => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "heartbeat-"));
+  fs.writeFileSync(
+    path.join(dir, "gh"),
+    `#!/usr/bin/env bash
+args="$*"
+case "$args" in
+  *"actions/variables/${WAIVER_VARIABLE}"*)
+    if [ -n "\${GH_WAIVED:-}" ]; then printf '%s\\n' "$GH_WAIVED"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
+  *"issues?state=open"*) ;;
+  *) echo "stub gh: unexpected call: $args" >&2; exit 1 ;;
+esac
+exit 0
+`,
+    { mode: 0o755 },
+  );
+  return execFileSync(process.execPath, ["--experimental-strip-types", ENTRYPOINT], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DRY_RUN: "", GH_WAIVED: waived },
+  });
+};
+
+test("a pass names an open waiver, with its reason and the target", () => {
+  const stdout = passAgainstStub("PAT expired, see #244");
+  for (const target of TARGET_REPOS) assert.match(stdout, literal(`${target} WAIVED: PAT expired, see #244`));
+  assert.match(stdout, literal(WAIVER_VARIABLE));
+});
+
+test("a target with no waiver produces no such line", () => {
+  // The variable unset is a 404, which is not a failure and not a nag either.
+  const stdout = passAgainstStub("");
+  assert.doesNotMatch(stdout, /WAIVED/);
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), 0 woken, ${TARGET_REPOS.length} skipped, 0 failed`));
 });
 
 test("the runnable reaches only builtins and .ts files, so it runs with no npm install", () => {

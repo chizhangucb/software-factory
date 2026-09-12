@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Onboard a target repo: labels, auto-merge, and a `factory` ruleset on the default branch. Idempotent.
 #   scripts/onboard.sh owner/repo [--no-own-checks] [--allow-drop] [own-check ...]
-# An own check is a required context in the target's `factory` ruleset that does not start with
-# `factory/`. Name none and a re-run keeps exactly the ones that ruleset already requires, so
-# re-running to pick up a label never needs the list remembered. Nothing is read off the target's
-# commits: the script guesses no check, ever. A first run with none named refuses unless
-# --no-own-checks says the target genuinely has none, and any run that would drop an own check the
-# ruleset requires refuses unless --allow-drop says to let it go.
+# An own check is a required context in the target's `factory` ruleset not starting with `factory/`.
+# Nothing is read off the target's commits: the script guesses no check, ever.
+#   named: required as listed. None named: a re-run keeps what the ruleset already requires.
+#   None named and no ruleset yet: refused, unless --no-own-checks.
+#   A write that would drop an own check: refused, unless --allow-drop.
+# Every refusal is before the first write.
 set -euo pipefail
 repo="${1:?usage: onboard.sh owner/repo [--no-own-checks] [--allow-drop] [own-check ...]}"
 shift
@@ -107,22 +107,36 @@ else
   exit 1
 fi
 
-existing=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name == "factory") | .id' | head -n1)
+# One assignment, no `| head`: a pipeline here either swallows a failed listing or SIGPIPEs gh on
+# a repo with several rulesets, and either way onboarding cannot tell a first run from a re-run.
+rulesets_error_file=$(mktemp)
+rulesets_status=0
+rulesets=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name == "factory") | .id' 2>"$rulesets_error_file") ||
+  rulesets_status=$?
+rulesets_error=$(cat "$rulesets_error_file")
+rm -f "$rulesets_error_file"
+if [ "$rulesets_status" -ne 0 ]; then
+  refuse "$repo's rulesets could not be listed:
+  $rulesets_error
+That listing is what tells a first run from a re-run, so onboarding cannot
+tell whether there is a factory ruleset to keep own checks from."
+fi
+existing_ruleset_id=${rulesets%%$'\n'*}
 existing_own=()
 existing_own_count=0
-if [ -n "$existing" ]; then
+if [ -n "$existing_ruleset_id" ]; then
   # Assigned, not looped over inline, so a failure is caught: a ruleset that exists and cannot be
   # read is a refusal, never an empty answer, or the read failure reads as "this target requires
   # nothing" and the write below takes its own checks off.
   ruleset_error_file=$(mktemp)
   ruleset_status=0
-  contexts=$(gh api "repos/$repo/rulesets/$existing" \
+  contexts=$(gh api "repos/$repo/rulesets/$existing_ruleset_id" \
     --jq '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' \
     2>"$ruleset_error_file") || ruleset_status=$?
   ruleset_error=$(cat "$ruleset_error_file")
   rm -f "$ruleset_error_file"
   if [ "$ruleset_status" -ne 0 ]; then
-    refuse "The factory ruleset (id $existing) is there but could not be read:
+    refuse "The factory ruleset (id $existing_ruleset_id) is there but could not be read:
   $ruleset_error
 Its own checks are what a re-run keeps and what a drop is measured against,
 so onboarding cannot tell what this write would take away."
@@ -145,12 +159,12 @@ elif [ "$named_count" -gt 0 ]; then
 elif [ "$no_own_checks" = "true" ]; then
   own=()
   echo "no own check, as --no-own-checks says"
-elif [ -n "$existing" ]; then
+elif [ -n "$existing_ruleset_id" ]; then
   own=(${existing_own[@]+"${existing_own[@]}"})
   if [ "$existing_own_count" -gt 0 ]; then
-    echo "own checks kept from the factory ruleset (id $existing): ${own[*]}"
+    echo "own checks kept from the factory ruleset (id $existing_ruleset_id): ${own[*]}"
   else
-    echo "no own check to keep: the factory ruleset (id $existing) requires none"
+    echo "no own check to keep: the factory ruleset (id $existing_ruleset_id) requires none"
   fi
 else
   refuse "$repo has no factory ruleset yet and no own check was named, so there is
@@ -238,9 +252,9 @@ payload=$(jq -cn --arg branch "$default_branch" --argjson checks "$checks" '{
   ]
 }')
 if [ "$own_checks" -eq 0 ]; then warn_no_own_check; fi
-if [ -n "$existing" ]; then
-  gh api --method PUT "repos/$repo/rulesets/$existing" --input - <<<"$payload" >/dev/null
-  echo "ruleset factory updated (id $existing)"
+if [ -n "$existing_ruleset_id" ]; then
+  gh api --method PUT "repos/$repo/rulesets/$existing_ruleset_id" --input - <<<"$payload" >/dev/null
+  echo "ruleset factory updated (id $existing_ruleset_id)"
 else
   id=$(gh api --method POST "repos/$repo/rulesets" --input - <<<"$payload" --jq .id)
   echo "ruleset factory created (id $id)"

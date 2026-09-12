@@ -54,7 +54,9 @@ case "$args" in
     else echo "gh: Not Found (HTTP 404)" >&2; exit 1
     fi ;;
   *"--jq .default_branch") echo main ;;
-  *"/rulesets --jq"*) echo "\${GH_EXISTING_ID:-}" ;;
+  *"/rulesets --jq"*)
+    if [ -n "\${GH_RULESETS_ERROR:-}" ]; then echo "$GH_RULESETS_ERROR" >&2; exit 1; fi
+    echo "\${GH_EXISTING_ID:-}" ;;
   *"/rulesets/"*)
     if [ -n "\${GH_RULESET_ERROR:-}" ]; then echo "$GH_RULESET_ERROR" >&2; exit 1; fi
     printf '%s' "\${GH_RULESET:-}" | grep -v '^$' || true ;;
@@ -75,11 +77,13 @@ type OnboardOptions = {
   ruleset?: string[];
   /** When set, the read of that ruleset fails with this text, the way a rate limit does. */
   rulesetError?: string;
+  /** When set, the listing that finds the ruleset fails first, before there is an id to read. */
+  rulesetsError?: string;
 };
 
 /** A temp directory holding the stub `gh`, and the environment that reaches it. */
 const sandbox = (options: OnboardOptions = {}) => {
-  const { existingRulesetId, hasCaller = true, callerError, ruleset, rulesetError } = options;
+  const { existingRulesetId, hasCaller = true, callerError, ruleset, rulesetError, rulesetsError } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "onboard-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
@@ -99,6 +103,7 @@ const sandbox = (options: OnboardOptions = {}) => {
       GH_EXISTING_ID: existingRulesetId ?? (ruleset || rulesetError ? "7" : ""),
       GH_RULESET: (ruleset ?? []).join("\n"),
       GH_RULESET_ERROR: rulesetError ?? "",
+      GH_RULESETS_ERROR: rulesetsError ?? "",
       GH_HAS_CALLER: hasCaller ? "true" : "false",
       GH_CALLER_ERROR: callerError ?? "",
     },
@@ -268,6 +273,15 @@ test("a factory ruleset that exists and cannot be read is a refusal, never an em
   // Reading the failure as "this target requires nothing" is the shrink with a different cause:
   // the write would go out having measured the drop against a list that never arrived.
   const run = onboardWith(["check"], { rulesetError: "gh: API rate limit exceeded (HTTP 403)" });
+  assert.notEqual(run.code, 0);
+  assert.match(run.output, /rate limit/i, "the real gh error reaches the maintainer");
+  assert.deepEqual(writes(run.calls), []);
+});
+
+test("a ruleset listing that fails is a refusal too, not a target read as having none", () => {
+  // The listing is what tells a first run from a re-run. Read a failure as "no ruleset yet" and
+  // the drop guard has no baseline to measure against, and the run creates over what is there.
+  const run = onboardWith(["check"], { rulesetsError: "gh: API rate limit exceeded (HTTP 403)" });
   assert.notEqual(run.code, 0);
   assert.match(run.output, /rate limit/i, "the real gh error reaches the maintainer");
   assert.deepEqual(writes(run.calls), []);

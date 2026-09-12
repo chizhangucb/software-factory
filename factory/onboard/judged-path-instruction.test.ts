@@ -21,6 +21,8 @@ import { issuesClosedBy, linkedIssueNumber } from "../lib/linked-issue.ts";
 const JUDGED_PATH_INSTRUCTION =
   "- **Opening a pull request yourself**: your branch has to be in this repo, not a fork. Put `Closes #N` in the body, label it `agent:review`, and arm auto-merge. All three, or it stays blocked. The factory judges it and merges it.";
 const JUDGED_PATH_TEMPLATE = "templates/agents-md-judged-path.md";
+/** The decision the instruction comes from, amended in place with dated corrections. */
+const JUDGED_PATH_ADR = "docs/adr/0003-gate-in-ci-auto-merge-with-audit.md";
 
 /** A file in this repo, by its path from the root. */
 const readRepo = (file: string): string => fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
@@ -113,7 +115,7 @@ test("ADR 0003's bullet on the tracker page's ban carries its dated correction, 
   // The bullet says the page forbids the keyword outright, which was true when it was written.
   // ADRs are amended in place and dated rather than rewritten, so the sentence stays and the
   // correction beside it is what stops the ADR contradicting the page it describes.
-  const bullet = readRepo("docs/adr/0003-gate-in-ci-auto-merge-with-audit.md")
+  const bullet = readRepo(JUDGED_PATH_ADR)
     .split("\n")
     .filter((line) => line.startsWith("- **The convention against closing keywords narrows.**"));
   assert.equal(bullet.length, 1, "the bullet is still there, once");
@@ -124,7 +126,7 @@ test("ADR 0003's judged-path paragraph carries its dated correction, since the f
   // The heading reads as if the factory were one producer among them, the one phrase in the file
   // out of step with the glossary. ADRs are amended in place and dated rather than rewritten, so
   // the sentence stays and the correction beside it is what stops the second reading.
-  const paragraph = readRepo("docs/adr/0003-gate-in-ci-auto-merge-with-audit.md")
+  const paragraph = readRepo(JUDGED_PATH_ADR)
     .split("\n")
     .filter((line) => line.startsWith("**What a producer other than the factory does.**"));
   assert.equal(paragraph.length, 1, "the paragraph is still there, once, its sentence preserved");
@@ -138,6 +140,8 @@ test("no page reads the factory as a producer except the ADR line that carries t
   const carrying = INSTRUCTION_ROOTS.flatMap(nonTestFiles)
     .flatMap((file) => readRepo(file).split("\n").map((line) => ({ file, line })))
     .filter(({ line }) => /producers? other than the factory/.test(line));
+  // Or the loop below asserts nothing the day the ADR's phrasing changes.
+  assert.ok(carrying.some(({ file }) => file === JUDGED_PATH_ADR), `${JUDGED_PATH_ADR} carries the phrase`);
   for (const { file, line } of carrying) {
     assert.ok(line.includes("Corrected 2026-09-11 (#233): "), `${file} reads the factory as a producer: ${line}`);
   }

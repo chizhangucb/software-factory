@@ -51,8 +51,9 @@ export type DispatchIssue = {
  * A ticket with no acceptance-criteria checklist is not dispatched: there is
  * nothing for the reviewer to tick, so an agent would be building to a target
  * nobody wrote down. Structural only, `verdict.ts`'s parser and the reviewer's:
- * the section is there or it is not, and no size is judged. The marker keys the
- * one comment that says so, the way `upsert-comment.sh` keys a PR's.
+ * the section is there or it is not, and no size is judged. The marker heads the
+ * one comment that says so, as the reconciler's no-ticket mark heads its own
+ * (#230): same shape, and a marker anywhere else in a body is not it.
  */
 export const NO_CRITERIA_REASON = "no acceptance criteria";
 export const NO_CRITERIA_MARKER = "<!-- factory:no-acceptance-criteria -->";
@@ -62,13 +63,16 @@ export const noCriteriaComment = (): string =>
   `${NO_CRITERIA_MARKER}\nNot dispatched: this ticket has no checklist under an "Acceptance criteria" heading, so there is nothing for the reviewer to tick. Add one and the next sweep picks it up.`;
 
 /**
- * Whether the ticket already carries that comment. Any author counts: the
- * marker is the factory's own line, and repeating the comment every sweep is
- * the worse way to be wrong.
+ * Whether the ticket already carries that comment. The marker counts at the
+ * head of a comment only, as the reconciler's does, so quoting it in a reply
+ * does not silence the dispatcher. Any author counts, where the reconciler
+ * weighs one: this comment suppresses nothing an agent would otherwise do,
+ * it only stops the factory repeating itself on a ticket it is holding
+ * either way, so a forged one costs a human a note and nothing else.
  */
 export const alreadyToldNoCriteria = (
   comments: readonly { body: string | null }[],
-): boolean => comments.some((c) => (c.body ?? "").includes(NO_CRITERIA_MARKER));
+): boolean => comments.some((c) => (c.body ?? "").startsWith(NO_CRITERIA_MARKER));
 
 /** The reason an issue is not dispatched, or undefined when it is. */
 export const whySkipped = (

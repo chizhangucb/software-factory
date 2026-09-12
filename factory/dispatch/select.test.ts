@@ -270,6 +270,9 @@ test("the held ticket is told once: a ticket already carrying the marker is not 
   assert.equal(alreadyToldNoCriteria([]), false);
   assert.equal(alreadyToldNoCriteria([{ body: "I disagree" }]), false);
   assert.equal(alreadyToldNoCriteria([{ body: "I disagree" }, { body: `${NO_CRITERIA_MARKER}\nNot dispatched.` }]), true);
+  // Quoting the marker in a reply is not the factory saying it: the mark heads
+  // the comment or it does not count, as the reconciler's no-ticket mark does.
+  assert.equal(alreadyToldNoCriteria([{ body: `it already said ${NO_CRITERIA_MARKER} once` }]), false);
   assert.ok(noCriteriaComment().startsWith(NO_CRITERIA_MARKER), "the comment leads with the marker that suppresses the next one");
   assert.ok(alreadyToldNoCriteria([{ body: noCriteriaComment() }]), "and the comment it posts is the one it recognises");
 });

@@ -81,8 +81,8 @@ const label = (issue: DispatchIssue): void => {
 /**
  * Tell a ticket held for its shape, once. Every other skip reason names a
  * state a human already chose, so it needs no comment; this one names a ticket
- * nobody knows is stuck. The marker on the comment is what keeps the next
- * sweep quiet, the way `upsert-comment.sh` keys a PR's comment (#257).
+ * nobody knows is stuck. The marker heading the comment is what keeps the next
+ * sweep quiet, the way the reconciler's no-ticket mark does on a PR (#230).
  */
 const tellNoCriteria = (issue: DispatchIssue): void => {
   const comments = JSON.parse(

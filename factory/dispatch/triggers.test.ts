@@ -245,6 +245,36 @@ test("a pause stops every job that starts or advances work, and neither of the t
   );
 });
 
+test("the two jobs a pause keeps are not driven by the heartbeat, so declining to wake a paused target cannot take a PR's checks away", () => {
+  // Acceptance criterion 5 of #256. The heartbeat no longer wakes a paused
+  // target at all, which removes the sweep and nothing else -- but only while
+  // the two judging jobs answer the target's own pull request events rather
+  // than the heartbeat's dispatch. A later change that hung either of them off
+  // `factory-sweep` would make a pause silently drop `factory/red-green` and
+  // `factory/test-integrity` from a human's PR, which is the failure #171
+  // exists to prevent, arriving by a different door.
+  //
+  // The event type is read out of the sender rather than quoted, so a renamed
+  // dispatch is a failure here and not a test that stopped asking anything.
+  const sender = fs.readFileSync(new URL("../heartbeat/send.ts", import.meta.url), "utf8");
+  const eventType = sender.match(/event_type=([\w-]+)/)?.[1];
+  assert.ok(eventType, "the heartbeat sender dispatches one named event type");
+  const heartbeat: Context = { event_name: "repository_dispatch", event: { action: eventType } };
+
+  for (const job of RUNS_WHILE_PAUSED) {
+    assert.equal(evaluate(conditions.get(job)!, heartbeat), false, `${job} is not woken by the heartbeat`);
+  }
+  // And the heartbeat still reaches the one job it is for, so the assertions
+  // above are about these two jobs and not about an event nothing answers.
+  assert.equal(evaluate(conditions.get("dispatch")!, heartbeat), true, "the heartbeat still wakes the dispatcher");
+  // Each of the two is woken by a pull request event of the target's own,
+  // which is what "unaffected by the wake" means for them.
+  for (const { job, context } of WAKING_EVENTS.filter(({ job }) => RUNS_WHILE_PAUSED.includes(job))) {
+    assert.equal(context.event_name, "pull_request", `${job} is woken by a pull request event`);
+    assert.equal(evaluate(conditions.get(job)!, context), true, `${job} runs on it`);
+  }
+});
+
 test("the pause announces itself on whatever woke the caller, and says nothing while running", () => {
   // Acceptance criterion 3. A skipped job is still an absence, and reading a
   // paused factory off one is exactly the inference this ticket refuses. The

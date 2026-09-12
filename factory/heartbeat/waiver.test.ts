@@ -11,7 +11,8 @@ import * as fs from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { WAIVER_VARIABLE, isUnset, waiverLine, waiverReason, waiverReadArgs } from "./waiver.ts";
+import { isUnset } from "./variable.ts";
+import { WAIVER_VARIABLE, waiverLine, waiverReason, waiverReadArgs } from "./waiver.ts";
 
 test("the read is a GET of one repository variable, so it cannot start a job on the target", () => {
   const args = waiverReadArgs("owner/repo");

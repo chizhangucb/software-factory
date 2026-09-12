@@ -106,6 +106,7 @@ jobs:
             factory/lib/labels.ts
             factory/lib/linked-issue.ts
             factory/lib/trusted-authors.ts
+            factory/lib/verdict.ts
             factory/retry/escalation.ts
 
       - name: Setup Node.js

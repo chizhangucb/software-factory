@@ -4,9 +4,13 @@ import { test } from "node:test";
 import { HOLD_LABEL } from "../lib/labels.ts";
 import { trustPolicy } from "../lib/trusted-authors.ts";
 import {
+  NO_CRITERIA_MARKER,
+  NO_CRITERIA_REASON,
+  alreadyToldNoCriteria,
   type DispatchIssue,
   fromGitHub,
   issuesClosedByPrs,
+  noCriteriaComment,
   selectForDispatch,
   whyNotDispatchableNow,
   whySkipped,
@@ -15,11 +19,15 @@ import {
 /** The default every target starts on: the repo owner alone. */
 const OWNER_ONLY = trustPolicy("OWNER");
 
+/** The shape a ticket has to have to be dispatched at all: a checklist under the heading. */
+const CRITERIA = "## Acceptance criteria\n\n- [ ] the thing works\n";
+
 const ticket = (
   number: number,
   overrides: Partial<DispatchIssue> = {},
 ): DispatchIssue => ({
   number,
+  body: CRITERIA,
   labels: ["ready-for-agent"],
   assigned: false,
   openBlockers: 0,
@@ -119,6 +127,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
       labels: [{ name: "ready-for-agent" }, { name: "enhancement" }],
       assignees: [],
       author_association: "OWNER",
+      body: CRITERIA,
       issue_dependencies_summary: { blocked_by: 0, total_blocked_by: 1 },
       sub_issues_summary: { total: 0 },
     },
@@ -136,6 +145,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
   assert.deepEqual(fromGitHub(raw, new Set([1])), [
     {
       number: 1,
+      body: CRITERIA,
       labels: ["ready-for-agent", "enhancement"],
       assigned: false,
       openBlockers: 0,
@@ -145,6 +155,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
     },
     {
       number: 2,
+      body: null,
       labels: ["ready-for-agent"],
       assigned: true,
       openBlockers: 1,
@@ -154,6 +165,7 @@ test("fromGitHub maps the REST issue shape and drops pull requests", () => {
     },
     {
       number: 4,
+      body: null,
       labels: ["ready-for-agent"],
       assigned: false,
       openBlockers: 0,
@@ -172,6 +184,7 @@ test("re-reading an issue before labeling catches a close or a new blocker since
     labels: [{ name: "ready-for-agent" }],
     assignees: [],
     author_association: "OWNER",
+    body: CRITERIA,
     issue_dependencies_summary: { blocked_by: 0 },
     ...over,
   });
@@ -187,7 +200,7 @@ test("re-reading an issue before labeling catches a close or a new blocker since
 });
 
 test("the re-read applies the same trust list the selection did", () => {
-  const raw = { number: 67, state: "open", labels: [{ name: "ready-for-agent" }], assignees: [], author_association: "COLLABORATOR", issue_dependencies_summary: { blocked_by: 0 } };
+  const raw = { number: 67, state: "open", labels: [{ name: "ready-for-agent" }], assignees: [], author_association: "COLLABORATOR", body: CRITERIA, issue_dependencies_summary: { blocked_by: 0 } };
   const none = new Set<number>();
   assert.equal(whyNotDispatchableNow(raw, none, OWNER_ONLY), "untrusted author: COLLABORATOR");
   assert.equal(whyNotDispatchableNow(raw, none, trustPolicy("OWNER,COLLABORATOR")), undefined);
@@ -211,12 +224,59 @@ test("a wider trust list lets in a ticket the default would park", () => {
 test("fromGitHub carries author_association, and an issue with none is untrusted", () => {
   const [owned, anonymous] = fromGitHub(
     [
-      { number: 1, labels: [{ name: "ready-for-agent" }], author_association: "OWNER" },
-      { number: 2, labels: [{ name: "ready-for-agent" }] },
+      { number: 1, labels: [{ name: "ready-for-agent" }], author_association: "OWNER", body: CRITERIA },
+      { number: 2, labels: [{ name: "ready-for-agent" }], body: CRITERIA },
     ],
     new Set(),
   );
   assert.equal(owned.authorAssociation, "OWNER");
   assert.equal(anonymous.authorAssociation, "NONE");
   assert.deepEqual(numbers([owned, anonymous]), [1]);
+});
+
+test("a ready ticket whose body carries no acceptance criteria is held, not dispatched", () => {
+  const unshaped = ticket(1, { body: "## What to build\n\nMake it good.\n" });
+  assert.deepEqual(numbers([unshaped]), []);
+  assert.equal(whySkipped(unshaped, OWNER_ONLY), NO_CRITERIA_REASON);
+  // An empty body, and a heading with no checklist under it, are the same thing.
+  assert.equal(whySkipped(ticket(2, { body: null }), OWNER_ONLY), NO_CRITERIA_REASON);
+  assert.equal(whySkipped(ticket(3, { body: "## Acceptance criteria\n\nIt should work.\n" }), OWNER_ONLY), NO_CRITERIA_REASON);
+});
+
+test("a ready ticket that does carry acceptance criteria dispatches as it always did", () => {
+  const shaped = ticket(4, { body: "## Acceptance criteria\n\n- [ ] whySkipped returns the new reason\n" });
+  assert.deepEqual(numbers([shaped]), [4]);
+  assert.equal(whySkipped(shaped, OWNER_ONLY), undefined);
+});
+
+test("an existing skip reason is reported ahead of the missing criteria", () => {
+  // The criteria check is structural and last: a ticket a human already parked
+  // says so, rather than complaining about its shape.
+  const cases: [Partial<DispatchIssue>, string][] = [
+    [{ state: "closed" }, "closed since the snapshot"],
+    [{ labels: [] }, "no ready-for-agent"],
+    [{ labels: ["ready-for-agent", HOLD_LABEL] }, `held: ${HOLD_LABEL}`],
+    [{ labels: ["ready-for-agent", "agent:blocked"] }, "already in the factory: agent:blocked"],
+    [{ labels: ["ready-for-agent", "agent:in-progress"] }, "already in the factory: agent:in-progress"],
+    [{ openBlockers: 1 }, "1 open blocker"],
+    [{ subIssues: 2 }, "has sub-issues, not a ticket"],
+  ];
+  for (const [over, reason] of cases) {
+    assert.equal(whySkipped(ticket(5, { body: "no criteria here", ...over }), OWNER_ONLY), reason);
+  }
+});
+
+test("the held ticket is told once: a ticket already carrying the marker is not re-commented", () => {
+  assert.equal(alreadyToldNoCriteria([]), false);
+  assert.equal(alreadyToldNoCriteria([{ body: "I disagree" }]), false);
+  assert.equal(alreadyToldNoCriteria([{ body: "I disagree" }, { body: `${NO_CRITERIA_MARKER}\nNot dispatched.` }]), true);
+  // Quoting the marker in a reply is not the factory saying it: the mark heads
+  // the comment or it does not count, as the reconciler's no-ticket mark does.
+  assert.equal(alreadyToldNoCriteria([{ body: `it already said ${NO_CRITERIA_MARKER} once` }]), false);
+  assert.ok(noCriteriaComment().startsWith(NO_CRITERIA_MARKER), "the comment leads with the marker that suppresses the next one");
+  assert.ok(alreadyToldNoCriteria([{ body: noCriteriaComment() }]), "and the comment it posts is the one it recognises");
+  // The read that looks for it projects the first 64 characters of each body,
+  // as the sweep's does; a longer marker would never be found and the
+  // dispatcher would comment on every sweep.
+  assert.ok(NO_CRITERIA_MARKER.length <= 64, "the marker fits in the projected head of a comment body");
 });

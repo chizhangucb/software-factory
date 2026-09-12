@@ -11,8 +11,11 @@
  * `--jq` so the output is KBs whatever the page count; 64 MB is the margin,
  * not the plan.
  *
- * stdin is never inherited: a `gh` call that decides to prompt would
- * otherwise hang the job until its timeout.
+ * stdin is never inherited, and no call outlives 60 seconds: a `gh` call that
+ * decides to prompt, or that simply never answers, is killed rather than left
+ * to hang the job that made it (#229). One number for every caller, so a
+ * pass is bounded at 60s times the calls it makes and no caller (the
+ * heartbeat sender least of all) needs a kill timer of its own.
  *
  * The failure shape is the module's too. Every failed call throws one
  * `GhError`, described the same way and carrying the same four fields, so no
@@ -31,6 +34,29 @@ import { execFileSync } from "node:child_process";
  * `gh` with a smaller one and bring the ENOBUFS back.
  */
 const GH_MAX_BUFFER = 64 * 1024 * 1024;
+
+/**
+ * 60 seconds, measured rather than guessed (#229). A single page read is 0.4
+ * to 0.8s against this repo and the fixture, and a 3 page crawl of 232 issues
+ * is 1.85s, so 60s is about 100 pages: no plausible target has that many open.
+ * `gh api` has no retry or backoff of its own, so a 60s call is a stalled
+ * call and not a throttled one, and killing it leaves the 5 minute dispatcher
+ * four minutes to finish its sweep and log what happened. A false fire is
+ * cheap: one skipped sweep, and sweeps run every 10 minutes against deadlines
+ * of 15 to 30.
+ *
+ * One number for every caller, decided once. A caller that could pick its own
+ * re-opens the decision at every call site, which is the drift a single
+ * wrapper exists to prevent.
+ */
+const GH_TIMEOUT_MS = 60_000;
+
+/**
+ * The number in force, read once for the process. `FACTORY_GH_TIMEOUT_MS`
+ * exists so this wrapper's own test can prove the kill without waiting a
+ * minute; it is not a per-call override, and no factory script sets it.
+ */
+const ghTimeoutMs = Number(process.env.FACTORY_GH_TIMEOUT_MS) || GH_TIMEOUT_MS;
 
 /**
  * One line: the gh command (never a token, those travel in env) and why it
@@ -71,21 +97,30 @@ export class GhError extends Error {
   readonly stderr: string;
   /** The signal that killed the call, or null. */
   readonly signal: NodeJS.Signals | null;
+  /**
+   * Whether the call was killed by the wrapper's timeout. A derived boolean
+   * rather than the libuv code, because the question a caller asks is whether
+   * it timed out, and the answer stays true if the kill shape changes.
+   */
+  readonly timedOut: boolean;
 
   constructor(args: readonly string[], cause: unknown) {
     super(describeGhFailure(args, cause), { cause });
     this.name = "GhError";
-    const { status, stderr, signal } = (cause ?? {}) as { status?: unknown; stderr?: unknown; signal?: unknown };
+    const { status, stderr, signal, code } = (cause ?? {}) as { status?: unknown; stderr?: unknown; signal?: unknown; code?: unknown };
     this.args = [...args];
     this.status = typeof status === "number" ? status : null;
     this.stderr = typeof stderr === "string" ? stderr : "";
     this.signal = typeof signal === "string" ? (signal as NodeJS.Signals) : null;
+    this.timedOut = code === "ETIMEDOUT";
   }
 }
 
 /**
  * Run `gh` with the given arguments and return its stdout. Throws a `GhError`
- * on a non-zero exit, on a signal, and on a spawn that never happened. Pass
+ * on a non-zero exit, on a signal, on a spawn that never happened, and on a
+ * call that has not answered in 60 seconds, which is killed and carries
+ * `timedOut`. Pass
  * `env` to run one call under a different token (the sweep reads statuses
  * with GITHUB_TOKEN, update-branch posts them with it); tokens travel in env,
  * never in `args`, so a failure can be logged.
@@ -97,6 +132,7 @@ export const gh = (args: readonly string[], env: NodeJS.ProcessEnv = process.env
       stdio: ["ignore", "pipe", "pipe"],
       env,
       maxBuffer: GH_MAX_BUFFER,
+      timeout: ghTimeoutMs,
     });
   } catch (error) {
     throw new GhError(args, error);

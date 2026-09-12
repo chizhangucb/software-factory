@@ -88,6 +88,18 @@ _Avoid_: blocked, on hold as a state the factory sets (the factory never adds or
 A ticket a person is to implement rather than the factory: the `ready-for-human` label, one of the five triage roles `docs/agents/triage-labels.md` maps. The factory neither writes nor reads it.
 _Avoid_: human ticket, manual, hold (a **hold** says not yet, this says not the factory).
 
+**Roll-up check**:
+One check name in a target's own CI that stands for every test behind it: a job that runs no test itself, reports on every pull request, and is red if any job it rolls up is red. What a target's merge rule names, so the rule never names a test. chronicle's `e2e` is the worked example and the source of the word, rolling up three shards plus a stub for the change it does not apply to.
+_Avoid_: summary check (too vague to say what it promises), aggregate, gate and bare roll-up.
+
+**Unrequired job**:
+A job in a target's CI that no name in the target's merge rule stands for, directly or through a roll-up. Sometimes deliberate: chronicle's `smoke` is path-filtered Windows coverage nobody gates on. The merge gate refuses only one a pull request *adds*, so a deliberate one already in the target stays as the maintainer left it.
+_Avoid_: ungated job, unwired job, missing check.
+
+**Waiver**:
+A human's declaration that the factory cannot run, so its checks are not required on one target: the repository variable `FACTORY_CHECKS_WAIVED`, whose value is the reason, plus the factory's contexts taken out of the target's merge rule. The target keeps merging on its own CI. Set and cleared only by a human, with `scripts/waive-factory-checks.sh`, never by the factory; the heartbeat names an open one every run until it is cleared, and nothing clears one automatically, because a broken factory restoring its own required checks is how a silent green happens. The exact complement of a **Pause**: a pause stops the factory working and keeps its judgement required, a waiver stops its judgement being required and leaves the factory working.
+_Avoid_: outage (names the weather rather than the decision), break-glass, bypass (GitHub's word for the admin route this replaces), exemption.
+
 **Target repo**:
 A repo the factory is allowed to work on. First one is chronicle.
 
@@ -96,7 +108,7 @@ The one workflow file a target repo carries, at its own `.github/workflows/facto
 _Avoid_: client, consumer, the target's workflow.
 
 **Pause**:
-One target's circuit breaker: the repository variable `FACTORY_PAUSED`, whose value is the reason it is paused. While it is set the caller starts and advances no work, and `merge-gate` and `audit` keep judging pull requests, which is what tells it apart from disabling the caller workflow. A property of one target, set by a human and never by the factory, since `FACTORY_PAT` cannot write repo variables. Scoped to the whole repo, which is what tells it from a **Hold**: a hold is a person holding one ticket back and lives on that ticket, a pause stops every ticket at once and lives on the repo.
+One target's circuit breaker: the repository variable `FACTORY_PAUSED`, whose value is the reason it is paused. While it is set the caller starts and advances no work, and `merge-gate` and `audit` keep judging pull requests, which is what tells it apart from disabling the caller workflow. A property of one target, set by a human and never by the factory, since `FACTORY_PAT` cannot write repo variables. Scoped to the whole repo, which is what tells it from a **Hold**: a hold is a person holding one ticket back and lives on that ticket, a pause stops every ticket at once and lives on the repo. Its complement is a **Waiver**, which leaves the factory working and stops its judgement being required.
 _Avoid_: halt, kill switch, freeze; hold (one ticket's, and a human's timing rather than a breaker); disable (GitHub's word for turning a workflow off, and the breaker a pause replaces). Stop is fine as the plain verb for what a pause does to a job, never as the name of the thing.
 
 **Maintainer**:

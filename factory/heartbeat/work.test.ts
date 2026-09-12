@@ -24,17 +24,9 @@ import { HEARTBEAT_INTERVAL_MINUTES } from "./interval.ts";
 import { type OpenSubject, fromGitHub, openWorkArgs, sweepNeed } from "./work.ts";
 
 /**
- * An open ticket carrying these labels and no clock, which is a subject whose
- * change time was not read and so is due whatever its age: the tests below it
- * are about the label rules alone, and what is due has its own section.
- */
-const ticket = (...labels: string[]): OpenSubject => ({ pullRequest: false, labels });
-const pullRequest = (...labels: string[]): OpenSubject => ({ pullRequest: true, labels });
-
-/**
- * The pass's clock. Every subject below is placed against it rather than
- * against the real time, because what is due (#264) is a question about when
- * the subject last changed.
+ * The pass's clock. Every subject is placed against it rather than against the
+ * real time, because what is due (#264) is a question about when the subject
+ * last changed.
  */
 const NOW = new Date("2026-09-12T12:00:00Z");
 
@@ -43,6 +35,14 @@ const changed = (minutes: number, subject: OpenSubject): OpenSubject => ({
   ...subject,
   changedAt: new Date(NOW.getTime() - minutes * 60_000).toISOString(),
 });
+
+/**
+ * An open ticket carrying these labels, changed just before the pass, so the
+ * label rules are read on a subject that is due either way. What is due has its
+ * own section below.
+ */
+const ticket = (...labels: string[]): OpenSubject => changed(0, { pullRequest: false, labels });
+const pullRequest = (...labels: string[]): OpenSubject => changed(0, { pullRequest: true, labels });
 
 /**
  * A subject nothing has touched since well past every deadline, which is the
@@ -185,6 +185,13 @@ test("a ticket a human marked ready that the factory has not picked up is waitin
   // And it stops being due the moment the factory has it, which is where the
   // reconciler's deadline takes over.
   assert.equal(sweepNeed([settled(ticket(READY_LABEL, IMPLEMENT_LABEL))], NOW), "nothing-due");
+});
+
+test("a subject whose clock was not read is waiting, rather than skipped on an age nobody knows", () => {
+  // The reconciler treats a state whose age it does not know as overdue, and an
+  // unprojected read is where that arrives: the field is absent, not stale.
+  assert.equal(sweepNeed([{ pullRequest: false, labels: [IMPLEMENT_LABEL] }], NOW), "waiting");
+  assert.equal(sweepNeed([{ pullRequest: true, labels: [] }], NOW), "waiting");
 });
 
 test("a subject that changed since the last pass is waiting, whatever its deadlines say", () => {

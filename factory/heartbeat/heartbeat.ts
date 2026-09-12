@@ -27,7 +27,10 @@ import { type OpenSubject, sweepNeed } from "./work.ts";
 /** What happened to one target in one pass. */
 export type TargetOutcome =
   | { readonly target: string; readonly outcome: "woken" }
-  /** Nothing is open on the target at all, so it was left asleep. */
+  /**
+   * Nothing open that any sweep would act on: `work.ts`'s `nothing-waiting`,
+   * reported under the name the host's logs have carried since #212.
+   */
   | { readonly target: string; readonly outcome: "skipped" }
   /**
    * Work is open and a sweep would find nothing to do on any of it this pass

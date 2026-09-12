@@ -14,14 +14,9 @@
  * human acts. A held pull request is still work, since a hold withholds the
  * reviewer and never the merge path (#210).
  *
- * That much says a sweep could act on the subject. Whether it would act *now*
- * is the second question (#264), and it is the one that decides the bill: a
- * subject open and waiting on a human is work by every rule above and woke its
- * target every pass for as long as it sat there. Every repair the reconciler
- * makes is gated on one of its deadlines, so a subject is due when one of
- * those deadlines has just fallen, when it has just changed, or when no
- * deadline is running on it at all. `due` below is that rule and carries the
- * reasoning.
+ * That much says a sweep could act on the subject. Whether it would act now is
+ * the second question and the one that decides the bill (#264): `due` below is
+ * that rule, and #264 and `docs/pipeline.md` carry the argument for it.
  *
  * Every label set is imported from the module that owns it, so a change to any
  * of them reaches the heartbeat with it, and the deadlines travel the same
@@ -85,58 +80,47 @@ export const fromGitHub = (raw: readonly unknown[]): OpenSubject[] =>
   });
 
 /**
- * The deadlines a sweep judges this kind of subject by, taken from the
- * reconciler's own defaults rather than restated: `decideTicket` judges a
- * ticket by `stuckMinutes` alone, while a pull request is judged by every one
- * of them (the label states and the auto-merge re-arm by `stuckMinutes`, the
- * verdict by `verdictMinutes`, the update by `updateMinutes`). A deadline added
- * to the set reaches a pull request here with no edit, and fails
- * `interval.test.ts` until a human has looked at it.
+ * The deadlines a sweep judges this kind of subject by, from the reconciler's
+ * own defaults rather than restated: `decideTicket` judges a ticket by
+ * `stuckMinutes` alone, and every rule on a pull request by one of the three. A
+ * deadline added to the set reaches a pull request here with no edit; one meant
+ * for a ticket needs this line, and `interval.test.ts` fails on a new key until
+ * a human has looked at both.
  *
- * A target may override any of the three in its own caller and the factory
- * cannot read a target's caller, so these are the deadlines the heartbeat
- * reasons from whatever a target actually runs. The direction that leaves is
- * deliberate: an override upward or downward moves the sweep that repairs the
- * subject and not this rule, so the wake can be a pass early (a wasted minute)
- * or a pass late (a repair that waits for the target's own `schedule`, the
- * fallback CONTEXT.md already names). Waking on the factory's own defaults is
- * the safe direction and still beats waking always, which is what #264
- * replaces.
+ * A target can override all three in its own caller and the factory cannot read
+ * a target's caller, so the heartbeat reasons from the defaults whatever a
+ * target runs. Deliberately: an override earlier than a default costs a wasted
+ * wake, one later leaves that repair to the caller's own `schedule`, the
+ * fallback for a missed pass either way, and waking on the defaults beats
+ * waking always (#264).
  */
 const deadlinesFor = (pullRequest: boolean): number[] => [
   ...new Set(pullRequest ? Object.values(DEFAULT_DEADLINES) : [DEFAULT_DEADLINES.stuckMinutes]),
 ];
 
 /**
- * Would a sweep act on this subject *now*?
+ * Would a sweep act on this subject now? A deadline is only ever checked when a
+ * sweep runs, so the pass that matters is the first one after it falls, and the
+ * repair then changes the subject and starts the next deadline. Asking whether
+ * the subject is *past* a deadline is what woke a target every pass, because it
+ * stays true forever.
  *
- * A deadline is only ever checked when a sweep runs, so the pass that matters
- * is the first one after it falls: the sweep repairs the subject then, and
- * every repair changes the subject, which starts the next deadline. So the
- * question is whether the last interval contains a deadline or a change, and
- * not whether the subject is past one, which is true forever and is what woke
- * a target every pass.
- *
- * - Never read: due, the way the reconciler treats a state whose age it does
+ * - Clock never read: due, as the reconciler treats a state whose age it does
  *   not know as overdue.
- * - A ticket a human marked ready that the factory has not picked up: due
- *   whatever its age. The dispatcher has no deadline, so it dispatches on the
- *   sweep that sees the ticket, and nothing new waits on a clock that never
- *   started.
- * - Changed since the last pass: due. The change may be the one thing a sweep
- *   was waiting for, a hold taken off a ticket the reconciler still holds
- *   being the case CONTEXT.md promises resumes on the first sweep, and every
- *   deadline runs from it.
- * - One of its deadlines fell during the last interval: due. That is the pass
- *   the repair belongs to.
+ * - A ready ticket the factory has not picked up: due whatever its age, since
+ *   the dispatcher has no deadline and no clock has started.
+ * - Changed since the last pass: due. Every deadline runs from the change, and
+ *   a hold taken off is the release CONTEXT.md promises on the first sweep.
+ * - A deadline fell during the last interval: due, that being the repair's pass.
  *
- * It reasons from `updated_at`, which is the only clock in the one read the
- * heartbeat makes. The reconciler's own clocks run from a label event or a
- * head commit, both of which are changes to the subject and so are at or
- * before this one, and both of which the sweep's own reads answer exactly.
- * A pass the host never ran is a window nobody looked at: the caller's
- * `schedule` is the fallback for that, as it is for a heartbeat that is not
- * running at all.
+ * The clock is `updated_at`, the only one in the read the heartbeat already
+ * makes. The reconciler's own run from a label event or a head commit, both
+ * changes to the subject and so at or before this one, and its own reads answer
+ * those exactly.
+ *
+ * The windows assume the passes are on the grid, so a deadline that fell during
+ * passes the host never ran is reached by the caller's `schedule` rather than by
+ * the next pass. That gap and what to do about it is #267.
  */
 const due = (subject: OpenSubject, now: Date): boolean => {
   if (subject.changedAt === undefined) return true;
@@ -162,18 +146,12 @@ const waiting = ({ pullRequest, labels }: OpenSubject): boolean => {
 };
 
 /**
- * What one target's open subjects mean for this pass. Three answers and not
- * two, because the two that do not wake the target are different facts about it
- * and a maintainer reads the pass to tell them apart (#264):
+ * What one target's open subjects mean for this pass (#264). Three answers, one
+ * call, so no caller can ask them in an order that contradicts itself:
  * - `waiting`: a sweep would act on something now, so the target is woken.
  * - `nothing-due`: work is open and every subject of it is between deadlines.
- *   The deadline it crosses next is the pass that reaches it.
- * - `nothing-waiting`: nothing open that any sweep would act on at any
- *   deadline, whether the target is empty or everything on it is parked or held
- *   until a human acts.
- *
- * One call rather than a predicate per answer, so no caller can ask the three
- * questions in an order that contradicts itself.
+ * - `nothing-waiting`: nothing open that any sweep would act on at any deadline,
+ *   the target being empty or everything on it parked or held.
  */
 export type SweepNeed = "waiting" | "nothing-due" | "nothing-waiting";
 

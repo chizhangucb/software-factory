@@ -1,0 +1,47 @@
+# The shape of a roll-up check: one name a target's merge rule requires, standing for every
+# job behind it, so the rule never names a test. chronicle's `e2e` is the worked example.
+#
+# Not a file to copy as it stands. `scripts/onboard.sh` fills it in:
+#   __NEEDS__  the jobs the roll-up rolls up, `[]` when there are none yet
+#   __STEPS__  the work the roll-up itself runs, which is nothing once real jobs sit in needs
+# No stack facts here on purpose, the way templates/factory.yml holds none: what installs and
+# what tests is the target's, and it reaches the starter file from the target's caller.
+
+name: check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # The roll-up. `needs` alone is not enough: a skipped or failed dependency makes this job
+  # skip, and GitHub reads a skipped required check as passing. The explicit result test is
+  # what turns any non-success job behind it into a red `check`.
+  check:
+    runs-on: ubuntu-latest
+    needs: __NEEDS__
+    # `!cancelled()` rather than `always()`: the roll-up still runs when a job behind it went
+    # red, which is the case it exists to catch, but not after a cancelled run.
+    if: ${{ !cancelled() }}
+    steps:
+__STEPS__
+      - name: Verify every job behind the roll-up succeeded
+        run: |
+          set -euo pipefail
+          for result in ${RESULTS}; do
+            echo "rolled-up result: ${result}"
+            [ "${result}" = "success" ]
+          done
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+
+  # The stub, publishing the same check name for a change the roll-up does not apply to, so a
+  # required name cannot leave a pull request pending forever. `if: false` until there is such
+  # a change: give it the exact complement of the roll-up's own condition when there is, or
+  # both jobs report and the last one to finish carries the verdict.
+  check-stub:
+    name: check
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - run: echo "the check gate does not apply to this change"

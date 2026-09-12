@@ -275,4 +275,8 @@ test("the held ticket is told once: a ticket already carrying the marker is not 
   assert.equal(alreadyToldNoCriteria([{ body: `it already said ${NO_CRITERIA_MARKER} once` }]), false);
   assert.ok(noCriteriaComment().startsWith(NO_CRITERIA_MARKER), "the comment leads with the marker that suppresses the next one");
   assert.ok(alreadyToldNoCriteria([{ body: noCriteriaComment() }]), "and the comment it posts is the one it recognises");
+  // The read that looks for it projects the first 64 characters of each body,
+  // as the sweep's does; a longer marker would never be found and the
+  // dispatcher would comment on every sweep.
+  assert.ok(NO_CRITERIA_MARKER.length <= 64, "the marker fits in the projected head of a comment body");
 });

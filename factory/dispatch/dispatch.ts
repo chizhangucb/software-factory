@@ -21,6 +21,10 @@
  * label added with GITHUB_TOKEN does not fire `issues: labeled`, so the
  * implementer would never start.
  *
+ * It writes one other thing, and only that (#257): a single comment on a
+ * ticket held for having no acceptance criteria, the one skip reason a human
+ * has not already chosen.
+ *
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT), optional OUTPUT_DIR for
  * dispatch.json, optional DRY_RUN=1 to select without labeling, optional
  * TRUSTED_AUTHOR_ASSOCIATIONS (default OWNER) naming whose tickets run.
@@ -36,6 +40,7 @@ import { errorMessage } from "../lib/errors.ts";
 import { gh } from "../lib/gh.ts";
 import { trustPolicyFromEnv } from "../lib/trusted-authors.ts";
 
+import { PROJECTIONS, parseItems } from "./gh-read.ts";
 import {
   DISPATCH_LABEL,
   NO_CRITERIA_REASON,
@@ -78,21 +83,6 @@ const label = (issue: DispatchIssue): void => {
   gh(["issue", "edit", String(issue.number), "--repo", repo, "--add-label", DISPATCH_LABEL]);
 };
 
-/**
- * Tell a ticket held for its shape, once. Every other skip reason names a
- * state a human already chose, so it needs no comment; this one names a ticket
- * nobody knows is stuck. The marker heading the comment is what keeps the next
- * sweep quiet, the way the reconciler's no-ticket mark does on a PR (#230).
- */
-const tellNoCriteria = (issue: DispatchIssue): void => {
-  const comments = JSON.parse(
-    gh(["api", "--paginate", "--slurp", `repos/${repo}/issues/${issue.number}/comments?per_page=100`]),
-  ).flat() as { body: string | null }[];
-  if (alreadyToldNoCriteria(comments)) return;
-  gh(["issue", "comment", String(issue.number), "--repo", repo, "--body", noCriteriaComment()]);
-  console.log(`Commented on #${issue.number}: ${NO_CRITERIA_REASON}.`);
-};
-
 const closedByOpenPr = issuesClosedByPrs(openPrs());
 const issues = fromGitHub(openIssues(), closedByOpenPr);
 const dispatched = selectForDispatch(issues, policy);
@@ -105,6 +95,29 @@ const recheck = (number: number): string | undefined =>
     closedByOpenPrNow,
     policy,
   );
+
+/**
+ * Tell a ticket held for its shape, once. Every other skip reason names a
+ * state a human already chose, so it needs no comment; this one names a ticket
+ * nobody knows is stuck. The marker heading the comment is what keeps the next
+ * sweep quiet, the way the reconciler's no-ticket mark does on a PR (#230).
+ *
+ * Two reads before the write, for the two ways it could be wrong. The comments
+ * say whether the factory has spoken already; the projection keeps the first 64
+ * characters of each body, which the marker fits inside, as the sweep's does.
+ * The issue re-read says the ticket is still held for this and nothing else: a
+ * comment stays on the ticket forever, and the listing it came from is seconds
+ * stale, the same staleness the label path re-reads for (#19).
+ */
+const tellNoCriteria = (issue: DispatchIssue): void => {
+  const comments = parseItems(
+    gh(["api", "--paginate", `repos/${repo}/issues/${issue.number}/comments?per_page=100`, "--jq", PROJECTIONS.comments]),
+  ) as { body: string | null }[];
+  if (alreadyToldNoCriteria(comments)) return;
+  if (recheck(issue.number) !== NO_CRITERIA_REASON) return;
+  gh(["issue", "comment", String(issue.number), "--repo", repo, "--body", noCriteriaComment()]);
+  console.log(`Commented on #${issue.number}: ${NO_CRITERIA_REASON}.`);
+};
 
 console.log(`Trusted ticket authors: ${policy.associations.join(", ")}.`);
 for (const issue of issues) {

@@ -3,13 +3,14 @@
  *
  *   GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts
  *
- * every 10 minutes, with a token that has contents write and issues and pull
- * requests read on every target in `targets.ts` and nothing else, the reads
- * being what says whether a target has anything waiting. `DRY_RUN=1` reports
- * the pass without touching a
- * target at all, as `dispatch/sweep.ts` reads the same var: no dispatch, and no
- * read either, so every target answers as one with work and the pass reports the
- * shape a busy interval takes.
+ * every 10 minutes, with a token that has contents write, issues and pull
+ * requests read, and Actions variables read on every target in `targets.ts`
+ * and nothing else: the issues read says whether a target has anything
+ * waiting, and the variables read says whether it is paused (#256) and whether
+ * its checks are waived (#244). `DRY_RUN=1` reports the pass without touching
+ * a target at all, as `dispatch/sweep.ts` reads the same var: no dispatch, and
+ * no read either, so every target answers as a running one with work and the
+ * pass reports the shape a busy interval takes.
  *
  * It holds no state: no log file of its own, no lock, nothing carried between
  * passes. Every outcome is a line on stdout and a failure is a line on stderr,
@@ -26,8 +27,10 @@ import { errorMessage } from "../lib/errors.ts";
 import { GhError, gh } from "../lib/gh.ts";
 import { READY_LABEL } from "../lib/labels.ts";
 import { type TargetOutcome, sendHeartbeat } from "./heartbeat.ts";
+import { PAUSE_VARIABLE, pauseLine, pauseReadArgs, pauseReason } from "./pause.ts";
 import { TARGET_REPOS } from "./targets.ts";
-import { WAIVER_VARIABLE, isUnset, waiverLine, waiverReadArgs, waiverReason } from "./waiver.ts";
+import { isUnset } from "./variable.ts";
+import { WAIVER_VARIABLE, waiverLine, waiverReadArgs, waiverReason } from "./waiver.ts";
 import { type OpenSubject, fromGitHub, openWorkArgs } from "./work.ts";
 
 const dryRun = process.env.DRY_RUN === "1";
@@ -48,8 +51,34 @@ const wake = (target: string): void => {
 /** What is open on a target, through the same `gh` call and the same projection the sweep reads. */
 const readOpenWork = (target: string): OpenSubject[] => fromGitHub(parseItems(gh(openWorkArgs(target))));
 
+/**
+ * Whether a human has paused the target (#256). The variable unset is a 404
+ * and means running; every other failure is thrown on, so it fails the target
+ * the way an unreadable open-work read already does. The alternative, reading
+ * a failure as "not paused", wakes a paused target every interval behind a
+ * read nobody noticed was broken, which is the exact cost this is here to
+ * stop.
+ *
+ * That is the one way it differs from `readWaiverReason` below, and the
+ * difference is which question the read answers: the waiver read feeds a nag
+ * beside the pass, so a failure there is said out loud and fails nothing,
+ * while this one decides whether the target is woken.
+ */
+const readPause = (target: string): string | undefined => {
+  try {
+    return pauseReason(gh(pauseReadArgs(target)));
+  } catch (error) {
+    // `stderr`, not the rendered message, for the reason `readWaiverReason` gives.
+    if (error instanceof GhError && isUnset(error.stderr)) return undefined;
+    throw error;
+  }
+};
+
 /** A dry run reads no target, and answers as one with a ready ticket on it. */
 const asIfBusy = (): OpenSubject[] => [{ pullRequest: false, labels: [READY_LABEL] }];
+
+/** A dry run reads no target here either, so it answers as one that is running. */
+const asIfRunning = (): undefined => undefined;
 
 /**
  * The waiver nag (#244), every run: a target whose factory checks a human took
@@ -85,12 +114,14 @@ for (const target of TARGET_REPOS) nagIfWaived(target);
 
 const outcomes = sendHeartbeat({
   targets: TARGET_REPOS,
+  readPause: dryRun ? asIfRunning : readPause,
   readOpenWork: dryRun ? asIfBusy : readOpenWork,
   wake: dryRun ? () => {} : wake,
   report: (outcome) => {
     // A plain line, not an `::error::` annotation: the host is not a GitHub
     // runner (a heartbeat on GitHub's own cron is the thing this replaces).
     if (outcome.outcome === "failed") console.error(`${at()} factory-sweep FAILED for ${outcome.target}: ${outcome.error}`);
+    else if (outcome.outcome === "paused") console.log(`${at()} ${pauseLine(outcome.target, outcome.reason)}`);
     else if (outcome.outcome === "skipped") console.log(`${at()} ${outcome.target} skipped: nothing waiting`);
     else console.log(`${at()} factory-sweep dispatched to ${outcome.target}${dryRun ? " (dry run)" : ""}`);
   },
@@ -100,7 +131,9 @@ const outcomes = sendHeartbeat({
 // fails here rather than reporting none of it.
 const count = (outcome: TargetOutcome["outcome"]): number => outcomes.filter((each) => each.outcome === outcome).length;
 const failed = count("failed");
-console.log(`${at()} ${outcomes.length} target(s), ${count("woken")} woken, ${count("skipped")} skipped, ${failed} failed${dryRun ? " (dry run)" : ""}.`);
+console.log(
+  `${at()} ${outcomes.length} target(s), ${count("woken")} woken, ${count("skipped")} skipped, ${count("paused")} paused, ${failed} failed${dryRun ? " (dry run)" : ""}.`,
+);
 // `exitCode`, not `process.exit`: stdout is a pipe when a host logs the pass,
 // pipe writes are asynchronous, and exiting in place can drop the lines that
 // say which target failed.

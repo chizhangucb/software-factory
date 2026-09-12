@@ -14,12 +14,14 @@
  * imports it did not read.
  */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
+import { PAUSE_VARIABLE } from "./pause.ts";
 import { TARGET_REPOS } from "./targets.ts";
 import { WAIVER_VARIABLE } from "./waiver.ts";
 
@@ -29,6 +31,14 @@ const ENTRYPOINT = "factory/heartbeat/send.ts";
 const TOKEN_ENV = "GH_TOKEN";
 /** The pages a maintainer onboards a target from, named as `dispatch/triggers.test.ts` names its own sites. */
 const DOC_PAGES = ["README.md", "docs/pipeline.md"];
+/**
+ * The two jobs a pause deliberately keeps, and the reason the heartbeat may
+ * decline to wake a paused target without taking a pull request's checks away:
+ * neither is heartbeat-driven. `dispatch/triggers.test.ts` is where that is
+ * pinned against the caller's real conditions; here they are only the names
+ * both pages have to carry.
+ */
+const KEEPS_RUNNING_WHILE_PAUSED = ["merge-gate", "audit"];
 
 /** A literal as a regex: a target or a path is matched whole, never as a pattern. */
 const literal = (text: string): RegExp => new RegExp(text.replaceAll(/[.*+?^${}()|[\]\\/]/g, "\\$&"));
@@ -79,25 +89,34 @@ test("the command a host runs completes a pass on bare node, with nothing instal
   for (const target of TARGET_REPOS) assert.match(stdout, literal(`factory-sweep dispatched to ${target} (dry run)`));
   // Every outcome in the summary, so a pass that skipped a target says so
   // rather than reading as a quiet repo.
-  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), ${TARGET_REPOS.length} woken, 0 skipped, 0 failed`));
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), ${TARGET_REPOS.length} woken, 0 skipped, 0 paused, 0 failed`));
 });
 
 /**
  * A pass against a stub `gh`, the way `factory/waiver/waive-factory-checks.test.ts`
- * runs the script: the stub answers every target's variable read with `waived`
- * and every open-work read with nothing, so no target is woken and no network is
- * touched. A call it does not recognise fails, so a reshaped `gh` line breaks
- * this loudly rather than answering empty.
+ * runs the script: the stub answers each target's two variable reads from the
+ * env and every open-work read with nothing, so no target is woken and no
+ * network is touched. A call it does not recognise fails, so a reshaped `gh`
+ * line breaks this loudly rather than answering empty.
+ *
+ * Both variables answer the same way: a value set in the env is the variable's
+ * value, an empty one is the 404 GitHub sends for a variable that is not there,
+ * and `fail` is a read that genuinely went wrong, which is the case the pause
+ * and the waiver deliberately answer differently.
  */
-const passAgainstStub = (waived: string): string => {
+const passAgainstStub = ({ waived = "", paused = "" }: { waived?: string; paused?: string }): { stdout: string; stderr: string; status: number } => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "heartbeat-"));
   fs.writeFileSync(
     path.join(dir, "gh"),
     `#!/usr/bin/env bash
 args="$*"
+answer() {
+  if [ "$1" = "fail" ]; then echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; fi
+  if [ -n "$1" ]; then printf '%s\\n' "$1"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi
+}
 case "$args" in
-  *"actions/variables/${WAIVER_VARIABLE}"*)
-    if [ -n "\${GH_WAIVED:-}" ]; then printf '%s\\n' "$GH_WAIVED"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
+  *"actions/variables/${WAIVER_VARIABLE}"*) answer "\${GH_WAIVED:-}" ;;
+  *"actions/variables/${PAUSE_VARIABLE}"*) answer "\${GH_PAUSED:-}" ;;
   *"issues?state=open"*) ;;
   *) echo "stub gh: unexpected call: $args" >&2; exit 1 ;;
 esac
@@ -105,24 +124,50 @@ exit 0
 `,
     { mode: 0o755 },
   );
-  return execFileSync(process.execPath, ["--experimental-strip-types", ENTRYPOINT], {
-    cwd: repoRoot,
+  const result = spawnSync(process.execPath, ["--experimental-strip-types", ENTRYPOINT], {
+    cwd: fileURLToPath(repoRoot),
     encoding: "utf8",
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DRY_RUN: "", GH_WAIVED: waived },
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DRY_RUN: "", GH_WAIVED: waived, GH_PAUSED: paused },
   });
+  return { stdout: result.stdout, stderr: result.stderr, status: result.status ?? -1 };
 };
 
 test("a pass names an open waiver, with its reason and the target", () => {
-  const stdout = passAgainstStub("PAT expired, see #244");
+  const { stdout } = passAgainstStub({ waived: "PAT expired, see #244" });
   for (const target of TARGET_REPOS) assert.match(stdout, literal(`${target} WAIVED: PAT expired, see #244`));
   assert.match(stdout, literal(WAIVER_VARIABLE));
 });
 
 test("a target with no waiver produces no such line", () => {
   // The variable unset is a 404, which is not a failure and not a nag either.
-  const stdout = passAgainstStub("");
+  const { stdout } = passAgainstStub({});
   assert.doesNotMatch(stdout, /WAIVED/);
-  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), 0 woken, ${TARGET_REPOS.length} skipped, 0 failed`));
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), 0 woken, ${TARGET_REPOS.length} skipped, 0 paused, 0 failed`));
+});
+
+test("a paused target is skipped for the pause, and the pass says so rather than calling it idle", () => {
+  // Acceptance criteria 1 and 2 through the real script: the stub fails any
+  // call it does not recognise and knows no dispatch, so a pass that wakes a
+  // paused target here exits non-zero rather than passing quietly.
+  const { stdout, status } = passAgainstStub({ paused: "runaway sweep, see #123" });
+  assert.equal(status, 0, stdout);
+  for (const target of TARGET_REPOS) assert.match(stdout, literal(`${target} skipped: paused (runaway sweep, see #123)`));
+  assert.doesNotMatch(stdout, /dispatched to/);
+  assert.doesNotMatch(stdout, /skipped: nothing waiting/);
+  // Counted apart in the summary too, so a pass that skipped every target for
+  // a pause does not read as a quiet estate.
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), 0 woken, 0 skipped, ${TARGET_REPOS.length} paused, 0 failed`));
+  assert.match(stdout, literal(PAUSE_VARIABLE));
+});
+
+test("a pause that cannot be read fails its target rather than being taken for running", () => {
+  // Acceptance criterion 6. The failure is a non-zero exit, which is what the
+  // host's alerting sees, and the line names the target and the variable.
+  const { stdout, stderr, status } = passAgainstStub({ paused: "fail" });
+  assert.equal(status, 1, stdout);
+  for (const target of TARGET_REPOS) assert.match(stderr, literal(`factory-sweep FAILED for ${target}`));
+  assert.doesNotMatch(stdout, /dispatched to/);
+  assert.match(stdout, literal(`${TARGET_REPOS.length} target(s), 0 woken, 0 skipped, 0 paused, ${TARGET_REPOS.length} failed`));
 });
 
 test("the runnable reaches only builtins and .ts files, so it runs with no npm install", () => {
@@ -151,5 +196,30 @@ test("both pages a maintainer onboards from name the command and the token", () 
     const text = fs.readFileSync(new URL(page, repoRoot), "utf8");
     assert.match(text, literal(ENTRYPOINT), `${page} names the runnable`);
     assert.match(text, new RegExp(`\\b${TOKEN_ENV}\\b`), `${page} names the env var the token travels in`);
+  }
+});
+
+test("both pages say what a pause stops, what it does not, and that the heartbeat is what stops waking the target", () => {
+  // Acceptance criterion 7. A maintainer reaches for the pause in an incident
+  // and reads one of these two pages, so each has to carry the whole shape on
+  // its own: which jobs keep running, and that the wake is what the heartbeat
+  // withholds. Before #256 both pages described a pause that stopped the work
+  // and said nothing about the runs it went on paying for.
+  for (const page of DOC_PAGES) {
+    const text = fs.readFileSync(new URL(page, repoRoot), "utf8");
+    assert.match(text, literal(PAUSE_VARIABLE), `${page} names the pause variable`);
+    for (const kept of KEEPS_RUNNING_WHILE_PAUSED) {
+      assert.match(text, literal(kept), `${page} names ${kept}, which a pause does not stop`);
+    }
+    // All three in one sentence, because each on its own is already all over
+    // both pages: the word "heartbeat" appears in the path of the runnable,
+    // and "paused" in every bullet about the gate. The claim being pinned is
+    // the one that joins them, that a pause is what stops the target being
+    // woken, and only a sentence carrying all three makes it.
+    const sentences = text.split(/(?<=[.:])\s/);
+    assert.ok(
+      sentences.some((sentence) => [/heartbeat/i, /\bwak(e|es|ing|en)\b/i, /\bpaused?\b/i].every((part) => part.test(sentence))),
+      `${page} says in one sentence that the heartbeat is what stops waking a paused target`,
+    );
   }
 });

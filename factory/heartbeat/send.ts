@@ -22,10 +22,12 @@
  * (`send.test.ts` pins that).
  */
 import { parseItems } from "../dispatch/gh-read.ts";
-import { gh } from "../lib/gh.ts";
+import { errorMessage } from "../lib/errors.ts";
+import { GhError, gh } from "../lib/gh.ts";
 import { READY_LABEL } from "../lib/labels.ts";
 import { type TargetOutcome, sendHeartbeat } from "./heartbeat.ts";
 import { TARGET_REPOS } from "./targets.ts";
+import { WAIVER_VARIABLE, isUnset, waiverLine, waiverReadArgs, waiverReason } from "./waiver.ts";
 import { type OpenSubject, fromGitHub, openWorkArgs } from "./work.ts";
 
 const dryRun = process.env.DRY_RUN === "1";
@@ -48,6 +50,38 @@ const readOpenWork = (target: string): OpenSubject[] => fromGitHub(parseItems(gh
 
 /** A dry run reads no target, and answers as one with a ready ticket on it. */
 const asIfBusy = (): OpenSubject[] => [{ pullRequest: false, labels: [READY_LABEL] }];
+
+/**
+ * The waiver nag (#244), every run: a target whose factory checks a human took
+ * off is named until they are put back, because nothing closes a waiver
+ * automatically. A read that fails for any reason other than the variable not
+ * being there is said out loud and fails no target: the nag is not the pass.
+ * It goes in the digest instead once there is one.
+ *
+ * A dry run reads no target here either, so it reports no waiver: the nag is
+ * about a target's real state, and a dry run that invented one would be the one
+ * output a maintainer could not trust.
+ */
+const nagIfWaived = (target: string): void => {
+  if (dryRun) return;
+  const line = waiverLine(target, readWaiverReason(target));
+  if (line) console.log(`${at()} ${line}`);
+};
+
+/** One target's waiver reason, or nothing: an unset variable is a 404 and means no waiver. */
+const readWaiverReason = (target: string): string | undefined => {
+  try {
+    return waiverReason(gh(waiverReadArgs(target)));
+  } catch (error) {
+    // `stderr`, not the rendered message: `lib/gh.ts` carries the fields precisely so no
+    // caller reads a decision back out of the line it renders.
+    if (error instanceof GhError && isUnset(error.stderr)) return undefined;
+    console.error(`${at()} could not read ${WAIVER_VARIABLE} on ${target}: ${errorMessage(error)}`);
+    return undefined;
+  }
+};
+
+for (const target of TARGET_REPOS) nagIfWaived(target);
 
 const outcomes = sendHeartbeat({
   targets: TARGET_REPOS,

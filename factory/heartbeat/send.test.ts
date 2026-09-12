@@ -21,6 +21,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { intervalPhrase } from "./interval.ts";
 import { PAUSE_VARIABLE } from "./pause.ts";
 import { TARGET_REPOS } from "./targets.ts";
 import { WAIVER_VARIABLE } from "./waiver.ts";
@@ -271,6 +272,52 @@ test("both pages a maintainer onboards from name the command and the token", () 
     assert.match(text, literal(ENTRYPOINT), `${page} names the runnable`);
     assert.match(text, new RegExp(`\\b${TOKEN_ENV}\\b`), `${page} names the env var the token travels in`);
   }
+});
+
+test("both pages say how often to run the sender, and say the same thing", () => {
+  // #261. A maintainer onboarding a target reads one of these two and has to
+  // come away with a number, so neither may defer to the other for it. The
+  // phrase comes from `interval.ts`, so the number reaches prose through the
+  // rule that picked it rather than by being retyped: it was retyped into
+  // twelve files before this, and every one of them was still saying 10 the
+  // day the heartbeat moved to 15.
+  for (const page of DOC_PAGES) {
+    const text = fs.readFileSync(new URL(page, repoRoot), "utf8");
+    assert.match(text, literal(intervalPhrase()), `${page} says how often the sender runs`);
+  }
+});
+
+test("no other page or module restates the interval, so there is one copy to keep true", () => {
+  // The point of the ticket, and the only assertion that keeps it true. Every
+  // other site says "the heartbeat interval" and defers, so a change to the
+  // number is a change to one page and a constant.
+  //
+  // The caller's own `schedule` cron is a genuinely separate cadence and is
+  // not this number, so files are matched for the phrase rather than for the
+  // digits: `templates/factory.yml` still documents its cron in minutes and
+  // must go on doing so.
+  const owners = new Set([...DOC_PAGES, "factory/heartbeat/interval.ts", "factory/heartbeat/interval.test.ts", "factory/heartbeat/send.test.ts"]);
+  const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: fileURLToPath(repoRoot), encoding: "utf8" }).split("\0").filter(Boolean);
+  assert.ok(tracked.length > 0, "the walk found no tracked files at all");
+  const restating: string[] = [];
+  for (const file of tracked) {
+    if (owners.has(file) || !/\.(md|ts|yml|sh)$/.test(file)) continue;
+    // Comment markers and line breaks stripped before matching: every site
+    // this is looking for is wrapped prose inside a `*` or `#` comment, and a
+    // pattern that could not cross a line break passed this vacuously.
+    const text = fs
+      .readFileSync(new URL(file, repoRoot), "utf8")
+      .replace(/^\s*(?:\*|#|\/\/)\s?/gm, " ")
+      .replace(/\s+/g, " ");
+    // Any cadence stated as a number of minutes, spelled or in digits. Broad
+    // on purpose: the caller's `schedule` states its own cadence as a cron
+    // expression rather than this phrase, so nothing legitimate is caught, and
+    // a narrower pattern tied to nearby words let four of the twelve sites
+    // through on the first draft of this test.
+    const stated = text.match(/every (?:\d+|ten|fifteen|twenty|thirty) minutes/i);
+    if (stated) restating.push(`${file} ("${stated[0]}")`);
+  }
+  assert.deepEqual(restating, [], `these restate the heartbeat interval instead of naming it: ${restating.join(", ")}`);
 });
 
 test("both pages say what a pause stops, what it does not, and that the heartbeat is what stops waking the target", () => {

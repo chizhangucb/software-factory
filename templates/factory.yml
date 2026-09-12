@@ -21,7 +21,8 @@ on:
   repository_dispatch:
     # factory-update-branch: sent by the review workflow on a passing verdict.
     # factory-sweep: the heartbeat, and what actually drives the sweep. Required, not optional.
-    # Send it every 10 minutes from outside GitHub, with a token that has contents write and issues
+    # Send it from outside GitHub on the interval README's heartbeat step names, with a token that
+    # has contents write and issues
     # and pull requests read on the targets and nothing else. It is sent only when something is
     # waiting here. One sender covers any number of targets, from the factory repo:
     # add this repo to factory/heartbeat/targets.ts and run

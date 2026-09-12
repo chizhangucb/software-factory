@@ -31,7 +31,7 @@
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine: the
- * schedule path runs every ten minutes and should cost seconds.
+ * schedule path runs on the heartbeat's interval and should cost seconds.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

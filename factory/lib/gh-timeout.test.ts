@@ -11,7 +11,7 @@ import * as path from "node:path";
  * `node --test` runs each file in its own process, which is what this second
  * file buys: `gh.test.ts` runs under the real 60s and is untouched by this.
  */
-process.env.FACTORY_GH_TIMEOUT_MS = "1500";
+process.env.FACTORY_GH_TIMEOUT_MS = "500";
 const { GhError, gh } = await import("./gh.ts");
 
 let stubDir: string;

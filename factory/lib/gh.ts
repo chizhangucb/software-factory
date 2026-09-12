@@ -15,7 +15,9 @@
  * decides to prompt, or that simply never answers, is killed rather than left
  * to hang the job that made it (#229). One number for every caller, so a
  * pass is bounded at 60s times the calls it makes and no caller (the
- * heartbeat sender least of all) needs a kill timer of its own.
+ * heartbeat sender least of all) needs a kill timer of its own. The bound
+ * holds while `gh` leaves no grandchild on the pipes: the kill signals `gh`
+ * alone, and the sync read returns when stdout and stderr reach EOF.
  *
  * The failure shape is the module's too. Every failed call throws one
  * `GhError`, described the same way and carrying the same fields, so no

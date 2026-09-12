@@ -70,6 +70,22 @@ A pause's complement, for a factory that cannot run: `scripts/waive-factory-chec
 - **It replaces the admin bypass**, which was per pull request, by hand, with no record of why.
 - **It is not a standing policy.** A waiver is for a factory that cannot run, and it leaves the target merging on its own CI alone.
 
+### Renaming the factory repo is an outage on every target
+
+Measured on 2026-09-12 (#116), renaming `chizhangucb/software-factory` to `chizhangucb/tomte`. A reusable workflow's `uses:` does not follow GitHub's rename redirect: it is resolved from the workflow file at startup, and a caller naming the old repo fails before a single job exists. On tomte-fixture, runs 34683891313 (`repository_dispatch`) and 34683886124 (`pull_request_target`) both came back with zero jobs and "This run likely failed because of a workflow file issue".
+
+`factory_repo` is the opposite case, and the distinction is the whole lesson. It reaches Actions as an `actions/checkout` input, which is an API call, so it does follow the redirect. Redirects work; `uses:` is the one place they do not, so do not read this as redirects being unreliable in general.
+
+That makes the outage structural and not a race. There is no ordering that avoids it: the caller cannot name the new repo before the rename, and it cannot resolve the old one after. So a rename is a waiver window, per target:
+
+1. `scripts/waive-factory-checks.sh <target> on "<reason naming the rename>"`.
+2. Merge that target's retarget pull request, the one pointing every `uses:` at the new name.
+3. `scripts/waive-factory-checks.sh <target> off`, then wake the target and check the run reaches a job.
+
+The retarget PR cannot be judged, which is why the waiver is the only route: `factory/verdict` comes from the reviewer, the reviewer runs on `pull_request_target`, and `pull_request_target` reads the workflow from the base branch, which is the broken file. `factory/red-green` and `factory/test-integrity` do pass, since `pull_request` reads the merge ref.
+
+A target may also pin the factory's name in its own tests, the way chronicle's `test/factory-caller-inputs.test.mjs` asserts the `uses:` prefix. Its CI then fails the rename on its own account and its retarget PR carries more than the caller. That is the target's test doing its job; expect it rather than debugging it.
+
 ## Dispatcher
 
 Runs on the caller's `issues: [closed, labeled, unassigned, unlabeled]`, on `workflow_dispatch`, on the `repository_dispatch` event `factory-sweep`, and on the caller's `schedule` every 10 minutes.

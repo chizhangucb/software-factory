@@ -47,6 +47,11 @@ const read = (file: string): string => fs.readFileSync(new URL(file, repoRoot), 
  * hunt something to look for.
  */
 const RECORDS = new Set([
+  // The two pages that tell the rename's own story, and cannot tell it without
+  // naming what the repo was called: the ADR amendment recording that a rename
+  // is an outage on every target, and the procedure that answers it.
+  "docs/adr/0003-gate-in-ci-auto-merge-with-audit.md",
+  "docs/pipeline.md",
   "docs/research/sandcastle-inventory-2026-09.md",
   "docs/research/sandcastle-peers-2026-09.md",
   "factory/dispatch/fixtures/pages/issues.json",
@@ -76,6 +81,16 @@ test("the caller template calls the factory by name, and calls only this factory
   const uses = [...read("templates/factory.yml").matchAll(/^\s*uses:\s*(\S+?)\/\.github\/workflows\/\S+$/gm)].map((m) => m[1]);
   assert.ok(uses.length > 0, "the template calls no reusable workflow at all, so this test is checking nothing");
   assert.deepEqual([...new Set(uses)], [FACTORY_REPO], `the template calls ${[...new Set(uses)].join(", ")}`);
+});
+
+test("the caller-inputs table documents the default the workflows actually carry", () => {
+  // `docs/pipeline.md` is exempted from the hunt below, because it tells the
+  // rename's story and has to name the old repo to do it. That exemption would
+  // otherwise leave its one live copy, the `factory_repo` row in the caller
+  // inputs table, checked by nothing. So it is checked here instead.
+  const row = /\|\s*`factory_repo`\s*\|[^|]*\|\s*`([^`]+)`\s*\|/.exec(read("docs/pipeline.md"));
+  assert.ok(row, "docs/pipeline.md has no factory_repo row in its caller inputs table");
+  assert.equal(row[1], FACTORY_REPO, `docs/pipeline.md documents the default as ${row[1]}`);
 });
 
 test("no file still addresses the factory by the name it has left behind", () => {

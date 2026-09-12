@@ -188,8 +188,9 @@ const ISSUE_EVENTS: { action: string; label?: string; state?: IssueState; wakes:
   { action: "unlabeled", label: "ready-for-agent", state: "closed", wakes: [] },
   { action: "unassigned", state: "closed", wakes: [] },
   // A close fires after the close, so its payload carries the ticket already
-  // closed. That is why the state clauses sit on the two removals alone:
-  // hoisted, they would drop the one event that can unblock another ticket.
+  // closed. That is why the state clause sits on each of the other clauses
+  // rather than being hoisted over the whole condition: hoisted, it would drop
+  // the one event that can unblock another ticket.
   { action: "closed", state: "closed", wakes: ["dispatch"] },
 ];
 

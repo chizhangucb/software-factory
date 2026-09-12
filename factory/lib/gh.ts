@@ -18,7 +18,7 @@
  * heartbeat sender least of all) needs a kill timer of its own.
  *
  * The failure shape is the module's too. Every failed call throws one
- * `GhError`, described the same way and carrying the same four fields, so no
+ * `GhError`, described the same way and carrying the same fields, so no
  * caller renders its own line and no caller reads a decision back out of the
  * rendered one (#120).
  *
@@ -55,8 +55,15 @@ const GH_TIMEOUT_MS = 60_000;
  * The number in force, read once for the process. `FACTORY_GH_TIMEOUT_MS`
  * exists so this wrapper's own test can prove the kill without waiting a
  * minute; it is not a per-call override, and no factory script sets it.
+ * Anything but a positive number falls back to the constant, so a typo'd
+ * seam value never reads as a test that waited the full minute on purpose.
  */
-const ghTimeoutMs = Number(process.env.FACTORY_GH_TIMEOUT_MS) || GH_TIMEOUT_MS;
+const readTimeoutMs = (raw: string | undefined): number => {
+  const seam = Number(raw);
+  return Number.isFinite(seam) && seam > 0 ? seam : GH_TIMEOUT_MS;
+};
+
+const ghTimeoutMs = readTimeoutMs(process.env.FACTORY_GH_TIMEOUT_MS);
 
 /**
  * One line: the gh command (never a token, those travel in env) and why it
@@ -119,11 +126,10 @@ export class GhError extends Error {
 /**
  * Run `gh` with the given arguments and return its stdout. Throws a `GhError`
  * on a non-zero exit, on a signal, on a spawn that never happened, and on a
- * call that has not answered in 60 seconds, which is killed and carries
- * `timedOut`. Pass
- * `env` to run one call under a different token (the sweep reads statuses
- * with GITHUB_TOKEN, update-branch posts them with it); tokens travel in env,
- * never in `args`, so a failure can be logged.
+ * call that outlives the wrapper's timeout, which is killed and carries
+ * `timedOut`. Pass `env` to run one call under a different token (the sweep
+ * reads statuses with GITHUB_TOKEN, update-branch posts them with it); tokens
+ * travel in env, never in `args`, so a failure can be logged.
  */
 export const gh = (args: readonly string[], env: NodeJS.ProcessEnv = process.env): string => {
   try {

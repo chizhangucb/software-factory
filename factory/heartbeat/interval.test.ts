@@ -36,11 +36,12 @@ test("every deadline sampled is a deadline, in minutes, so taking all of them is
 });
 
 test("the interval is no larger than the tightest reconciler deadline", () => {
-  // A deadline is only ever checked when a sweep runs, so the interval is the
-  // sampling rate for every one of them. An interval above the tightest turns
-  // that deadline into a lower bound: at 30 minutes, a 15 minute stuck
-  // deadline means somewhere between 15 and 45, which is not what the caller
-  // input says and not what a maintainer reading it would expect.
+  // A deadline is only ever checked when a sweep runs, so a subject that
+  // crosses one waits up to a further interval for the sweep that repairs it:
+  // repair lands between D and D + I. Holding the interval at or below the
+  // tightest deadline is what caps the worst case at twice that deadline,
+  // which is the trade this repo has taken. It does not make the deadline
+  // exact, and `interval.ts` says so rather than claiming it does.
   //
   // Asserted against the deadlines rather than against 15, so lowering
   // `stuckMinutes` fails here and forces the interval to be revisited, which
@@ -53,10 +54,11 @@ test("the interval is no larger than the tightest reconciler deadline", () => {
 });
 
 test("the interval is the largest one the rule allows, so no sweep is paid for twice over", () => {
-  // The other half of the rule. Below the tightest deadline the extra passes
-  // buy no repair that the deadline itself has not already delayed, and each
-  // one bills a minute on every target with work open. So the rule picks a
-  // number rather than a range, and that number is the tightest deadline.
+  // The other half of the rule, and the half that is a choice rather than a
+  // bound. A shorter interval does buy faster repair, proportionally: the
+  // worst case is D + I either way. What it costs is a billed minute per pass
+  // on every target with work open, which is why the rule picks the top of the
+  // range it allows rather than anywhere inside it.
   assert.equal(HEARTBEAT_INTERVAL_MINUTES, Math.min(...deadlines()));
 });
 

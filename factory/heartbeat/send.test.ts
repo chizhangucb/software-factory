@@ -303,6 +303,8 @@ const STATED_CADENCE = new RegExp(
   String.raw`(?:every|within|up to) ${NUMBER} minutes|\b${NUMBER}[- ]minute (?:sweep|heartbeat|interval)\b`,
   "i",
 );
+/** The same pattern over a whole sentence, since one sentence can state a cadence more than once. */
+const EVERY_STATED_CADENCE = new RegExp(STATED_CADENCE.source, "gi");
 
 /**
  * Prose that is about the heartbeat at all, which is the only cadence this
@@ -341,6 +343,12 @@ test("the cadence scanner matches the shapes this repo writes, so it cannot pass
     '- cron: "4,14,24,34,44,54 * * * *"',
   ];
   for (const prose of shouldNotMatch) assert.doesNotMatch(asProse(prose), STATED_CADENCE, `the scanner would flag: ${prose}`);
+  // And every statement in a sentence, not the first. A sentence opening with
+  // the allowed phrase would otherwise carry a stale one past the scan.
+  assert.deepEqual(
+    [...asProse("run it every 15 minutes, and so a 10-minute sweep costs seconds").matchAll(EVERY_STATED_CADENCE)].map(([m]) => m),
+    ["every 15 minutes", "10-minute sweep"],
+  );
 });
 
 test("no other page or module restates the interval, so there is one copy to keep true", () => {
@@ -376,11 +384,16 @@ test("no other page or module restates the interval, so there is one copy to kee
     if (!ABOUT_THE_HEARTBEAT.test(text)) continue;
     scanned += 1;
     for (const sentence of text.split(/(?<=[.:])\s/)) {
-      const stated = sentence.match(STATED_CADENCE);
-      if (!stated) continue;
       if (/\bschedule\b|\bcron\b/i.test(sentence)) continue;
-      if (stated[0].toLowerCase() === `every ${INTERVAL_PHRASE}`) continue;
-      restating.push(`${file} ("${stated[0]}")`);
+      // Every statement in the sentence, not the first one. This repo writes
+      // hundred word sentences -- README's step 6 and this page's "Why 15" are
+      // each one -- so a sentence that opens with the allowed phrase and
+      // restates a stale number sixty words later would pass on the first
+      // match alone, which is exactly the drift the test exists to catch.
+      for (const stated of sentence.matchAll(EVERY_STATED_CADENCE)) {
+        if (stated[0].toLowerCase() === `every ${INTERVAL_PHRASE}`) continue;
+        restating.push(`${file} ("${stated[0]}")`);
+      }
     }
   }
   // A scope that matched nothing would pass this for the wrong reason, and the

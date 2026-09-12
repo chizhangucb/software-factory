@@ -5,8 +5,7 @@
  *
  * on the interval `interval.ts` names, with a token that has contents write,
  * issues and pull requests read, and Actions variables read on every target in
- * `targets.ts`
- * and nothing else: the issues read says whether a target has anything
+ * `targets.ts` and nothing else: the issues read says whether a target has anything
  * waiting, and the variables read says whether it is paused (#256) and whether
  * its checks are waived (#244). `DRY_RUN=1` reports the pass without touching
  * a target at all, as `dispatch/sweep.ts` reads the same var: no dispatch, and

@@ -7,18 +7,28 @@
  * it rather than a knob, and it exists because the number was previously prose
  * copied into a dozen files, which is a number that has already drifted.
  *
- * **The rule.** The interval is the sampling rate for every reconciler
- * deadline, because a deadline is only ever checked when a sweep runs. So it
- * is the tightest of them:
+ * **The rule.** A deadline is only ever checked when a sweep runs, so the
+ * interval is added to every one of them: a subject that crosses its deadline
+ * waits up to one further interval for the sweep that repairs it. Repair lands
+ * between D and D + I, for deadline D and interval I. There is no interval
+ * that makes a deadline exact, and the choice is only how late is acceptable.
  *
- * - Larger, and that deadline stops being a deadline. At 30 minutes a
- *   `stuckMinutes` of 15 means somewhere between 15 and 45, which is not what
- *   the caller input says.
- * - Smaller, and the extra passes buy no repair the deadline has not already
- *   delayed, while each one bills a minute on every target with work open.
+ * The interval is the tightest deadline, which caps the worst case at twice
+ * that deadline. That is a judgement and not an arithmetic necessity, and it
+ * is worth stating plainly because the cheaper-sounding argument, that a
+ * larger interval "stops the deadline being a deadline", is not true: at 15
+ * and 15 a stuck subject is still repaired somewhere between 15 and 30
+ * minutes. What changes with the interval is the multiple. At 10 it is 1.7
+ * times the deadline, at 15 twice, at 30 three times, and the cost runs the
+ * other way, a billed minute per pass on every target with work open.
+ * Somewhere around twice is where this repo has settled; a target that wants
+ * its repairs tighter buys that with passes.
  *
  * `interval.test.ts` holds both halves against `DEFAULT_DEADLINES`, so
- * changing a deadline fails there rather than leaving this stale.
+ * changing a default deadline fails there rather than leaving this stale. A
+ * target that overrides `stuck_minutes` in its own caller moves its own
+ * deadline and not this number, so one set below the interval buys that
+ * target no faster repair.
  *
  * Builtins only, so it stays reachable from the sender's cone. It imports the
  * deadlines from nowhere: the tie to them is the test's, because that is where

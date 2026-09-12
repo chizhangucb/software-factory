@@ -134,7 +134,7 @@ jobs:
           !startsWith(github.event.label.name, 'factory:')) ||
         (github.event.action == 'labeled' && github.event.issue.state != 'closed' &&
           github.event.label.name == 'ready-for-agent'))))
-    uses: chizhangucb/software-factory/.github/workflows/dispatch.yml@main
+    uses: chizhangucb/tomte/.github/workflows/dispatch.yml@main
     secrets: inherit
     with:
       factory_ref: main
@@ -151,7 +151,7 @@ jobs:
       vars.FACTORY_PAUSED == '' && github.event_name == 'issues' &&
       github.event.action == 'labeled' && github.event.issue.state != 'closed' &&
       github.event.label.name == 'agent:implement'
-    uses: chizhangucb/software-factory/.github/workflows/agent-implement.yml@main
+    uses: chizhangucb/tomte/.github/workflows/agent-implement.yml@main
     secrets: inherit
     with:
       factory_ref: main
@@ -165,7 +165,7 @@ jobs:
     if: >-
       vars.FACTORY_PAUSED == '' && github.event_name == 'pull_request_target' &&
       github.event.label.name == 'agent:review'
-    uses: chizhangucb/software-factory/.github/workflows/agent-review.yml@main
+    uses: chizhangucb/tomte/.github/workflows/agent-review.yml@main
     secrets: inherit
     with:
       factory_ref: main
@@ -178,7 +178,7 @@ jobs:
     if: >-
       vars.FACTORY_PAUSED == '' && github.event_name == 'pull_request_target' &&
       github.event.label.name == 'agent:implement'
-    uses: chizhangucb/software-factory/.github/workflows/agent-implement-pr.yml@main
+    uses: chizhangucb/tomte/.github/workflows/agent-implement-pr.yml@main
     secrets: inherit
     with:
       factory_ref: main
@@ -188,7 +188,7 @@ jobs:
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
   merge-gate:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    uses: chizhangucb/software-factory/.github/workflows/merge-gate.yml@main
+    uses: chizhangucb/tomte/.github/workflows/merge-gate.yml@main
     secrets: inherit
     with:
       factory_ref: main
@@ -204,7 +204,7 @@ jobs:
       # install_command: <this target's install, plus anything its second kind of test needs>
   audit:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged
-    uses: chizhangucb/software-factory/.github/workflows/agent-audit.yml@main
+    uses: chizhangucb/tomte/.github/workflows/agent-audit.yml@main
     secrets: inherit
     with:
       factory_ref: main
@@ -218,7 +218,7 @@ jobs:
       vars.FACTORY_PAUSED == '' &&
       (github.event_name == 'push' ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'factory-update-branch'))
-    uses: chizhangucb/software-factory/.github/workflows/update-branch.yml@main
+    uses: chizhangucb/tomte/.github/workflows/update-branch.yml@main
     secrets: inherit
     with:
       factory_ref: main

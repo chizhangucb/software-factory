@@ -36,7 +36,7 @@ on:
       factory_repo:
         description: Repo holding the factory scripts (this repo).
         type: string
-        default: chizhangucb/software-factory
+        default: chizhangucb/tomte
       factory_ref:
         description: Ref of the factory scripts to run. Keep it equal to the ref in the caller's `uses:`; GitHub does not expose that ref to the called workflow.
         type: string

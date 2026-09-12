@@ -100,6 +100,22 @@ test("an unreadable line in the log costs a gap and not the claim", () => {
   assert.equal(cadenceLine(["half a timest", ...whole.slice(1)].join("\n"), NOW), undefined);
 });
 
+test("a stamp truncated to something a Date still parses is dropped too, not read hours out", () => {
+  // The shape a killed write actually leaves: a stamp cut at its final `Z`
+  // parses, as local time, and one cut back to its date parses as midnight.
+  // Read as stamps they invent a gap no host took, in whichever direction the
+  // host's offset points, so the test is a round trip and not `isNaN`.
+  const wrong = HEARTBEAT_INTERVAL_MINUTES * 2;
+  const whole = logOfGaps(NOW, wrong, DISAGREEING_PASSES).trimEnd().split("\n");
+  for (const truncated of [whole[0]!.replace(/Z$/, ""), whole[0]!.slice(0, "2026-09-12".length)]) {
+    assert.equal(cadenceLine([truncated, ...whole.slice(1)].join("\n"), NOW), undefined, `a stamp read back as ${truncated} is not a pass`);
+  }
+  // And the log the next pass keeps is the log without it, so one bad line
+  // costs one gap once rather than every pass until it ages out.
+  const cut = whole[0]!.replace(/Z$/, "");
+  assert.ok(!withPass([cut, ...whole.slice(1)].join("\n"), NOW).split("\n").includes(cut), "the bad line is not carried forward");
+});
+
 test("a gap exactly on the edge of the band disagrees, because half the interval is twice the bill", () => {
   // The band is the other half of what counts as disagreement, and it is
   // pinned here rather than left to the numbers the tests above happen to use:

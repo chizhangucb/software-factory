@@ -106,7 +106,7 @@ export const cadenceLine = (raw: string, now: Date): string | undefined => {
   // a clock change into plausible gaps and report a cadence nothing ran at.
   if (gaps.some((gap) => gap <= 0 || agrees(gap))) return undefined;
   const observed = Math.round(gaps.reduce((total, gap) => total + gap, 0) / gaps.length);
-  return `heartbeat CADENCE: the last ${DISAGREEING_PASSES} passes arrived about ${observed} minutes apart, and this repo documents ${INTERVAL_PHRASE} (HEARTBEAT_INTERVAL_MINUTES in factory/heartbeat/interval.ts); change the host's schedule or that constant so the two agree`;
+  return `heartbeat CADENCE: the last ${DISAGREEING_PASSES} gaps between passes were about ${observed} minutes each, and this repo documents ${INTERVAL_PHRASE} (HEARTBEAT_INTERVAL_MINUTES in factory/heartbeat/interval.ts); change the host's schedule or that constant so the two agree`;
 };
 
 /** Whether one gap is the documented interval, inside the band and not on its edge. */
@@ -114,15 +114,24 @@ const agrees = (gap: number): boolean =>
   gap > HEARTBEAT_INTERVAL_MINUTES * (1 - AGREEING_BAND) && gap < HEARTBEAT_INTERVAL_MINUTES * (1 + AGREEING_BAND);
 
 /**
- * The timestamps in the log, in the order the passes wrote them, anything
- * unreadable dropped. A half-written line from a pass a host killed is not a
- * pass, and dropping it costs one gap rather than the claim.
+ * The timestamps in the log, in the order the passes wrote them, anything that
+ * is not one of this module's own stamps dropped. A half-written line from a
+ * pass a host killed is not a pass, and dropping it costs one gap rather than
+ * the claim.
+ *
+ * The test is a round trip against `toISOString`, not `Number.isNaN`, because
+ * most of the ways a stamp is truncated still parse: a line cut at the final
+ * `Z` is read as local time and lands hours out, and one cut back to the date
+ * is read as midnight. Either invents a gap no host took, in the direction the
+ * host's offset happens to point, which is the one shape of bad line the file
+ * can actually hold.
  */
 const stamps = (raw: string): Date[] =>
-  raw
-    .split("\n")
-    .map((line) => new Date(line.trim()))
-    .filter((at) => !Number.isNaN(at.getTime()));
+  raw.split("\n").flatMap((line) => {
+    const written = line.trim();
+    const at = new Date(written);
+    return !Number.isNaN(at.getTime()) && at.toISOString() === written ? [at] : [];
+  });
 
 /** The gaps between consecutive passes, in minutes. */
 const gapMinutes = (at: readonly Date[]): number[] =>

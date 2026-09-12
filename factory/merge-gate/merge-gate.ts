@@ -17,6 +17,7 @@ import { linkedIssueNumber } from "../lib/linked-issue";
 import { parseNameStatus, type ChangedFile } from "./changed-files";
 import { redGreenPlan, redGreenVerdict, type FileRun, type TestResult } from "./red-green";
 import { checkTestIntegrity } from "./test-integrity";
+import type { WorkflowFile } from "./unrequired-jobs";
 import { DEFAULT_TEST_COMMAND, reportArgs, runnability } from "./unrunnable";
 
 const prNumber = required("PR_NUMBER");
@@ -103,6 +104,42 @@ const sideLog = (runs: readonly FileRun[], side: "base" | "head"): string => {
 const summarize = (name: string, ok: boolean, reasons: readonly string[], detail: string): string =>
   [`### ${name}: ${ok ? "pass" : "fail"}`, detail, ...reasons.map((r) => `- ${r}`), ""].join("\n");
 
+const WORKFLOW_DIR = ".github/workflows";
+
+/** Every workflow file at the head, with its merge-base content where it had one. */
+const workflowFiles = (mergeBase: string): WorkflowFile[] => {
+  if (!fs.existsSync(WORKFLOW_DIR)) return [];
+  return fs
+    .readdirSync(WORKFLOW_DIR)
+    .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
+    .map((name) => {
+      const p = `${WORKFLOW_DIR}/${name}`;
+      const base = safeSh(`git show "${mergeBase}:${p}"`);
+      return { path: p, head: fs.readFileSync(p, "utf8"), ...(base ? { base } : {}) };
+    });
+};
+
+/**
+ * What the base branch's merge rule requires, read at runtime: the ruleset is
+ * the only source of truth for it, and a caller input would be a second place
+ * to keep in sync. A read that fails leaves the list empty, which turns the
+ * unrequired-job rule off rather than refusing on a guess.
+ */
+const requiredContexts = (): string[] => {
+  try {
+    const out = gh([
+      "api",
+      `repos/{owner}/{repo}/rules/branches/${baseRef}`,
+      "--jq",
+      '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context',
+    ]);
+    return out.split("\n").map((c) => c.trim()).filter((c) => c.length > 0);
+  } catch (error) {
+    console.error(`required contexts could not be read, so no job is judged unrequired: ${String(error)}`);
+    return [];
+  }
+};
+
 const main = (): void => {
   const mergeBase = sh(`git merge-base "origin/${baseRef}" HEAD`).trim();
   const files: ChangedFile[] = parseNameStatus(sh(`git diff --name-status -M "${mergeBase}" HEAD`));
@@ -112,7 +149,13 @@ const main = (): void => {
     : "";
   const issueNumber = linkedIssue();
 
-  const integrity = checkTestIntegrity({ files, diff });
+  const required = requiredContexts();
+  const integrity = checkTestIntegrity({
+    files,
+    diff,
+    workflows: workflowFiles(mergeBase),
+    requiredContexts: required,
+  });
 
   const plan = redGreenPlan(files);
   let runs: FileRun[] | undefined;
@@ -137,6 +180,7 @@ const main = (): void => {
     baseRef,
     mergeBase,
     issueNumber,
+    requiredContexts: required,
     files,
     redGreen: {
       ...redGreen,

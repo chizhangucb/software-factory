@@ -5,8 +5,14 @@
  * the reviewer and the audit read the ticket; this check is required in a
  * target's ruleset, so a wrong refusal here has no judge after it, while a
  * wrong acceptance meets both.
+ *
+ * It also carries the unrequired-job rule (#243): a job this pull request adds
+ * that no required name stands for fails the same check, so no target's merge
+ * rule needs a fourth context to get it. The YAML walking lives in
+ * `unrequired-jobs.ts`; this file owns the verdict.
  */
 import { deletedTestFiles, isTestFile, type ChangedFile } from "./changed-files";
+import { unrequiredAddedJobs, type UnrequiredJob, type WorkflowFile } from "./unrequired-jobs";
 
 export interface Verdict {
   readonly ok: boolean;
@@ -131,9 +137,29 @@ export const findNewMarkers = (diff: string): Marker[] => {
 export interface IntegrityInput {
   readonly files: readonly ChangedFile[];
   readonly diff: string;
+  /** The target's workflow files, head and merge base, when there are any. */
+  readonly workflows?: readonly WorkflowFile[];
+  /** What the target's merge rule requires, read from its ruleset at runtime. */
+  readonly requiredContexts?: readonly string[];
 }
 
-export const checkTestIntegrity = ({ files, diff }: IntegrityInput): IntegrityVerdict => {
+/** Names the job and the one line to write: the roll-up in its own file, or the required checks. */
+const unrequiredReason = (job: UnrequiredJob, required: readonly string[]): string =>
+  `new CI job \`${job.key}\` in ${job.path} is required by nothing: ` +
+  (job.rollUp
+    ? `add it to the \`needs:\` of the roll-up \`${job.rollUp}\``
+    : `roll it up under one of the required checks (${required.join(", ")})`);
+
+export const checkTestIntegrity = ({
+  files,
+  diff,
+  workflows = [],
+  requiredContexts = [],
+}: IntegrityInput): IntegrityVerdict => {
   const reasons = findNewMarkers(diff).map((m) => `new skip/only/todo marker at ${m.path}:${m.line}: ${m.text}`);
+  const unrequired = requiredContexts.length
+    ? unrequiredAddedJobs({ workflows, required: requiredContexts })
+    : [];
+  reasons.push(...unrequired.map((job) => unrequiredReason(job, requiredContexts)));
   return { ok: reasons.length === 0, reasons, deletedTests: deletedTestFiles(files) };
 };

@@ -1,0 +1,125 @@
+/**
+ * The cadence the sender is actually run at, against the one this repo
+ * documents (#265), mirroring `waiver.ts`: a pure function from what the last
+ * few passes looked like to what the sender prints.
+ *
+ * `interval.ts` is documentation with a test on it, because the factory cannot
+ * set its own interval: a host schedules the sender, a launchd job on the
+ * maintainer's machine today (#111 is where that lives for good). So the
+ * documented number and the number the host is configured with are two copies
+ * of one fact, edited by hand, and nothing failed when they parted. The sender
+ * is the only thing that sees both: it knows what the repo says, and it can
+ * see how long it has been since the last pass.
+ *
+ * **Where the previous pass comes from: a log of the sender's own.** `send.ts`
+ * deliberately held no state, and this breaks that, which is the decision the
+ * ticket asked to be written down here. The alternative was reading the host's
+ * own log, which already stamps every pass, and that is coupling to one host:
+ * its path, its format, and its truncation, none of which this repo owns and
+ * all of which #111 may change. A handful of timestamps the sender writes
+ * itself is portable to any host and readable by nothing else. What made
+ * statelessness worth keeping is preserved anyway: no lock, no pass waiting on
+ * another, and a log that cannot be read or written costs the pass nothing but
+ * this line, because `send.ts` treats every failure here as silence.
+ *
+ * **What counts as disagreement: a run of passes.** The heartbeat runs on a
+ * laptop, so a machine asleep overnight is the common case and one long gap is
+ * not evidence of anything. A claim is made only when every one of the last
+ * `DISAGREEING_PASSES` gaps disagrees, which a sleep cannot produce: waking
+ * restores the host's own rhythm on the next gap, while a host configured with
+ * a different number disagrees on every gap forever.
+ *
+ * Builtins only and explicit `.ts`, so `send.ts` reaches it on bare
+ * `node --experimental-strip-types`.
+ */
+import * as path from "node:path";
+
+import { HEARTBEAT_INTERVAL_MINUTES, INTERVAL_PHRASE } from "./interval.ts";
+
+/**
+ * How many consecutive gaps have to disagree before the pass says so.
+ *
+ * Four, which at the documented interval is about an hour of unbroken
+ * disagreement. One gap is a sleeping laptop and two is a laptop that slept
+ * twice; four in a row is a rhythm rather than an interruption, and a host
+ * whose schedule really did move produces them on the first hour after the
+ * change and every hour after that. The cost of the number is how long the
+ * nag takes to arrive, and an hour is nothing against a number that went a day
+ * unnoticed.
+ */
+export const DISAGREEING_PASSES = 4;
+
+/**
+ * How far a gap may be from the documented interval and still agree with it:
+ * half of it either way, so the interval halved or doubled disagrees and a
+ * pass merely late does not.
+ *
+ * A host fires the sender on its own clock and only while the machine is awake,
+ * so gaps run a little over the schedule always and never under it by much.
+ * The band is wide because the failure it must not produce is a nag a
+ * maintainer learns to skip; it is the reason a small change to the interval,
+ * inside the band, is not caught at all, which is the trade taken.
+ */
+const AGREEING_BAND = 0.5;
+
+/** Where the sender leaves the timestamps, overridable so a test never touches a real host's. */
+export const PASS_LOG_ENV = "FACTORY_HEARTBEAT_PASS_LOG";
+
+/**
+ * The file the sender appends its passes to: the env var, or one dotfile in the
+ * home directory of whoever the host runs it as. A path and not a directory
+ * tree, because the whole state is a few lines of text.
+ */
+export const passLogPath = (env: Record<string, string | undefined>, home: string): string =>
+  env[PASS_LOG_ENV] || path.join(home, ".factory-heartbeat-passes");
+
+/**
+ * The log with this pass in it, and nothing older than the run being judged:
+ * the file is bounded by the claim rather than by a truncation nobody owns.
+ */
+export const withPass = (raw: string, now: Date): string =>
+  `${[...stamps(raw), now]
+    .slice(-(DISAGREEING_PASSES + 1))
+    .map((at) => at.toISOString())
+    .join("\n")}\n`;
+
+/**
+ * What the sender prints about its own cadence, or nothing. Nothing is the
+ * answer to a log too short to hold a run, and to any run with an agreeing gap
+ * in it: this line is a claim about the schedule, and a maintainer who reads it
+ * on a morning after a sleep would be right to stop reading it.
+ *
+ * The observed number is the mean of the run, rounded: a host fires on its own
+ * clock, so no two gaps are identical and reporting one of them would read as
+ * precision the observation does not have.
+ */
+export const cadenceLine = (raw: string, now: Date): string | undefined => {
+  const gaps = gapMinutes([...stamps(raw), now]).slice(-DISAGREEING_PASSES);
+  if (gaps.length < DISAGREEING_PASSES) return undefined;
+  // A gap of zero or less is two passes stamped out of order, or a clock that
+  // moved backwards. Neither is a cadence, and both would otherwise be
+  // reported as one, since any such gap is outside the band.
+  if (gaps.some((gap) => gap <= 0 || agrees(gap))) return undefined;
+  const observed = Math.round(gaps.reduce((total, gap) => total + gap, 0) / gaps.length);
+  return `heartbeat CADENCE: the last ${DISAGREEING_PASSES} passes arrived about ${observed} minutes apart, and this repo documents ${INTERVAL_PHRASE} (HEARTBEAT_INTERVAL_MINUTES in factory/heartbeat/interval.ts); change the host's schedule or that constant so the two agree`;
+};
+
+/** Whether one gap is the documented interval, within the band. */
+const agrees = (gap: number): boolean =>
+  gap >= HEARTBEAT_INTERVAL_MINUTES * (1 - AGREEING_BAND) && gap <= HEARTBEAT_INTERVAL_MINUTES * (1 + AGREEING_BAND);
+
+/**
+ * The timestamps in the log, oldest first, anything unreadable dropped. A
+ * half-written line from a pass a host killed is not a pass, and dropping it
+ * costs one gap rather than the claim.
+ */
+const stamps = (raw: string): Date[] =>
+  raw
+    .split("\n")
+    .map((line) => new Date(line.trim()))
+    .filter((at) => !Number.isNaN(at.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+
+/** The gaps between consecutive passes, in minutes. */
+const gapMinutes = (at: readonly Date[]): number[] =>
+  at.slice(1).map((each, index) => (each.getTime() - at[index]!.getTime()) / 60_000);

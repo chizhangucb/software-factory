@@ -120,16 +120,20 @@ const workflowFiles = (mergeBase: string): WorkflowFile[] => {
 };
 
 /**
- * What the base branch's merge rule requires, read at runtime: the ruleset is
- * the only source of truth for it, and a caller input would be a second place
- * to keep in sync. A read that fails leaves the list empty, which turns the
+ * What the base branch's merge rule requires, read at runtime: the rule is the
+ * only source of truth for it, and a caller input would be a second place to
+ * keep in sync. A read that fails leaves the list empty, which turns the
  * unrequired-job rule off rather than refusing on a guess.
+ *
+ * The branch's effective rules, not `scripts/onboard.sh`'s `factory` ruleset:
+ * what gates the merge is every rule that applies, org rulesets and classic
+ * protection included, and a job wired to any of them is required in fact.
  */
 const requiredContexts = (): string[] => {
   try {
     const out = gh([
       "api",
-      `repos/{owner}/{repo}/rules/branches/${baseRef}`,
+      `repos/{owner}/{repo}/rules/branches/${encodeURIComponent(baseRef)}`,
       "--jq",
       '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context',
     ]);
@@ -211,6 +215,11 @@ const main = (): void => {
         integrity.deletedTests.length
           ? `deleted test files, for the reviewer and the audit to judge against the ticket: ${integrity.deletedTests.join(", ")}`
           : "no test file deleted",
+        // Said out loud: a rule that is off because no required name could be
+        // read looks exactly like a rule that found nothing.
+        required.length
+          ? `required checks read from the branch's rules: ${required.join(", ")}`
+          : "no required check could be read, so no job was judged unrequired",
       ].join("; "),
     ),
   ].join("\n");

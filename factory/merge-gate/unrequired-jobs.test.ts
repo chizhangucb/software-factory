@@ -8,31 +8,32 @@ import { unrequiredAddedJobs, type WorkflowFile } from "./unrequired-jobs";
 const chronicle = (name: string): string =>
   fs.readFileSync(new URL(`fixtures/chronicle-workflows/${name}`, import.meta.url), "utf8");
 
-const ci = (jobs: string): string => ["name: CI", "on:", "  pull_request:", "jobs:", jobs].join("\n");
+/** A workflow that fires on a pull request, wrapped around the jobs under test. */
+const workflowOf = (jobs: string): string => ["name: CI", "on:", "  pull_request:", "jobs:", jobs].join("\n");
 
-const wf = (head: string, base?: string): WorkflowFile[] => [
+const oneWorkflow = (head: string, base?: string): WorkflowFile[] => [
   { path: ".github/workflows/ci.yml", head, base },
 ];
 
 test("a job the pull request adds that no required name stands for is reported", () => {
-  const before = ci(["  check:", "    runs-on: ubuntu-latest"].join("\n"));
-  const after = ci(["  check:", "    runs-on: ubuntu-latest", "  lint:", "    runs-on: ubuntu-latest"].join("\n"));
-  assert.deepEqual(unrequiredAddedJobs({ workflows: wf(after, before), required: ["check"] }), [
-    { path: ".github/workflows/ci.yml", key: "lint", publishedName: "lint", rollUp: "check" },
+  const before = workflowOf(["  check:", "    runs-on: ubuntu-latest"].join("\n"));
+  const after = workflowOf(["  check:", "    runs-on: ubuntu-latest", "  lint:", "    runs-on: ubuntu-latest"].join("\n"));
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after, before), required: ["check"] }), [
+    { path: ".github/workflows/ci.yml", key: "lint" },
   ]);
 });
 
 test("a job already in the target and unrequired is left alone", () => {
-  const both = ci(["  check:", "    runs-on: ubuntu-latest", "  smoke:", "    runs-on: ubuntu-latest"].join("\n"));
-  assert.deepEqual(unrequiredAddedJobs({ workflows: wf(both, both), required: ["check"] }), []);
+  const both = workflowOf(["  check:", "    runs-on: ubuntu-latest", "  smoke:", "    runs-on: ubuntu-latest"].join("\n"));
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(both, both), required: ["check"] }), []);
 });
 
 test("a job reachable through a roll-up's needs, at any depth, counts as required", () => {
-  const before = ci(
+  const before = workflowOf(
     ["  check:", "    needs: [build]", "  build:", "    needs: setup", "  setup:", "    runs-on: x"].join("\n"),
   );
   const after = [before, "  deep:", "    runs-on: x"].join("\n");
-  const found = unrequiredAddedJobs({ workflows: wf(after, before), required: ["check"] });
+  const found = unrequiredAddedJobs({ workflows: oneWorkflow(after, before), required: ["check"] });
   assert.deepEqual(
     found.map((j) => j.key),
     ["deep"],
@@ -40,23 +41,23 @@ test("a job reachable through a roll-up's needs, at any depth, counts as require
 });
 
 test("a job added under a required roll-up's needs is required, block list included", () => {
-  const before = ci(["  check:", "    needs: [build]", "  build:", "    runs-on: x"].join("\n"));
-  const after = ci(
+  const before = workflowOf(["  check:", "    needs: [build]", "  build:", "    runs-on: x"].join("\n"));
+  const after = workflowOf(
     ["  check:", "    needs: [build]", "  build:", "    needs:", "      - probe", "  probe:", "    runs-on: x"].join(
       "\n",
     ),
   );
-  assert.deepEqual(unrequiredAddedJobs({ workflows: wf(after, before), required: ["check"] }), []);
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after, before), required: ["check"] }), []);
 });
 
 test("a job counts under the name it publishes, so a stub publishing a required name passes", () => {
-  const after = ci(["  check:", "    runs-on: x", "  check-stub:", "    name: check", "    if: always()"].join("\n"));
-  assert.deepEqual(unrequiredAddedJobs({ workflows: wf(after, ci("  check:\n    runs-on: x")), required: ["check"] }), []);
+  const after = workflowOf(["  check:", "    runs-on: x", "  check-stub:", "    name: check", "    if: always()"].join("\n"));
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after, workflowOf("  check:\n    runs-on: x")), required: ["check"] }), []);
 });
 
 test("a matrix job counts by its key, though it reports the key plus its matrix values", () => {
-  const before = ci(["  e2e:", "    needs: [e2e-shard]", "  e2e-shard:", "    runs-on: x"].join("\n"));
-  const after = ci(
+  const before = workflowOf(["  e2e:", "    needs: [e2e-shard]", "  e2e-shard:", "    runs-on: x"].join("\n"));
+  const after = workflowOf(
     [
       "  e2e:",
       "    needs: [e2e-shard]",
@@ -69,13 +70,13 @@ test("a matrix job counts by its key, though it reports the key plus its matrix 
     ].join("\n"),
   );
   assert.deepEqual(
-    unrequiredAddedJobs({ workflows: wf(after, before), required: ["e2e"] }).map((j) => j.key),
+    unrequiredAddedJobs({ workflows: oneWorkflow(after, before), required: ["e2e"] }).map((j) => j.key),
     ["pack"],
   );
 });
 
 test("a job-level uses: into another workflow file carries the requirement into its jobs", () => {
-  const caller = ci(["  check:", "    uses: ./.github/workflows/reusable.yml"].join("\n"));
+  const caller = workflowOf(["  check:", "    uses: ./.github/workflows/reusable.yml"].join("\n"));
   const reusable = ["name: reusable", "on:", "  workflow_call:", "jobs:", "  build:", "    runs-on: x"].join("\n");
   const workflows = [
     { path: ".github/workflows/ci.yml", head: caller, base: caller },
@@ -114,6 +115,66 @@ test("every job behind chronicle's e2e roll-up counts as required when added", (
     required: ["check", "e2e", "gitleaks"],
   });
   assert.deepEqual(found, []);
+});
+
+test("a comment, a blank line or a flush block list inside needs does not lose the edge", () => {
+  const after = workflowOf(
+    [
+      "  check: # the gate",
+      "    needs: # everything below",
+      "",
+      "    # the new one",
+      "    - build",
+      "  build:",
+      "    runs-on: x",
+    ].join("\n"),
+  );
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after), required: ["check"] }), []);
+});
+
+test("a trailing comment on needs or on a job key does not lose the edge", () => {
+  const after = workflowOf(["  check: # gate", "    needs: [build] # the roll-up", "  build:", "    runs-on: x"].join("\n"));
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after), required: ["check"] }), []);
+});
+
+test("jobs indented four spaces are read, and a quoted on: key still counts", () => {
+  const after = ['"on":', "  pull_request:", "jobs:", "    check:", "        needs: [build]", "    build:", "        runs-on: x"].join(
+    "\n",
+  );
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after), required: ["check"] }), []);
+});
+
+test("a matrix job the merge rule names by one of its reported names counts as required", () => {
+  const after = workflowOf(
+    [
+      "  smoke:",
+      "    name: smoke (${{ matrix.os }})",
+      "    strategy:",
+      "      matrix:",
+      "        os: [ubuntu-latest, windows-latest]",
+    ].join("\n"),
+  );
+  assert.deepEqual(unrequiredAddedJobs({ workflows: oneWorkflow(after), required: ["smoke (ubuntu-latest)"] }), []);
+});
+
+test("a step's own uses: is not read as a job-level one", () => {
+  const after = workflowOf(
+    ["  check:", "    steps:", "      - uses: ./.github/actions/setup", "  lint:", "    runs-on: x"].join("\n"),
+  );
+  assert.deepEqual(
+    unrequiredAddedJobs({ workflows: oneWorkflow(after), required: ["check"] }).map((j) => j.key),
+    ["lint"],
+  );
+});
+
+test("the roll-up named is one that rolls something up, not a required leaf", () => {
+  const after = workflowOf(
+    ["  gitleaks:", "    runs-on: x", "  check:", "    needs: [build]", "  build:", "    runs-on: x", "  lint:", "    runs-on: x"].join(
+      "\n",
+    ),
+  );
+  const found = unrequiredAddedJobs({ workflows: oneWorkflow(after), required: ["gitleaks", "check"] });
+  assert.deepEqual(found, [{ path: ".github/workflows/ci.yml", key: "lint", rollUp: "check" }]);
 });
 
 test("a workflow that does not run on a pull request is not judged", () => {

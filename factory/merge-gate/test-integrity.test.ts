@@ -18,7 +18,7 @@ const diffOf = (file: string, added: string[]): string =>
 const workflow = (jobs: string): string => ["name: CI", "on:", "  pull_request:", "jobs:", jobs].join("\n");
 
 test("an added job no required name stands for fails, naming the job and the roll-up", () => {
-  const base = workflow("  check:\n    runs-on: x");
+  const base = workflow("  check:\n    needs: [build]\n  build:\n    runs-on: x");
   const verdict = checkTestIntegrity({
     files: parseNameStatus("M\t.github/workflows/ci.yml\n"),
     diff: "",

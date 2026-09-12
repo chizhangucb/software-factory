@@ -16,8 +16,7 @@ export interface WorkflowFile {
 export interface UnrequiredJob {
   readonly path: string;
   readonly key: string;
-  readonly publishedName: string;
-  /** The required job in the same file to wire it into, when there is one. */
+  /** The roll-up in the same file to wire it into, when the file has one. */
   readonly rollUp?: string;
 }
 
@@ -27,6 +26,8 @@ interface Job {
   readonly needs: readonly string[];
   /** A job-level `uses:` into another workflow file in this repo, if any. */
   readonly calls?: string;
+  /** A matrix job publishes one check per combination, not its own name. */
+  readonly matrix?: boolean;
 }
 
 interface Draft {
@@ -34,15 +35,52 @@ interface Draft {
   name?: string;
   needs: string[];
   calls?: string;
+  matrix?: boolean;
   /** true while `needs:` is opening a block list, so its `- x` lines are collected. */
   inNeeds: boolean;
+  /** Indent of the job's own properties, taken from its first body line. */
+  bodyIndent: number | undefined;
 }
 
-const JOB_KEY = /^\s{2}([A-Za-z_][\w-]*):\s*$/;
+const indentOf = (line: string): number => line.length - line.trimStart().length;
 
-/** Job keys, the name each publishes, and what each needs, from a file's `jobs:` block. */
+const unquote = (value: string): string => (/^(['"]).*\1$/.test(value) ? value.slice(1, -1) : value);
+
+/**
+ * A line with its trailing comment gone, blank and comment-only lines reported
+ * as empty. A `#` inside quotes or a `${{ }}` expression is left alone, so a
+ * job `name:` carrying one survives.
+ */
+const stripComment = (line: string): string => {
+  let quote: string | undefined;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      if (c === quote) quote = undefined;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === "$" && line.startsWith("${{", i)) {
+      const end = line.indexOf("}}", i);
+      if (end < 0) return line.trimEnd();
+      i = end + 1;
+    } else if (c === "#" && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i).trimEnd();
+  }
+  return line.trimEnd();
+};
+
+/** `key:` or `"key":`, whatever follows it on the line. */
+const KEY = /^["']?([A-Za-z_][\w.-]*)["']?:\s*(.*)$/;
+
+/**
+ * Job keys, the name each publishes, what each needs, and any job-level
+ * `uses:`, from a file's `jobs:` block. Indentation is read rather than
+ * assumed, and a property counts only at a job's own body indent, so a step's
+ * `uses:` is never mistaken for a job's.
+ */
 const parseJobs = (source: string): Job[] => {
   const jobs: Job[] = [];
+  let jobIndent: number | undefined;
   let inJobs = false;
   let current: Draft | undefined;
   const flush = (): void => {
@@ -52,46 +90,46 @@ const parseJobs = (source: string): Job[] => {
         publishedName: current.name ?? current.key,
         needs: current.needs,
         ...(current.calls ? { calls: current.calls } : {}),
+        ...(current.matrix ? { matrix: true } : {}),
       });
     current = undefined;
   };
-  for (const line of source.split("\n")) {
-    if (/^jobs:\s*$/.test(line)) {
-      inJobs = true;
+  for (const raw of source.split("\n")) {
+    const line = stripComment(raw);
+    if (line.trim() === "") continue;
+    const indent = indentOf(line);
+    if (indent === 0) {
+      flush();
+      inJobs = /^["']?jobs["']?:/.test(line);
+      jobIndent = undefined;
       continue;
     }
     if (!inJobs) continue;
-    if (/^\S/.test(line)) {
+    jobIndent ??= indent;
+    const entry = line.trim().match(KEY);
+    if (indent === jobIndent) {
       flush();
-      inJobs = false;
-      continue;
-    }
-    const key = line.match(JOB_KEY);
-    if (key) {
-      flush();
-      current = { key: key[1], needs: [], inNeeds: false };
+      if (entry) current = { key: entry[1], needs: [], inNeeds: false, bodyIndent: undefined };
       continue;
     }
     if (!current) continue;
-    const item = line.match(/^\s{6,}-\s*(.+?)\s*$/);
-    if (current.inNeeds && item) {
-      current.needs.push(unquote(item[1]));
+    current.bodyIndent ??= indent;
+    const item = line.trim().match(/^-\s*(.+)$/);
+    if (current.inNeeds && item && indent >= current.bodyIndent) {
+      current.needs.push(unquote(item[1].trim()));
+      continue;
+    }
+    if (!entry || indent !== current.bodyIndent) {
+      if (entry?.[1] === "matrix") current.matrix = true;
       continue;
     }
     current.inNeeds = false;
-    const name = line.match(/^\s{4}name:\s*(.+?)\s*$/);
-    if (name) {
-      current.name = unquote(name[1]);
-      continue;
-    }
-    const needs = line.match(/^\s{4}needs:\s*(.*?)\s*$/);
-    if (needs) {
-      current.needs.push(...parseNeeds(needs[1]));
-      current.inNeeds = needs[1] === "";
-      continue;
-    }
-    const uses = line.match(/^\s{4}uses:\s*\.\/(\S+)\s*$/);
-    if (uses) current.calls = unquote(uses[1]);
+    const [, key, value] = entry;
+    if (key === "name") current.name = unquote(value);
+    else if (key === "needs") {
+      current.needs.push(...parseNeeds(value));
+      current.inNeeds = value === "";
+    } else if (key === "uses" && value.startsWith("./")) current.calls = unquote(value).slice(2);
   }
   flush();
   return jobs;
@@ -102,9 +140,6 @@ const parseNeeds = (value: string): string[] =>
   (/^\[.*\]$/.test(value) ? value.slice(1, -1).split(",") : [value])
     .map((n) => unquote(n.trim()))
     .filter((n) => n.length > 0);
-
-const unquote = (value: string): string =>
-  /^(['"]).*\1$/.test(value) ? value.slice(1, -1) : value;
 
 export interface UnrequiredInput {
   readonly workflows: readonly WorkflowFile[];
@@ -119,14 +154,15 @@ export interface UnrequiredInput {
  * required in a target's ruleset with no judge after it.
  */
 const runsOnPullRequest = (source: string): boolean => {
-  const lines = source.split("\n");
-  const start = lines.findIndex((l) => /^on:/.test(l));
+  const lines = source.split("\n").map(stripComment);
+  const start = lines.findIndex((l) => /^["']?on["']?:/.test(l));
   if (start < 0) return false;
-  const inline = lines[start].slice("on:".length).trim();
+  const inline = lines[start].replace(/^["']?on["']?:/, "").trim();
   if (inline) return /\bpull_request(_target)?\b/.test(inline);
   for (const line of lines.slice(start + 1)) {
-    if (/^\S/.test(line)) break;
-    if (/^\s{2}(-\s*)?pull_request(_target)?\b/.test(line)) return true;
+    if (line.trim() === "") continue;
+    if (indentOf(line) === 0) break;
+    if (/^\s+(-\s*)?["']?pull_request(_target)?["']?\b/.test(line)) return true;
   }
   return false;
 };
@@ -154,10 +190,31 @@ const reachedFromRequired = (
     for (const called of byPath.get(job.calls ?? "") ?? []) walk(job.calls!, called.key);
   };
   for (const [path, jobs] of byPath) {
-    for (const job of jobs) if (required.includes(job.publishedName)) walk(path, job.key);
+    for (const job of jobs) if (standsFor(job, required)) walk(path, job.key);
   }
   return reached;
 };
+
+/**
+ * A required name stands for this job. A matrix job reports its name plus the
+ * combination (`smoke (ubuntu-latest)`), and the name it carries may itself be
+ * an expression, so the literal part before the first `${{` is what a required
+ * context is matched against.
+ */
+const standsFor = (job: Job, required: readonly string[]): boolean => {
+  if (required.includes(job.publishedName)) return true;
+  if (!job.matrix) return false;
+  const prefixes = [job.publishedName.split("${{")[0].trim(), job.key].filter((p) => p.length > 0);
+  return required.some((ctx) => prefixes.some((p) => ctx === p || ctx.startsWith(`${p} (`)));
+};
+
+/**
+ * The roll-up to name in a file's failure: a required job that rolls something
+ * up, which is what a new job can be added to. A required leaf like chronicle's
+ * `gitleaks` rolls nothing up, so naming it would be advice nobody can follow.
+ */
+const rollUpIn = (jobs: readonly Job[], required: readonly string[]): string | undefined =>
+  jobs.find((j) => standsFor(j, required) && (j.needs.length > 0 || j.calls))?.key;
 
 export const unrequiredAddedJobs = ({ workflows, required }: UnrequiredInput): UnrequiredJob[] => {
   const byPath = new Map(workflows.map((f) => [f.path, parseJobs(f.head)] as const));
@@ -166,9 +223,9 @@ export const unrequiredAddedJobs = ({ workflows, required }: UnrequiredInput): U
     if (!runsOnPullRequest(file.head)) return [];
     const before = new Set(parseJobs(file.base ?? "").map((j) => j.key));
     const jobs = byPath.get(file.path) ?? [];
-    const rollUp = jobs.find((j) => required.includes(j.publishedName))?.key;
+    const rollUp = rollUpIn(jobs, required);
     return jobs
       .filter((j) => !before.has(j.key) && !reached.has(idOf(file.path, j.key)))
-      .map((j) => ({ path: file.path, key: j.key, publishedName: j.publishedName, ...(rollUp ? { rollUp } : {}) }));
+      .map((j) => ({ path: file.path, key: j.key, ...(rollUp ? { rollUp } : {}) }));
   });
 };

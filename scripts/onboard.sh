@@ -1,43 +1,51 @@
 #!/usr/bin/env bash
 # Onboard a target repo: labels, auto-merge, and a `factory` ruleset on the default branch. Idempotent.
-#   scripts/onboard.sh owner/repo [own-check ...]
-# An own check is one the target's CI posts, required beside the factory's three. Name none and
-# they are discovered: required only if posted on each of the last 5 default-branch commits,
-# because a path-filtered check would leave a PR outside its paths waiting on it forever.
+#   scripts/onboard.sh owner/repo [--no-own-checks] [--allow-drop] [own-check ...]
+# An own check is a required context in the target's `factory` ruleset that does not start with
+# `factory/`. Name none and a re-run keeps exactly the ones that ruleset already requires, so
+# re-running to pick up a label never needs the list remembered. Nothing is read off the target's
+# commits: the script guesses no check, ever. A first run with none named refuses unless
+# --no-own-checks says the target genuinely has none, and any run that would drop an own check the
+# ruleset requires refuses unless --allow-drop says to let it go.
 set -euo pipefail
-check_sample=5
-repo="${1:?usage: onboard.sh owner/repo [own-check ...]}"
+repo="${1:?usage: onboard.sh owner/repo [--no-own-checks] [--allow-drop] [own-check ...]}"
 shift
 
-# `--force` rewrites a same-named label the target already has: check `hold` is not already theirs.
-# The five triage roles' descriptions are docs/agents/triage-labels.md's Meaning column.
-label() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
-label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
-label "hold"              "d4c5f9" "Factory: never dispatched while this is set"
-label "ready-for-human"   "c2e0c6" "Requires human implementation"
-label "needs-triage"      "ededed" "Maintainer needs to evaluate this issue"
-label "needs-info"        "bfd4f2" "Waiting on reporter for more information"
-label "wontfix"           "ffffff" "Will not be actioned"
-label "bug"               "d73a4a" "Something is broken"
-label "enhancement"       "a2eeef" "New feature or improvement"
-label "agent:implement"   "1d76db" "Factory: run the implementer on this ticket"
-label "agent:in-progress" "fbca04" "Factory: a run is active"
-label "agent:review"      "5319e7" "Factory: run the reviewer on this PR"
-label "agent:blocked"     "b60205" "Factory: last run failed, see the comment"
-label "needs-human"       "d93f0b" "Factory: escalated, a human must read this"
-label "factory:retry-1"   "c5def5" "Factory: retries used on this ticket"
-label "wayfinder:map"       "006b75" "Wayfinder: the map a chart's decision tickets hang off"
-label "wayfinder:research"  "006b75" "Wayfinder: AFK, read sources for a fact a decision waits on"
-label "wayfinder:prototype" "006b75" "Wayfinder: with a human, a rough artifact to react to"
-label "wayfinder:grilling"  "006b75" "Wayfinder: with a human, conversation to settle a decision"
-label "wayfinder:task"      "006b75" "Wayfinder: manual work a decision is blocked on, AFK where it can be"
+no_own_checks=false
+allow_drop=false
+named=()
+# A count of its own: bash 3.2, which is what macOS ships, reads an empty array as unset under
+# `set -u`, so every array below is counted as it is filled and expanded with the `+` guard.
+named_count=0
+for argument in "$@"; do
+  case "$argument" in
+    --no-own-checks) no_own_checks=true ;;
+    --allow-drop) allow_drop=true ;;
+    # An empty argument names no check. Anything else beginning with `-` is a typo for a flag,
+    # and requiring it as a context is the one reading that cannot be what was meant.
+    "") ;;
+    -*) echo "onboard.sh: unknown flag: $argument" >&2; exit 1 ;;
+    *) named+=("$argument"); named_count=$((named_count + 1)) ;;
+  esac
+done
+
+# Every refusal prints like this and exits before any write: no label, no repo edit, no ruleset.
+refuse() {
+  {
+    echo "############################################################"
+    echo "## REFUSED: $repo was not onboarded, and nothing was written."
+    while IFS= read -r line; do echo "## $line"; done <<<"$1"
+    echo "############################################################"
+  } >&2
+  exit 1
+}
 
 # Printed before the ruleset write and again after it, so it cannot scroll past.
 warn_no_own_check() {
   {
     echo "############################################################"
     if [ "$has_caller" = "true" ]; then
-      echo "## WARNING: no own check for $repo: none discovered, none named."
+      echo "## WARNING: no own check for $repo."
       echo "## The factory ruleset gates on the factory's checks alone:"
       echo "##   factory/verdict, factory/red-green, factory/test-integrity."
       echo "## The target's own CI is not required, so a PR that breaks the"
@@ -48,15 +56,8 @@ warn_no_own_check() {
       echo "## no caller posts them, and no own check either. A PR merges"
       echo "## with nothing having run on it."
     fi
-    if [ "$discovery_ran" = "true" ] && [ "$sampled_commits" -gt 0 ]; then
-      echo "## Discovery read $sampled_commits recent commits of the default branch"
-      echo "## and found no check posted on every one of them."
-    elif [ "$discovery_ran" = "true" ]; then
-      echo "## Discovery had nothing to read: no commits on the default"
-      echo "## branch yet. Re-run once the target's CI has posted on some."
-    fi
-    echo "## Fix: name the checks the target's CI posts, which turns"
-    echo "## discovery off and requires exactly what you list, e.g."
+    echo "## Fix: name the checks the target's CI posts, which requires"
+    echo "## exactly what you list, e.g."
     echo "##   scripts/onboard.sh $repo check"
     echo "############################################################"
   } >&2
@@ -95,9 +96,7 @@ note_judged_path() {
   } >&2
 }
 
-gh repo edit "$repo" --enable-auto-merge --delete-branch-on-merge >/dev/null
-echo "repo: auto-merge allowed, branches deleted on merge"
-
+# Reads first, every one of them, so a refusal below happens before anything is written.
 default_branch=$(gh api "repos/$repo" --jq .default_branch)
 if caller_error=$(gh api "repos/$repo/contents/.github/workflows/factory.yml" 2>&1 >/dev/null); then
   has_caller=true
@@ -108,84 +107,110 @@ else
   exit 1
 fi
 
-sampled_commits=0
-discovery_ran=false
-discovered_required=""
-discovered_partial=""
-discover_own_checks() {
-  local sha names runs statuses counted recent listing_error listing_error_file
-  local listing_status=0
-  local seen=""
-  listing_error_file=$(mktemp)
-  # Assigned, not looped over inline, so a failure is caught; only GitHub's empty-repo 409 reads as no history.
-  recent=$(gh api "repos/$repo/commits?sha=$default_branch&per_page=$check_sample" --jq '.[].sha' 2>"$listing_error_file") ||
-    listing_status=$?
-  listing_error=$(cat "$listing_error_file")
-  rm -f "$listing_error_file"
-  if [ "$listing_status" -ne 0 ]; then
-    if [[ "$listing_error" == *"HTTP 409"* && "$listing_error" == *"Git Repository is empty"* ]]; then
-      recent=""
-    else
-      echo "onboard.sh: could not read $repo's recent commits: $listing_error" >&2
-      exit 1
-    fi
+existing=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name == "factory") | .id' | head -n1)
+existing_own=()
+existing_own_count=0
+if [ -n "$existing" ]; then
+  # Assigned, not looped over inline, so a failure is caught: a ruleset that exists and cannot be
+  # read is a refusal, never an empty answer, or the read failure reads as "this target requires
+  # nothing" and the write below takes its own checks off.
+  ruleset_error_file=$(mktemp)
+  ruleset_status=0
+  contexts=$(gh api "repos/$repo/rulesets/$existing" \
+    --jq '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' \
+    2>"$ruleset_error_file") || ruleset_status=$?
+  ruleset_error=$(cat "$ruleset_error_file")
+  rm -f "$ruleset_error_file"
+  if [ "$ruleset_status" -ne 0 ]; then
+    refuse "The factory ruleset (id $existing) is there but could not be read:
+  $ruleset_error
+Its own checks are what a re-run keeps and what a drop is measured against,
+so onboarding cannot tell what this write would take away."
   fi
-  while IFS= read -r sha; do
-    # An empty listing still feeds the herestring one empty line.
-    if [ -z "$sha" ]; then continue; fi
-    sampled_commits=$((sampled_commits + 1))
-    # Both report styles, since a ruleset context matches either; one assignment each so set -e sees a failure.
-    runs=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --jq '.check_runs[].name')
-    statuses=$(gh api "repos/$repo/commits/$sha/status?per_page=100" --jq '.statuses[].context')
-    # factory/ checks are the caller's to require, never discovered. sort -u: a re-run posts a name twice.
-    names=$(printf '%s\n%s\n' "$runs" "$statuses" | awk 'NF && $0 !~ /^factory\//' | sort -u)
-    seen="$seen$names"$'\n'
-  done <<<"$recent"
-  [ "$sampled_commits" -gt 0 ] || return 0
-  counted=$(printf '%s' "$seen" | awk 'NF' | sort | uniq -c)
-  # An empty herestring is still one record to awk.
-  if [ -z "$counted" ]; then return 0; fi
-  discovered_required=$(awk -v n="$sampled_commits" '{ count = $1; sub(/^ *[0-9]+ /, ""); if (count + 0 == n) print }' <<<"$counted")
-  discovered_partial=$(awk -v n="$sampled_commits" '{ count = $1; sub(/^ *[0-9]+ /, ""); if (count + 0 != n) print $0 " (posted on " count " of " n ")" }' <<<"$counted")
-}
-note_path_filtered() {
-  {
-    echo "############################################################"
-    echo "## NOTE: these posted on some of the $sampled_commits sampled commits of"
-    echo "## $default_branch, but not all, so they read as path-filtered"
-    echo "## and are NOT required:"
-    while IFS= read -r partial; do
-      if [ -n "$partial" ]; then echo "##   $partial"; fi
-    done <<<"$discovered_partial"
-    echo "## Requiring one would leave a PR that touches none of its paths"
-    echo "## waiting forever for a check that never posts."
-    echo "## If one really does post on every PR, name it by hand:"
-    echo "##   scripts/onboard.sh $repo <check> ..."
-    echo "############################################################"
-  } >&2
-}
-if [ "$#" -eq 0 ]; then
-  discovery_ran=true
-  discover_own_checks
-  while IFS= read -r discovered; do
-    if [ -n "$discovered" ]; then set -- "$@" "$discovered"; fi
-  done <<<"$discovered_required"
-  if [ "$#" -gt 0 ]; then
-    echo "discovered on $sampled_commits recent commits of $default_branch: $*"
-  fi
-  if [ -n "$discovered_partial" ]; then note_path_filtered; fi
-else
-  echo "own checks named on the command line, discovery skipped: $*"
+  while IFS= read -r context; do
+    # The factory's three are the caller's to require, never the target's own.
+    case "$context" in "" | factory/*) continue ;; esac
+    existing_own+=("$context"); existing_own_count=$((existing_own_count + 1))
+  done <<<"$contexts"
 fi
+
+# Where the own checks come from: the command line, the flag, or the ruleset already there.
+if [ "$named_count" -gt 0 ] && [ "$no_own_checks" = "true" ]; then
+  refuse "--no-own-checks says $repo has no own check, and these were named anyway:
+  ${named[*]}
+Pass one or the other."
+elif [ "$named_count" -gt 0 ]; then
+  own=("${named[@]}")
+  echo "own checks named on the command line: ${own[*]}"
+elif [ "$no_own_checks" = "true" ]; then
+  own=()
+  echo "no own check, as --no-own-checks says"
+elif [ -n "$existing" ]; then
+  own=(${existing_own[@]+"${existing_own[@]}"})
+  if [ "$existing_own_count" -gt 0 ]; then
+    echo "own checks kept from the factory ruleset (id $existing): ${own[*]}"
+  else
+    echo "no own check to keep: the factory ruleset (id $existing) requires none"
+  fi
+else
+  refuse "$repo has no factory ruleset yet and no own check was named, so there is
+nothing to keep and nothing to require. Onboarding does not guess.
+Two ways on:
+  scripts/onboard.sh $repo <check> ...   name the checks its CI posts
+  scripts/onboard.sh $repo --no-own-checks   it genuinely has none yet"
+fi
+
+# A write that takes an own check off the ruleset is the foot-gun, whatever put the list together.
+dropped=()
+dropped_count=0
+for was_required in ${existing_own[@]+"${existing_own[@]}"}; do
+  still_required=false
+  for keeping in ${own[@]+"${own[@]}"}; do
+    if [ "$keeping" = "$was_required" ]; then still_required=true; fi
+  done
+  if [ "$still_required" = "false" ]; then dropped+=("$was_required"); dropped_count=$((dropped_count + 1)); fi
+done
+if [ "$dropped_count" -gt 0 ] && [ "$allow_drop" = "false" ]; then
+  refuse "This run would stop requiring own checks $repo's factory ruleset requires:
+$(printf '  %s\n' "${dropped[@]}")
+A PR that breaks one would then merge clean.
+Name them alongside the rest, or pass --allow-drop if they really are to go."
+fi
+
+# `--force` rewrites a same-named label the target already has: check `hold` is not already theirs.
+# The five triage roles' descriptions are docs/agents/triage-labels.md's Meaning column.
+label() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
+gh repo edit "$repo" --enable-auto-merge --delete-branch-on-merge >/dev/null
+echo "repo: auto-merge allowed, branches deleted on merge"
+label "ready-for-agent"   "0e8a16" "Fully specified, ready for an AFK agent"
+label "hold"              "d4c5f9" "Factory: never dispatched while this is set"
+label "ready-for-human"   "c2e0c6" "Requires human implementation"
+label "needs-triage"      "ededed" "Maintainer needs to evaluate this issue"
+label "needs-info"        "bfd4f2" "Waiting on reporter for more information"
+label "wontfix"           "ffffff" "Will not be actioned"
+label "bug"               "d73a4a" "Something is broken"
+label "enhancement"       "a2eeef" "New feature or improvement"
+label "agent:implement"   "1d76db" "Factory: run the implementer on this ticket"
+label "agent:in-progress" "fbca04" "Factory: a run is active"
+label "agent:review"      "5319e7" "Factory: run the reviewer on this PR"
+label "agent:blocked"     "b60205" "Factory: last run failed, see the comment"
+label "needs-human"       "d93f0b" "Factory: escalated, a human must read this"
+label "factory:retry-1"   "c5def5" "Factory: retries used on this ticket"
+label "wayfinder:map"       "006b75" "Wayfinder: the map a chart's decision tickets hang off"
+label "wayfinder:research"  "006b75" "Wayfinder: AFK, read sources for a fact a decision waits on"
+label "wayfinder:prototype" "006b75" "Wayfinder: with a human, a rough artifact to react to"
+label "wayfinder:grilling"  "006b75" "Wayfinder: with a human, conversation to settle a decision"
+label "wayfinder:task"      "006b75" "Wayfinder: manual work a decision is blocked on, AFK where it can be"
+
 build_checks() {
   jq -cn '[$ARGS.positional[] | select(. != "")]
     | reduce .[] as $c ([]; if index($c) then . else . + [$c] end)
     | map({context: .})' --args "$@"
 }
 if [ "$has_caller" = "true" ]; then
-  checks=$(build_checks factory/verdict factory/red-green factory/test-integrity "$@")
+  checks=$(build_checks factory/verdict factory/red-green factory/test-integrity ${own[@]+"${own[@]}"})
 else
-  checks=$(build_checks "$@")
+  checks=$(build_checks ${own[@]+"${own[@]}"})
 fi
 own_checks=$(jq -r '[.[].context | select(. != "" and (startswith("factory/") | not))] | length' <<<"$checks")
 # The admin role (actor_id 5) bypasses the ruleset, so a human can still push the caller workflow.
@@ -213,7 +238,6 @@ payload=$(jq -cn --arg branch "$default_branch" --argjson checks "$checks" '{
   ]
 }')
 if [ "$own_checks" -eq 0 ]; then warn_no_own_check; fi
-existing=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name == "factory") | .id' | head -n1)
 if [ -n "$existing" ]; then
   gh api --method PUT "repos/$repo/rulesets/$existing" --input - <<<"$payload" >/dev/null
   echo "ruleset factory updated (id $existing)"

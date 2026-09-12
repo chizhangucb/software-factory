@@ -4,8 +4,9 @@ on:
   pull_request:
   # No push trigger: `check` is required on a head up to date with main, so a merge
   # lands the tree the pull request already checked. Run by hand after a bypass (#223).
-  # `check` therefore posts on no main commit, so onboard.sh here must be given it:
-  # `scripts/onboard.sh chizhangucb/software-factory check`, or a re-run requires nothing.
+  # `check` therefore posts on no main commit. onboard.sh never reads commits anyway (#228):
+  # name it on a first run, `scripts/onboard.sh chizhangucb/software-factory check`, and a
+  # re-run naming nothing keeps it.
   workflow_dispatch:
 
 jobs:

@@ -23,7 +23,7 @@
  */
 import { parseItems } from "../dispatch/gh-read.ts";
 import { errorMessage } from "../lib/errors.ts";
-import { gh } from "../lib/gh.ts";
+import { GhError, gh } from "../lib/gh.ts";
 import { READY_LABEL } from "../lib/labels.ts";
 import { type TargetOutcome, sendHeartbeat } from "./heartbeat.ts";
 import { TARGET_REPOS } from "./targets.ts";
@@ -73,8 +73,10 @@ const readWaiverReason = (target: string): string | undefined => {
   try {
     return waiverReason(gh(waiverReadArgs(target)));
   } catch (error) {
-    const message = errorMessage(error);
-    if (!isUnset(message)) console.error(`${at()} could not read ${WAIVER_VARIABLE} on ${target}: ${message}`);
+    // `stderr`, not the rendered message: `lib/gh.ts` carries the fields precisely so no
+    // caller reads a decision back out of the line it renders.
+    if (error instanceof GhError && isUnset(error.stderr)) return undefined;
+    console.error(`${at()} could not read ${WAIVER_VARIABLE} on ${target}: ${errorMessage(error)}`);
     return undefined;
   }
 };

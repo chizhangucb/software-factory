@@ -37,8 +37,12 @@ export const waiverReason = (raw: string): string | undefined => raw.trim() || u
 /** Is this failed read the variable simply not being there? */
 export const isUnset = (error: string): boolean => error.includes("HTTP 404");
 
-/** What the sender prints for one target, or nothing when it is not waived. */
+/**
+ * What the sender prints for one target, or nothing when it is not waived. It says the
+ * variable is set and no more: the ruleset is not read here, and a half-failed `on` or an
+ * `onboard.sh` re-run leaves the variable set with the factory's checks required after all.
+ */
 export const waiverLine = (target: string, reason: string | undefined): string | undefined =>
   reason === undefined
     ? undefined
-    : `${target} WAIVED: ${reason} (${WAIVER_VARIABLE} is set and the factory's checks are not required; close it with \`scripts/waive-factory-checks.sh ${target} off\`)`;
+    : `${target} WAIVED: ${reason} (${WAIVER_VARIABLE} is set on the target; close it with \`scripts/waive-factory-checks.sh ${target} off\`)`;

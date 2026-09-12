@@ -52,13 +52,23 @@ it is the variable's value.
 fi
 
 # Reads first, all of them, so a refusal happens before anything is written.
-# A GET, so reading a target's waiver cannot start a job on it. Unset is a 404.
-open_reason=""
-if value=$(gh api "repos/$repo/actions/variables/$variable" --jq .value 2>/dev/null); then
-  open_reason="${value%$'\n'}"
+# A GET, so reading a target's waiver cannot start a job on it. Unset is a 404, and
+# nothing else is: a read that failed for any other reason leaves it unknown whether a
+# waiver is already open, and carrying on would overwrite the reason a maintainer wrote.
+read_status=0
+value=$(gh api "repos/$repo/actions/variables/$variable" --jq .value 2>&1) || read_status=$?
+if [ "$read_status" -ne 0 ]; then
+  case "$value" in
+    *"HTTP 404"* | *"Not Found"*) value="" ;;
+    *) refuse "reading $variable on $repo failed, so whether a waiver is already open is unknown:
+  $value" ;;
+  esac
 fi
+open_reason="${value%$'\n'}"
 
-if [ "$mode" = "on" ] && [ -n "$open_reason" ]; then
+# Whitespace is no reason, as it is not one on the way in: the heartbeat trims the value,
+# so a variable set by hand to a space nags about nothing and must not block a real waiver.
+if [ "$mode" = "on" ] && [[ "$open_reason" =~ [^[:space:]] ]]; then
   # Not destructive, and not a refusal either: the waiver asked for is already open.
   # Overwriting would replace the reason a maintainer wrote with a fresher, vaguer one.
   echo "$repo is already waived: $open_reason"
@@ -103,6 +113,15 @@ rewrite() {
 }
 
 if [ "$mode" = "on" ]; then
+  # A target whose ruleset requires the factory's checks and nothing else is left requiring
+  # nothing at all, so it merges on no check rather than on its own CI. Not refused, since
+  # that target is exactly the one a stuck factory blocks hardest, but never silent.
+  if [ "$(rewrite on | jq '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]] | length')" -eq 0 ]; then
+    banner "WARNING: $repo's factory ruleset requires the factory's checks and no
+own check, so this waiver leaves it requiring nothing: every PR on
+it merges with no check at all, not on its own CI.
+Onboard its own checks first if it has any: scripts/onboard.sh $repo <check> ..."
+  fi
   # The variable first: a failure after it leaves a nag with nothing waived, which is the
   # safe half. The other order leaves a target ungated with nothing saying so.
   gh variable set "$variable" --repo "$repo" --body "$reason" >/dev/null
@@ -120,7 +139,11 @@ To finish, clear the open waiver and run it again:
 else
   # The ruleset first, for the mirrored reason: a failure after it leaves the target
   # gated and the nag still up, rather than gated with nobody reminded to finish.
-  rewrite off | gh api --method PUT "repos/$repo/rulesets/$ruleset_id" --input - >/dev/null
+  if ! rewrite off | gh api --method PUT "repos/$repo/rulesets/$ruleset_id" --input - >/dev/null; then
+    refuse "restoring the factory's checks on $repo's factory ruleset (id $ruleset_id) failed.
+The waiver is still open and the checks are still not required there.
+Re-run: scripts/waive-factory-checks.sh $repo off"
+  fi
   echo "factory checks restored on $repo's factory ruleset (id $ruleset_id)"
   # Said out loud when it fails, never swallowed: a nag that keeps firing while the script
   # says it cleared the variable is the one state a human cannot act on. An already-unset

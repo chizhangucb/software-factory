@@ -33,13 +33,16 @@ const RULESET_ID = "7";
  * the ruleset on the target, whole, because filtering its contexts is the
  * script's job and a stub that did it would be testing itself.
  * `GH_PUT_FAILS` makes the ruleset write fail the way a rate limit does, which
- * is the half-failure the write order exists for.
+ * is the half-failure the write order exists for. `GH_READ_FAILS` makes the
+ * variable read fail with something that is not a 404, which is the read whose
+ * answer the script must not guess at.
  */
 const stubGh = `#!/usr/bin/env bash
 args="$*"
 printf '%s\\t' "$@" >> "$GH_CALLS"; printf '\\n' >> "$GH_CALLS"
 case "$args" in
   *"actions/variables/${WAIVER_VARIABLE}"*)
+    if [ -n "\${GH_READ_FAILS:-}" ]; then echo "$GH_READ_FAILS" >&2; exit 1; fi
     if [ -n "\${GH_WAIVED:-}" ]; then printf '%s\\n' "$GH_WAIVED"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
   "variable set"*) ;;
   "variable delete"*)
@@ -99,10 +102,12 @@ type Options = {
   deleteFails?: string;
   /** A `factory` ruleset carrying no required-status-checks rule at all. */
   noChecksRule?: boolean;
+  /** When set, reading the variable fails with this text rather than answering. */
+  readFails?: string;
 };
 
 const run = (args: string[], options: Options = {}) => {
-  const { contexts = [...FACTORY_CHECKS, "check"], waived = "", noRuleset = false, putFails, deleteFails, noChecksRule = false } = options;
+  const { contexts = [...FACTORY_CHECKS, "check"], waived = "", noRuleset = false, putFails, deleteFails, noChecksRule = false, readFails } = options;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "waive-"));
   fs.writeFileSync(path.join(dir, "gh"), stubGh, { mode: 0o755 });
   const payloadFile = path.join(dir, "payload.json");
@@ -119,6 +124,7 @@ const run = (args: string[], options: Options = {}) => {
       GH_WAIVED: waived,
       GH_PUT_FAILS: putFails ?? "",
       GH_DELETE_FAILS: deleteFails ?? "",
+      GH_READ_FAILS: readFails ?? "",
     },
   });
   const calls: string[][] = fs.existsSync(callsFile)
@@ -276,4 +282,37 @@ test("nothing in the factory sets or clears the waiver: only the script writes i
     assert.doesNotMatch(source, /"variable",\s*"(set|delete)"/, `${file} writes the waiver variable, and only a human may`);
     assert.doesNotMatch(source, /--method\s+(PUT|POST|PATCH|DELETE)/, `${file} writes where it should only read the waiver`);
   }
+});
+
+test("a read that failed for any reason but a 404 is refused, rather than read as no waiver", () => {
+  // An empty answer here would overwrite the reason a maintainer wrote with a fresher one.
+  const { status, stderr, calls } = run([target, "on", "a different reason"], {
+    waived: "PAT expired, see #244",
+    readFails: "gh: API rate limit exceeded (HTTP 403)",
+  });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /HTTP 403/);
+  assert.equal(indexOf(calls, isVariableSet), -1, "no variable was set");
+  assert.equal(indexOf(calls, isRulesetWrite), -1, "no ruleset was written");
+});
+
+test("a variable set by hand to whitespace is no open waiver, and does not block one", () => {
+  // The heartbeat trims the value and nags about nothing, so neither may this refuse.
+  const { status, calls } = run([target, "on", "PAT expired, see #244"], { waived: "  " });
+  assert.equal(status, 0);
+  assert.notEqual(indexOf(calls, isVariableSet), -1, "the real reason was written");
+});
+
+test("a waiver leaving the target requiring nothing says so, and still waives", () => {
+  const { status, stderr, required } = run([target, "on", "Actions is down"], { contexts: [...FACTORY_CHECKS] });
+  assert.equal(status, 0);
+  assert.deepEqual(required(), [], "there was nothing but the factory's checks to keep");
+  assert.match(stderr, /requiring nothing/i, "the maintainer is told the target now merges on no check");
+});
+
+test("a restore that fails is refused, and the waiver is left open", () => {
+  const { status, stderr, calls } = run([target, "off"], { waived: "stale", putFails: "gh: API rate limit exceeded (HTTP 403)" });
+  assert.notEqual(status, 0);
+  assert.match(stderr, /REFUSED/);
+  assert.equal(indexOf(calls, isVariableDelete), -1, "the nag stays up while the target is ungated");
 });

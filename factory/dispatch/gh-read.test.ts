@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 
+import { fromGitHub } from "../heartbeat/work.ts";
 import { PROJECTIONS, STATUSES_PROJECTION, parseItems } from "./gh-read.ts";
 import { commentFromGitHub, marksFromTimeline, roleFromJobs, runFromGitHub, stateSinceFromTimeline, ticketFromGitHub, toldNoTicketIn } from "./reconcile.ts";
 
@@ -36,10 +37,13 @@ test("runs projection keeps the eight fields runFromGitHub reads and drops the r
   assert.ok(JSON.stringify(runs).length * 10 < page("runs").length, "a projected run is under a tenth of the raw one");
 });
 
-test("issues projection keeps number, title, labels, and whether the issue is a PR", () => {
+test("issues projection keeps number, title, labels, whether the issue is a PR, and when it last changed", () => {
   const issues = project("issues", "issues");
   assert.deepEqual(issues.map((i: any) => [i.number, Boolean(i.pull_request)]), [[35, false], [41, true]]);
   assert.deepEqual(issues.map((i: any) => ticketFromGitHub(i).labels), [["ready-for-agent"], ["agent:review"]]);
+  // `updated_at` is the heartbeat's clock (#264): what is due is a question
+  // about when a subject last changed, and this is the read that answers it.
+  assert.deepEqual(issues.map((i: any) => fromGitHub([i])[0]!.changedAt), ["2026-09-07T18:50:59Z", "2026-09-07T20:10:50Z"]);
 });
 
 test("timeline projection keeps label events and the sweep mark at the head of a comment", () => {

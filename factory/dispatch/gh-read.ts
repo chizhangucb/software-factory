@@ -15,10 +15,14 @@
  * `node --experimental-strip-types` without installing the engine.
  */
 
-/** jq programs, one item per line: each keeps the fields `reconcile.ts` maps, under the raw GitHub names. */
+/** jq programs, one item per line: each keeps the fields its readers map, under the raw GitHub names. */
 export const PROJECTIONS = {
   runs: ".workflow_runs[] | {id, event, display_title, head_branch, status, conclusion, created_at, updated_at}",
-  issues: ".[] | {number, title, pull_request: (.pull_request != null), labels: [.labels[] | {name}]}",
+  /**
+   * Two readers: `reconcile.ts` maps all but `updated_at`, and the heartbeat's
+   * `work.ts` reads that one as its clock (#264). The same call, one field more.
+   */
+  issues: ".[] | {number, title, pull_request: (.pull_request != null), labels: [.labels[] | {name}], updated_at}",
   /** The sweep mark sits at the head of a comment; 64 chars cover `<!-- factory:sweep miss=n tries=m -->`. */
   timeline: ".[] | {event, created_at, label: (if .label == null then null else {name: .label.name} end), body: ((.body // \"\") | .[0:64])}",
   /**

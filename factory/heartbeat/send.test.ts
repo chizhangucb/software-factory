@@ -32,13 +32,23 @@ const TOKEN_ENV = "GH_TOKEN";
 /** The pages a maintainer onboards a target from, named as `dispatch/triggers.test.ts` names its own sites. */
 const DOC_PAGES = ["README.md", "docs/pipeline.md"];
 /**
- * The two jobs a pause deliberately keeps, and the reason the heartbeat may
- * decline to wake a paused target without taking a pull request's checks away:
- * neither is heartbeat-driven. `dispatch/triggers.test.ts` is where that is
- * pinned against the caller's real conditions; here they are only the names
- * both pages have to carry.
+ * The jobs a pause deliberately keeps, read off the caller rather than listed:
+ * a job that keeps running while paused is one whose condition does not gate
+ * on the pause variable, `paused` itself aside, which runs only while it is
+ * set. Derived because the names are the point of the assertion below -- a
+ * third job joining the set has to reach both pages, and a list spelled here
+ * would go on passing while the pages went stale.
+ *
+ * Which jobs those are and why is `dispatch/triggers.test.ts`'s subject, tied
+ * there to the caller's real conditions. Here they are only the names both
+ * pages have to carry.
  */
-const KEEPS_RUNNING_WHILE_PAUSED = ["merge-gate", "audit"];
+const keepsRunningWhilePaused = (): string[] => {
+  const template = fs.readFileSync(new URL("templates/factory.yml", repoRoot), "utf8");
+  const jobs = [...template.matchAll(/\n {2}([a-z][a-z0-9_-]*):\n {4}if:((?:.*)(?:\n {6,}.*)*)/g)];
+  assert.ok(jobs.length > 0, "the caller template has jobs with conditions on them");
+  return jobs.filter(([, id, expression]) => id !== "paused" && !expression!.includes(PAUSE_VARIABLE)).map(([, id]) => id!);
+};
 
 /** A literal as a regex: a target or a path is matched whole, never as a pattern. */
 const literal = (text: string): RegExp => new RegExp(text.replaceAll(/[.*+?^${}()|[\]\\/]/g, "\\$&"));
@@ -205,11 +215,13 @@ test("both pages say what a pause stops, what it does not, and that the heartbea
   // its own: which jobs keep running, and that the wake is what the heartbeat
   // withholds. Before #256 both pages described a pause that stopped the work
   // and said nothing about the runs it went on paying for.
+  const kept = keepsRunningWhilePaused();
+  assert.ok(kept.length > 0, "the caller keeps at least one job running while paused");
   for (const page of DOC_PAGES) {
     const text = fs.readFileSync(new URL(page, repoRoot), "utf8");
     assert.match(text, literal(PAUSE_VARIABLE), `${page} names the pause variable`);
-    for (const kept of KEEPS_RUNNING_WHILE_PAUSED) {
-      assert.match(text, literal(kept), `${page} names ${kept}, which a pause does not stop`);
+    for (const job of kept) {
+      assert.match(text, literal(job), `${page} names ${job}, which a pause does not stop`);
     }
     // All three in one sentence, because each on its own is already all over
     // both pages: the word "heartbeat" appears in the path of the runnable,

@@ -146,9 +146,10 @@ const issueEvent = (action: string, label?: string, state: IssueState = "open"):
  * factory's own two namespaces, and `unassigned` wakes it whoever dropped the
  * assignee. Every clause is admitted on an open ticket only (#213 for the two
  * removals, #236 for the two labels going on), since select.ts refuses a
- * closed one whatever it carries. A row without a `state` is an open ticket. Which of the admitted removals can actually unblock a ticket is
- * still select.ts's answer and not the caller's, so a sweep over a ticket
- * nothing unblocked labels nothing.
+ * closed one whatever it carries. A row without a `state` is an open ticket.
+ * Which of the admitted removals can actually unblock a ticket is still
+ * select.ts's answer and not the caller's, so a sweep over a ticket nothing
+ * unblocked labels nothing.
  *
  * The namespace clauses are not a refinement of that rule, they are a loop
  * breaker (#170). The factory writes every label with FACTORY_PAT so the
@@ -180,10 +181,7 @@ const ISSUE_EVENTS: { action: string; label?: string; state?: IssueState; wakes:
   { action: "unlabeled", label: "agent:blocked", wakes: [] },
   { action: "unlabeled", label: "factory:retry-1", wakes: [] },
   { action: "unassigned", wakes: ["dispatch"] },
-  // Every issue event on a closed ticket is refused (#236), additions included:
-  // select.ts reads the target's open issues alone, so a sweep woken by a label
-  // going on a closed ticket bills a minute and can never dispatch anything,
-  // and an implement run started that way works a ticket already finished.
+  // Open tickets only, additions included (#236).
   { action: "labeled", label: "ready-for-agent", state: "closed", wakes: [] },
   { action: "labeled", label: "agent:implement", state: "closed", wakes: [] },
   { action: "unlabeled", label: "hold", state: "closed", wakes: [] },
@@ -407,15 +405,13 @@ test("a removal in the factory's own namespaces wakes no sweep, any other remova
 });
 
 test("no label or assignee edit on a closed ticket wakes anything, and closing one still wakes the sweep", () => {
-  // #213 then #236, stated over the table the way the test above states #170.
-  // #213 gated the two removals; #236 gated the two additions, so the caller
-  // now states one rule rather than a split nobody could recite: the factory
-  // acts on open tickets, and the only thing worth hearing from a closed one
-  // is the close itself. select.ts refuses a closed ticket whatever it
-  // carries, so an admitted edit is a billed minute that can never dispatch,
-  // and an implement run started that way works a ticket already finished.
-  const EDITS = ["labeled", "unlabeled", "unassigned"];
-  const closed = ISSUE_EVENTS.filter((event) => event.state === "closed" && EDITS.includes(event.action));
+  // #213 then #236, stated over the table the way the test above states #170:
+  // the factory acts on open tickets, and the only thing worth hearing from a
+  // closed one is the close itself.
+  const LABEL_AND_ASSIGNEE_EDITS = ["labeled", "unlabeled", "unassigned"];
+  const closed = ISSUE_EVENTS.filter(
+    (event) => event.state === "closed" && LABEL_AND_ASSIGNEE_EDITS.includes(event.action),
+  );
   for (const { action, label, wakes } of closed) {
     assert.deepEqual(wakes, [], `${action}${label ? ` (${label})` : ""} on a closed ticket wakes nothing`);
   }

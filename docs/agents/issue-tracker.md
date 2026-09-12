@@ -5,6 +5,7 @@ Tickets and specs are GitHub issues on this repo, driven with `gh`, which infers
 ## Tickets
 
 - **Create**: `gh issue create --title "..." --body "..."`, a heredoc for a multi-line body. This is what a skill means by "publish to the issue tracker".
+- **Size**: every ticket is one `/to-tickets` slice, the ticket bar in `CONTEXT.md`. A criterion that outgrows one context window splits into its own ticket or drops; it never ships oversized. The dispatcher enforces the shape, not the size: `factory/dispatch/select.ts` skips a ticket whose body has no acceptance-criteria checklist and comments once saying so.
 - **Removals**: a ticket whose work removes something says so in its body: the reviewer and the audit judge every deleted test against it.
 - **Read**: `gh issue view <number> --comments`, labels included. This is what a skill means by "fetch the relevant ticket".
 - **List**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`, with `--label` and `--state` filters.

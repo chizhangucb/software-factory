@@ -6,8 +6,8 @@
  * `ready-for-agent`; `agent:*` and `needs-human` are factory state. A ticket
  * is dispatched when a human said it is ready, no label from `HOLD_LABELS`
  * holds it back, nothing open blocks it (GitHub native dependencies, open
- * blockers only), nobody is assigned to it, and the factory is not already on
- * it.
+ * blockers only), nobody is assigned to it, the factory is not already on it,
+ * and its body carries an acceptance-criteria checklist (#257).
  *
  * Imports use explicit `.ts` so the dispatch job can run on bare `node
  * --experimental-strip-types` without installing the engine.
@@ -16,6 +16,7 @@
 import { HOLD_LABELS, READY_LABEL } from "../lib/labels.ts";
 import { issuesClosedBy } from "../lib/linked-issue.ts";
 import { authorAssociation, type AuthorAssociation, type TrustPolicy } from "../lib/trusted-authors.ts";
+import { parseAcceptanceCriteria } from "../lib/verdict.ts";
 
 export const DISPATCH_LABEL = "agent:implement";
 
@@ -30,6 +31,8 @@ export const FACTORY_STATE_LABELS = [
 
 export type DispatchIssue = {
   number: number;
+  /** The ticket body, where its acceptance criteria live. */
+  body: string | null;
   /** Absent in a listing of open issues; set from a single-issue re-read. */
   state?: "open" | "closed";
   labels: readonly string[];
@@ -43,6 +46,29 @@ export type DispatchIssue = {
   /** GitHub's `author_association` for whoever opened the issue. */
   authorAssociation: AuthorAssociation;
 };
+
+/**
+ * A ticket with no acceptance-criteria checklist is not dispatched: there is
+ * nothing for the reviewer to tick, so an agent would be building to a target
+ * nobody wrote down. Structural only, `verdict.ts`'s parser and the reviewer's:
+ * the section is there or it is not, and no size is judged. The marker keys the
+ * one comment that says so, the way `upsert-comment.sh` keys a PR's.
+ */
+export const NO_CRITERIA_REASON = "no acceptance criteria";
+export const NO_CRITERIA_MARKER = "<!-- factory:no-acceptance-criteria -->";
+
+/** The comment the dispatcher posts once on a ticket it holds for its shape. */
+export const noCriteriaComment = (): string =>
+  `${NO_CRITERIA_MARKER}\nNot dispatched: this ticket has no checklist under an "Acceptance criteria" heading, so there is nothing for the reviewer to tick. Add one and the next sweep picks it up.`;
+
+/**
+ * Whether the ticket already carries that comment. Any author counts: the
+ * marker is the factory's own line, and repeating the comment every sweep is
+ * the worse way to be wrong.
+ */
+export const alreadyToldNoCriteria = (
+  comments: readonly { body: string | null }[],
+): boolean => comments.some((c) => (c.body ?? "").includes(NO_CRITERIA_MARKER));
 
 /** The reason an issue is not dispatched, or undefined when it is. */
 export const whySkipped = (
@@ -75,6 +101,9 @@ export const whySkipped = (
   }
   if ((issue.subIssues ?? 0) > 0) return "has sub-issues, not a ticket";
   if (issue.hasOpenPr) return "an open PR already closes it";
+  // Last, and structural only: every reason a human can act on is reported
+  // first, and a ticket that reaches here is well-formed apart from its shape.
+  if (parseAcceptanceCriteria(issue.body ?? "").length === 0) return NO_CRITERIA_REASON;
   return undefined;
 };
 
@@ -114,6 +143,7 @@ export const fromGitHub = (
     issues.push({
       number: Number(r.number),
       ...(r.state === "open" || r.state === "closed" ? { state: r.state } : {}),
+      body: typeof r.body === "string" ? r.body : null,
       labels: (r.labels ?? []).map((label: { name: string }) => label.name),
       assigned: (r.assignees ?? []).length > 0,
       openBlockers: Number(r.issue_dependencies_summary?.blocked_by ?? 0),

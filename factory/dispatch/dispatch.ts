@@ -38,9 +38,12 @@ import { trustPolicyFromEnv } from "../lib/trusted-authors.ts";
 
 import {
   DISPATCH_LABEL,
+  NO_CRITERIA_REASON,
+  alreadyToldNoCriteria,
   type DispatchIssue,
   fromGitHub,
   issuesClosedByPrs,
+  noCriteriaComment,
   selectForDispatch,
   whyNotDispatchableNow,
   whySkipped,
@@ -75,6 +78,21 @@ const label = (issue: DispatchIssue): void => {
   gh(["issue", "edit", String(issue.number), "--repo", repo, "--add-label", DISPATCH_LABEL]);
 };
 
+/**
+ * Tell a ticket held for its shape, once. Every other skip reason names a
+ * state a human already chose, so it needs no comment; this one names a ticket
+ * nobody knows is stuck. The marker on the comment is what keeps the next
+ * sweep quiet, the way `upsert-comment.sh` keys a PR's comment (#257).
+ */
+const tellNoCriteria = (issue: DispatchIssue): void => {
+  const comments = JSON.parse(
+    gh(["api", "--paginate", "--slurp", `repos/${repo}/issues/${issue.number}/comments?per_page=100`]),
+  ).flat() as { body: string | null }[];
+  if (alreadyToldNoCriteria(comments)) return;
+  gh(["issue", "comment", String(issue.number), "--repo", repo, "--body", noCriteriaComment()]);
+  console.log(`Commented on #${issue.number}: ${NO_CRITERIA_REASON}.`);
+};
+
 const closedByOpenPr = issuesClosedByPrs(openPrs());
 const issues = fromGitHub(openIssues(), closedByOpenPr);
 const dispatched = selectForDispatch(issues, policy);
@@ -92,6 +110,13 @@ console.log(`Trusted ticket authors: ${policy.associations.join(", ")}.`);
 for (const issue of issues) {
   const reason = whySkipped(issue, policy);
   console.log(`#${issue.number}: ${reason ?? "dispatch"}`);
+  if (reason !== NO_CRITERIA_REASON || dryRun) continue;
+  try {
+    tellNoCriteria(issue);
+  } catch (error) {
+    // The comment is a courtesy; the ticket stays held either way.
+    console.error(`Could not comment on #${issue.number}: ${errorMessage(error)}`);
+  }
 }
 
 const labeled: number[] = [];

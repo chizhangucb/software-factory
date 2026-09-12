@@ -11,6 +11,25 @@ set -euo pipefail
 repo="${1:?usage: onboard.sh owner/repo [--no-own-checks] [--allow-drop] [own-check ...]}"
 shift
 
+# Every refusal prints like this and exits before any write: no label, no repo edit, no ruleset.
+# Defined before the arguments are read, so a bad argument refuses in the same voice as the rest.
+refuse() {
+  {
+    echo "############################################################"
+    echo "## REFUSED: $repo was not onboarded, and nothing was written."
+    while IFS= read -r line; do echo "## $line"; done <<<"$1"
+    echo "############################################################"
+  } >&2
+  exit 1
+}
+
+# The repo comes first, before any flag: a flag in that slot would otherwise be read as the
+# target's name and reach `gh` as one, failing on a repo nobody meant to name.
+case "$repo" in
+  -*) refuse "the repo comes first, and \"$repo\" reads as a flag:
+  scripts/onboard.sh owner/repo [--no-own-checks] [--allow-drop] [own-check ...]" ;;
+esac
+
 no_own_checks=false
 allow_drop=false
 named=()
@@ -24,21 +43,11 @@ for argument in "$@"; do
     # An empty argument names no check. Anything else beginning with `-` is a typo for a flag,
     # and requiring it as a context is the one reading that cannot be what was meant.
     "") ;;
-    -*) echo "onboard.sh: unknown flag: $argument" >&2; exit 1 ;;
+    -*) refuse "unknown flag: $argument
+The flags are --no-own-checks and --allow-drop." ;;
     *) named+=("$argument"); named_count=$((named_count + 1)) ;;
   esac
 done
-
-# Every refusal prints like this and exits before any write: no label, no repo edit, no ruleset.
-refuse() {
-  {
-    echo "############################################################"
-    echo "## REFUSED: $repo was not onboarded, and nothing was written."
-    while IFS= read -r line; do echo "## $line"; done <<<"$1"
-    echo "############################################################"
-  } >&2
-  exit 1
-}
 
 # Printed before the ruleset write and again after it, so it cannot scroll past.
 warn_no_own_check() {
@@ -109,9 +118,12 @@ fi
 
 # One assignment, no `| head`: a pipeline here either swallows a failed listing or SIGPIPEs gh on
 # a repo with several rulesets, and either way onboarding cannot tell a first run from a re-run.
+# `includes_parents=false` because the listing defaults to including the org's rulesets: one named
+# `factory` there would read as this target's own, so a first run would skip the refusal and the
+# PUT below would go to an id this repo does not own, after the labels were already written.
 rulesets_error_file=$(mktemp)
 rulesets_status=0
-rulesets=$(gh api "repos/$repo/rulesets" --jq '.[] | select(.name == "factory") | .id' 2>"$rulesets_error_file") ||
+rulesets=$(gh api "repos/$repo/rulesets?includes_parents=false" --jq '.[] | select(.name == "factory") | .id' 2>"$rulesets_error_file") ||
   rulesets_status=$?
 rulesets_error=$(cat "$rulesets_error_file")
 rm -f "$rulesets_error_file"
@@ -180,7 +192,7 @@ dropped_count=0
 for was_required in ${existing_own[@]+"${existing_own[@]}"}; do
   still_required=false
   for keeping in ${own[@]+"${own[@]}"}; do
-    if [ "$keeping" = "$was_required" ]; then still_required=true; fi
+    if [ "$keeping" = "$was_required" ]; then still_required=true; break; fi
   done
   if [ "$still_required" = "false" ]; then dropped+=("$was_required"); dropped_count=$((dropped_count + 1)); fi
 done

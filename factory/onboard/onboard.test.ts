@@ -54,7 +54,7 @@ case "$args" in
     else echo "gh: Not Found (HTTP 404)" >&2; exit 1
     fi ;;
   *"--jq .default_branch") echo main ;;
-  *"/rulesets --jq"*)
+  *"/rulesets?"*--jq*)
     if [ -n "\${GH_RULESETS_ERROR:-}" ]; then echo "$GH_RULESETS_ERROR" >&2; exit 1; fi
     echo "\${GH_EXISTING_ID:-}" ;;
   *"/rulesets/"*)
@@ -284,6 +284,45 @@ test("a ruleset listing that fails is a refusal too, not a target read as having
   const run = onboardWith(["check"], { rulesetsError: "gh: API rate limit exceeded (HTTP 403)" });
   assert.notEqual(run.code, 0);
   assert.match(run.output, /rate limit/i, "the real gh error reaches the maintainer");
+  assert.deepEqual(writes(run.calls), []);
+});
+
+test("the ruleset listing asks for this repo's own rulesets, not the ones its org hands down", () => {
+  // GitHub's listing includes parent (org) rulesets by default. An org ruleset named `factory`
+  // would read as this target's own: the first-run refusal would be skipped, the own checks kept
+  // from a ruleset nobody here wrote, and the PUT sent to an id this repo cannot update, after
+  // the labels and the repo edit had already gone out.
+  const run = onboardWith(["check"]);
+  const listing = run.calls.find((args) => args.some((arg) => /\/rulesets(\?|$)/.test(arg)));
+  assert.ok(listing, `onboard.sh must list the target's rulesets, it ran: ${JSON.stringify(run.calls)}`);
+  assert.ok(
+    listing.some((arg) => arg.includes("includes_parents=false")),
+    `the listing must exclude parent rulesets, it asked for: ${listing.join(" ")}`,
+  );
+});
+
+test("a flag where the repo goes refuses, rather than reaching gh as a repo name", () => {
+  const box = sandbox();
+  try {
+    const result = spawnSync("/bin/sh", ["-c", 'exec "$0" "$@" 2>&1', onboard, "--no-own-checks", target], {
+      encoding: "utf8",
+      env: box.env,
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /REFUSED/, "the refusal banner, not a gh error about a repo nobody named");
+    assert.deepEqual(writes(ghCalls(box.callsFile)), []);
+  } finally {
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  }
+});
+
+test("a mistyped flag refuses in the same banner as every other refusal", () => {
+  // Not an `echo` on the way past: "every refusal says nothing was written" is the claim a
+  // maintainer reads the script by, and a typo is the refusal they are likeliest to meet.
+  const run = onboardWith(["--allow-drops", "check"]);
+  assert.notEqual(run.code, 0);
+  assert.match(run.output, /REFUSED/);
+  assert.match(run.output, /--allow-drops/, "the argument that was not understood is quoted back");
   assert.deepEqual(writes(run.calls), []);
 });
 

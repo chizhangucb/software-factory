@@ -10,8 +10,9 @@
  * factory's own `agent:*` and `factory:*` labels before this runs, because a
  * full scan woken by the factory taking a state label off re-stamped the
  * ticket in the gap before the next one went on, which turned a cancelled run
- * into a replacement within seconds (#170). It drops both removals on a closed
- * ticket too (#213).
+ * into a replacement within seconds (#170). It drops every label and assignee
+ * edit on a closed ticket too, a label going on included (#213, #236); only
+ * the close itself is admitted from one.
  *
  * Reads the target repo's open issues (labels,
  * assignees, open blocker count from GitHub native dependencies, sub-issue

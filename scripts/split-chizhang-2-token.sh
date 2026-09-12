@@ -187,21 +187,21 @@ finish() {
 TOTAL_STAGES=5
 
 SUBJECT="chizhangucb/chizhang-2"   # the repo getting its own token
-OTHERS=("chizhangucb/chronicle" "chizhangucb/factory-fixture")  # still on the shared one
+STILL_SHARED=("chizhangucb/chronicle" "chizhangucb/factory-fixture")  # still on the shared token
 
 # prove REPO wakes a target and reads the dispatch job's conclusion off the run
 # the wake started. A secret that exists and a secret that works are different
 # claims (#251), and this is the one that checks the second.
 prove() {
   local target="$1" before="" id="" status="" concl="" waited=0
-  before=$(gh run list --repo "$target" --workflow factory --event repository_dispatch \
+  before=$(gh run list --repo "$target" --workflow factory.yml --event repository_dispatch \
     --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || true)
   say "waking $target"
   gh api --method POST "repos/$target/dispatches" -f event_type=factory-sweep --silent
 
   while (( waited < 60 )); do
     sleep 3; waited=$((waited + 3))
-    id=$(gh run list --repo "$target" --workflow factory --event repository_dispatch \
+    id=$(gh run list --repo "$target" --workflow factory.yml --event repository_dispatch \
       --limit 1 --json databaseId --jq '.[0].databaseId // ""' 2>/dev/null || true)
     [[ -n "$id" && "$id" != "$before" ]] && break
     id=""
@@ -214,7 +214,7 @@ prove() {
 
   waited=0
   while (( waited < 600 )); do
-    status=$(gh run view "$id" --repo "$target" --json status --jq .status)
+    status=$(gh run view "$id" --repo "$target" --json status --jq .status 2>/dev/null || echo "")
     [[ "$status" == "completed" ]] && break
     sleep 10; waited=$((waited + 10))
   done
@@ -228,7 +228,7 @@ prove() {
   case "$concl" in
     success) printf '  %s✓%s %s: dispatch succeeded\n' "$GREEN" "$RESET" "$target" ;;
     skipped) warn "$target: dispatch was SKIPPED, so nothing was proved. FACTORY_PAUSED set?"; return 1 ;;
-    *)       printf '  %s✗%s %s: dispatch %s — %s\n' "$RED" "$RESET" "$target" "${concl:-missing}" \
+    *)       printf '  %s✗%s %s: dispatch %s, see %s\n' "$RED" "$RESET" "$target" "${concl:-missing}" \
                "$(gh run view "$id" --repo "$target" --json url --jq .url)"; return 1 ;;
   esac
 }
@@ -248,7 +248,10 @@ step "    Contents · Issues · Pull requests · Workflows"
 note "    (Metadata read is added for you. Nothing else: the factory posts commit"
 note "     statuses and writes repo variables with other credentials by design.)"
 step "Generate token, then copy it."
-pause "Token copied?"
+confirm "Does its repository access name chizhang-2 and no other repo?" || {
+  warn "Go back and fix it. A token reaching further than chizhang-2 does not close #251."
+  exit 1
+}
 
 # ── 2 ─────────────────────────────────────────────────────────────────────
 stage "Set it as FACTORY_PAT on chizhang-2"
@@ -290,13 +293,14 @@ confirm "chizhang-2 removed from the shared token's repository access?" || {
 }
 
 # ── 5 ─────────────────────────────────────────────────────────────────────
-stage "Prove the scope edit took nothing away"
-say "Both repos still on the shared token, woken and read the same way."
+stage "Prove the change, after the change"
+say "chizhang-2 on its new token, and the two repos still on the shared one,"
+say "all woken and read the same way now the scope edit has landed."
 FAILED=()
-for t in "${OTHERS[@]}"; do prove "$t" || FAILED+=("$t"); done
+for t in "$SUBJECT" "${STILL_SHARED[@]}"; do prove "$t" || FAILED+=("$t"); done
 if (( ${#FAILED[@]} )); then
-  warn "shared token broken for: ${FAILED[*]}"
-  warn "re-check its repository access; you may have deselected more than chizhang-2."
+  warn "dispatch failing on: ${FAILED[*]}"
+  warn "re-check the repository access of whichever token covers those repos."
   SKIPPED+=("dispatch failing on ${FAILED[*]}")
 fi
 pause

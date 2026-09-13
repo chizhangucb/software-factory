@@ -8,7 +8,7 @@
  * - model as a workflow input plus a `model:` label override: story 20.
  * - ticket document, parent spec and `ticket-N.md`: stories 22, 23.
  * - trusted authors over the ticket, its comments, the parent and the retry
- *   marker: ADR 0002 amendment.
+ *   marker: ADR 0008.
  * - retry section in the prompt: stories 12, 13.
  * - factory plugins installed per attempt, so the prompt's skills exist: story 4.
  *   The whole plugin goes in, so TASK fences the run to the skills the prompt
@@ -63,7 +63,7 @@ try {
   const repo =
     process.env.GH_REPO ??
     gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).trim();
-  // Whose words this run acts on (ADR 0002 amendment). One list for the ticket,
+  // Whose words this run acts on (ADR 0008). One list for the ticket,
   // its comments, its parent spec, and the retry marker.
   const policy = trustPolicyFromEnv();
   console.log(`Trusted authors: ${policy.associations.join(", ")}.`);

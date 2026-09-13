@@ -2,7 +2,7 @@
  * Update-branch planning: which open PRs get their head brought up to date
  * with main after main moves, and which get a verdict carried forward.
  *
- * v0 stand-in for a merge queue (ADR 0003, fallback amendment): GitHub's
+ * Stand-in for a merge queue (ADR 0006): GitHub's
  * queue is unavailable on user-owned repos, so the factory requires
  * up-to-date branches and calls the update-branch API itself. No LLM
  * anywhere in this path; a conflict the API cannot resolve is handed to the
@@ -208,7 +208,7 @@ export type ConflictSubject = FactoryPrFacts & {
  * - Any other PR is a `tell-author`: the caller comments and adds
  *   `agent:blocked`, and no agent goes near the branch.
  *
- * Why the third (#180, ADR 0003's 2026-09-10 amendment). implement-pr checks
+ * Why the third (#180, ADR 0007). implement-pr checks
  * the branch out, merges the base, resolves and force-pushes. On a PR the
  * factory opened that is the whole point; on a PR a person or an outside agent
  * wrote it is an agent rewriting someone else's branch. The amendment draws

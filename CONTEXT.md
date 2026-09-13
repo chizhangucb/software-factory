@@ -148,9 +148,9 @@ Anyone opening a pull request on the target other than the factory: a human, an 
 _Avoid_: contributor.
 
 **Judged path**:
-How a PR the factory did not author reaches a merge on the reviewer's verdict rather than on an admin bypass: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. Open to any producer whose branch is in the target itself, since every other required check already runs on any such PR; a fork PR is refused. A PR closing no ticket has no acceptance criteria to judge, and the bypass stays its only route. The factory never closes a PR on it or puts the implementer on its branch, since it asks who authored a PR before doing either (ADR 0003's 2026-09-11 amendment), however the PR came to be labelled.
+How a PR the factory did not author reaches a merge on the reviewer's verdict rather than on an admin bypass: `Closes #N` in the body, `agent:review` on the PR, auto-merge armed. Open to any producer whose branch is in the target itself, since every other required check already runs on any such PR; a fork PR is refused. A PR closing no ticket has no acceptance criteria to judge, and the bypass stays its only route. The factory never closes a PR on it or puts the implementer on its branch, since it asks who authored a PR before doing either (ADR 0007), however the PR came to be labelled.
 _Avoid_: human merge path (ADR 0003 refuses one and still does; what this replaces is the *unjudged* merge, not the absent human).
-_Except_ where ADR 0003 names the option it rejected: "no human merge path" is that file's own phrase for the rejection, and its amendment titles keep it.
+_Except_ where ADR 0003 names the option it rejected: "no human merge path" is that file's own phrase for the rejection, in its Considered Options.
 
 **Audit**:
 A re-review of a merged PR against its ticket, read-only, run by an agent on the model the maintainer configured, which should be the strongest the subscription serves. Every merged factory PR for the first 20; a sampled cadence after that (deferred). A miss reverts. Reported in the digest.

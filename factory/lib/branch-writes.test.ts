@@ -1,6 +1,6 @@
 /**
  * The factory asks `isFactoryAuthoredPr` before it closes a pull request or
- * puts the implementer on its branch (ADR 0003, 2026-09-11 amendment, #195).
+ * puts the implementer on its branch (ADR 0007, #195).
  * The tree is the fixture, as in `lib/strip-types-cone.test.ts`: a table of
  * the sites that decide those writes and the modules that make them. The last
  * two tests hand the scan synthetic sources instead, to check the scan itself.

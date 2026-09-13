@@ -9,7 +9,7 @@
  *   the text view carries no `author_association`, so nothing on it could be
  *   filtered, and gh 2.95 prints only the comments under `--comments` anyway, so
  *   a ticket with none arrived empty. One `--json` read for body and comments
- *   together (story 27, ADR 0002 amendment), with the author's association
+ *   together (story 27, ADR 0008), with the author's association
  *   beside it, per the bullet below.
  * - the `gh issue view --json` read throws instead of falling back to "", so an
  *   API error can never read as "this ticket has no criteria": story 5.

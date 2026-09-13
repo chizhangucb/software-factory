@@ -1,7 +1,7 @@
 /**
  * Rotation: which account a run uses, and whether a run was rate limited.
  *
- * Two pure functions, no I/O, no network (ADR 0004 and its amendment). The
+ * Two pure functions, no I/O, no network (ADR 0004). The
  * caller enumerates the account tokens, injects headroom if it has a feed
  * (#24; none in v0), and re-runs once on the next token when a run comes back
  * rate limited.

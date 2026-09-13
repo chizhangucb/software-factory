@@ -2,10 +2,10 @@
  * Sweep (#35): build the reconciler's snapshot from the target repo, decide
  * with `reconcile.ts`, apply the repairs, log one line per decision.
  *
- * Runs after the dispatcher on the schedule, on workflow_dispatch, and on
- * the `factory-sweep` repository_dispatch (the heartbeat, sent from outside
- * GitHub on the heartbeat's interval; the schedule is the fallback, since it
- * does not reliably fire). Reads that a fine-grained PAT cannot make
+ * Runs after the dispatcher on workflow_dispatch and on the `factory-sweep`
+ * repository_dispatch (the heartbeat, sent from outside GitHub on the
+ * heartbeat's interval, which is the only thing that sweeps on an interval
+ * since the caller's cron was removed in #270). Reads that a fine-grained PAT cannot make
  * (Actions runs and jobs, commit statuses) use READ_TOKEN; every write uses
  * GH_TOKEN so the labels fire their events.
  *

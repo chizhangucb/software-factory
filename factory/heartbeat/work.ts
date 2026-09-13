@@ -90,9 +90,9 @@ export const fromGitHub = (raw: readonly unknown[]): OpenSubject[] =>
  * A target can override all three in its own caller and the factory cannot read
  * a target's caller, so the heartbeat reasons from the defaults whatever a
  * target runs. Deliberately: an override earlier than a default costs a wasted
- * wake, one later leaves that repair to the caller's own `schedule`, the
- * fallback for a missed pass either way, and waking on the defaults beats
- * waking always (#264).
+ * wake, one later leaves that repair to the daily recheck below, the catch for
+ * a missed pass either way, and waking on the defaults beats waking always
+ * (#264).
  */
 const DEADLINES = {
   /** Built once: the set is the same for every subject of a kind, and a pass reads it per subject. */
@@ -135,7 +135,7 @@ const deadlinesFor = (pullRequest: boolean): readonly number[] => (pullRequest ?
  * those exactly.
  *
  * The windows assume the passes are on the grid, so a deadline that fell during
- * passes the host never ran is reached by the caller's `schedule` rather than by
+ * passes the host never ran is reached by the daily recheck below rather than by
  * the next pass. The daily recheck rides the same grid: it is one pass per whole
  * day and nothing between.
  */

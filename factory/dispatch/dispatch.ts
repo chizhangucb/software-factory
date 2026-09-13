@@ -2,7 +2,7 @@
  * Dispatcher: move ready tickets into the factory.
  *
  * Runs on the caller's `issues: [closed, labeled, unassigned, unlabeled]`, on
- * the heartbeat, on a schedule as the fallback, and by hand. Every run is a
+ * the heartbeat, and by hand. Every run is a
  * full scan whatever woke it, so admitting an `unlabeled` or `unassigned`
  * event is what makes a ticket the human just unblocked move at once instead
  * of on the next heartbeat, and it dispatches nothing this module would not
@@ -31,7 +31,7 @@
  *
  * Builtins only, imported with `.ts` extensions, so the job runs on bare
  * `node --experimental-strip-types` and skips installing the engine: the
- * schedule path runs on the heartbeat's interval and should cost seconds.
+ * sweep path runs on the heartbeat's interval and should cost seconds.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

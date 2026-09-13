@@ -397,18 +397,15 @@ test("no other page or module restates the interval, so there is one copy to kee
   // vendored fixture's own cron, a rate-limit note, a target's CI. Those are
   // not this number and this test has no business judging them.
   //
-  // The caller's own `schedule` is a genuinely separate cadence in a file that
-  // does mention the heartbeat, so it earns its keep by stating itself as a
-  // cron expression rather than as prose, which `STATED_CADENCE` does not
-  // match.
   // Judged per statement and not per file, so the two owner pages are scanned
   // like everything else. An exempt file is a file nothing checks: the draft
   // that exempted them left `docs/pipeline.md` asserting the number is stated
   // "nowhere else" a hundred lines above a second, stale statement of it.
   //
-  // A sentence about the caller's `schedule` is the one other cadence allowed,
-  // because it is a real and separate one: the caller's cron fires on its own
-  // rhythm and README and this page both describe it.
+  // A sentence naming `schedule` or `cron` is the one exemption, so a page
+  // recording that GitHub's own cron was removed from the caller (#270) or
+  // naming the daily recheck's cadence (#267) is not flagged as a second copy
+  // of the heartbeat interval, neither being that number.
   const skipped = new Set(["factory/heartbeat/interval.ts", "factory/heartbeat/interval.test.ts", "factory/heartbeat/send.test.ts"]);
   const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: fileURLToPath(repoRoot), encoding: "utf8" }).split("\0").filter(Boolean);
   assert.ok(tracked.length > 0, "the walk found no tracked files at all");

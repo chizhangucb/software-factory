@@ -62,6 +62,12 @@ test("the interval is the largest one the rule allows, so no sweep is paid for t
   assert.equal(HEARTBEAT_INTERVAL_MINUTES, Math.min(...deadlines()));
 });
 
+test("the interval is 30 minutes, the number a human moved it to alongside the deadlines (#271)", () => {
+  // The literal the deadlines were raised to meet: stuck moved from 15 to 30, so
+  // the tightest deadline is 30 and the rule lets the interval sit there.
+  assert.equal(HEARTBEAT_INTERVAL_MINUTES, 30);
+});
+
 test("the interval is a whole number of minutes, which is what a scheduler takes", () => {
   // `StartInterval` is seconds and a cron is minutes; neither takes a fraction.
   assert.ok(Number.isInteger(HEARTBEAT_INTERVAL_MINUTES), `${HEARTBEAT_INTERVAL_MINUTES} is not a whole number of minutes`);

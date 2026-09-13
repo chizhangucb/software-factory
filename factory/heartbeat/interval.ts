@@ -16,10 +16,10 @@
  * The interval is the tightest deadline, which caps the worst case at twice
  * that deadline. That is a judgement and not an arithmetic necessity, and it
  * is worth stating plainly because the cheaper-sounding argument, that a
- * larger interval "stops the deadline being a deadline", is not true: at 15
- * and 15 a stuck subject is still repaired somewhere between 15 and 30
- * minutes. What changes with the interval is the multiple. At 10 it is 1.7
- * times the deadline, at 15 twice, at 30 three times, and the cost runs the
+ * larger interval "stops the deadline being a deadline", is not true: at 30
+ * and 30 a stuck subject is still repaired somewhere between 30 and 60
+ * minutes. What changes with the interval is the multiple. At 15 it is 1.5
+ * times the deadline, at 30 twice, at 60 three times, and the cost runs the
  * other way, a billed minute per pass on every target with work open.
  * Somewhere around twice is where this repo has settled; a target that wants
  * its repairs tighter buys that with passes.
@@ -36,7 +36,7 @@
  */
 
 /**
- * 15 minutes, which is `stuckMinutes`, the tightest of the reconciler's
+ * 30 minutes, which is `stuckMinutes`, the tightest of the reconciler's
  * defaults.
  *
  * A literal and not `Math.min(...)` of them: derived, it would follow a
@@ -44,7 +44,7 @@
  * which is precisely the decision that should not be made silently. Lowering a
  * deadline fails the test instead, and a human picks the number.
  */
-export const HEARTBEAT_INTERVAL_MINUTES = 15;
+export const HEARTBEAT_INTERVAL_MINUTES = 30;
 
 /**
  * The interval as the docs write it, so the one number reaches prose through a

@@ -209,19 +209,25 @@ test("a subject that changed since the last pass is waiting, whatever its deadli
 
 test("a pull request is judged by every reconciler deadline and a ticket by the stuck one", () => {
   // The reconciler judges a ticket by stuckMinutes alone and a PR by all three:
-  // the label states and the auto-merge re-arm, the verdict, the update. So a
-  // PR is still due at a deadline a ticket of the same age is past.
+  // the label states and the auto-merge re-arm, the verdict, the update. All
+  // three deadlines are 30 today (#271), so a PR and a ticket of the same age
+  // cross together; the PR still samples the whole set, so a later deadline
+  // added to it would keep a PR due past a ticket without an edit here.
   const later = Math.max(...Object.values(DEFAULT_DEADLINES));
-  assert.notEqual(later, DEFAULT_DEADLINES.stuckMinutes, "the deadlines differ, or this test proves nothing");
   assert.equal(sweepNeed([changed(later, pullRequest())], NOW), "waiting");
-  assert.equal(sweepNeed([changed(later, ticket(IMPLEMENT_LABEL))], NOW), "nothing-due");
+  // Past its stuck window a ticket is done, whatever a PR of the same age still
+  // has ahead of it.
+  assert.equal(sweepNeed([changed(later + HEARTBEAT_INTERVAL_MINUTES, ticket(IMPLEMENT_LABEL))], NOW), "nothing-due");
 });
 
 test("a subject open and untouched for two hours is woken twice, not on every pass", () => {
-  // The measurement in #264: at the old interval one subject sitting open for
-  // about two hours was swept on thirteen consecutive passes. The grid is
-  // offset from the change, which is the case that costs the most: a pass lands
-  // on the change as well as on each deadline.
+  // The measurement in #264: one subject sitting open for about two hours was
+  // swept on every consecutive pass. With the interval at 30 minutes two hours
+  // is four passes, and with one deadline (#271: stuck, verdict and update are all 30) a
+  // subject that changed once is due on the change's pass and again on the
+  // deadline's, and on no pass after. The grid is offset from the change, which
+  // is the case that costs the most: a pass lands on the change as well as on
+  // the deadline.
   const wakes = (subject: OpenSubject): number => {
     const changedAt = Date.parse(subject.changedAt!);
     let count = 0;
@@ -231,12 +237,12 @@ test("a subject open and untouched for two hours is woken twice, not on every pa
     return count;
   };
   const passes = Math.floor(120 / HEARTBEAT_INTERVAL_MINUTES);
-  assert.ok(passes >= 8, `two hours is ${passes} passes, and every one of them woke the target before this`);
+  assert.ok(passes >= 4, `two hours is ${passes} passes, and every one of them woke the target before this`);
   // One pass for the change, one for the stuck deadline.
   assert.equal(wakes(changed(0, ticket(IMPLEMENT_LABEL))), 2);
-  // A pull request has one distinct deadline more than a ticket, so it gets one
-  // pass more. Still a handful against a wake on every pass for two hours.
-  assert.equal(wakes(changed(0, pullRequest())), 3);
+  // A pull request samples every reconciler deadline, but all of them are 30
+  // today, so it wakes on the same two passes a ticket does rather than more.
+  assert.equal(wakes(changed(0, pullRequest())), 2);
 });
 
 test("the deadlines are the reconciler's own, restated nowhere here", () => {

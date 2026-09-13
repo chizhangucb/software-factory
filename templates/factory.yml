@@ -118,7 +118,7 @@ jobs:
   # A ticket whose run was cancelled is no longer re-dispatched by the sweep at all. Two
   # bounded paths still bring it back, at most once each: the retry handler, which reads a
   # cancelled job as the implementer's own failure (#51) and spends the one retry, and the
-  # reconciler, at its stuck deadline (stuck_minutes, default 15) on the next heartbeat.
+  # reconciler, at its stuck deadline (stuck_minutes, default 30) on the next heartbeat.
   # Either way a second cancel parks the ticket on needs-human. Making a deliberate cancel
   # stay cancelled outright is #185, in the retry handler rather than here.
   dispatch:
@@ -142,8 +142,8 @@ jobs:
       # A ticket body is what the implementer executes, and on a public repo anyone
       # can open an issue. Widen only to people who could already push.
       # trusted_author_associations: OWNER,MEMBER,COLLABORATOR
-      # Optional: the reconciler's deadlines in minutes (defaults 15, 30, 30).
-      # stuck_minutes: 15
+      # Optional: the reconciler's deadlines in minutes (defaults 30, 30, 30).
+      # stuck_minutes: 30
       # verdict_minutes: 30
       # update_minutes: 30
   implement:

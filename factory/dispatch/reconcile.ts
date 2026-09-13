@@ -79,7 +79,7 @@ export type Deadlines = {
   updateMinutes: number;
 };
 
-export const DEFAULT_DEADLINES: Deadlines = { stuckMinutes: 15, verdictMinutes: 30, updateMinutes: 30 };
+export const DEFAULT_DEADLINES: Deadlines = { stuckMinutes: 30, verdictMinutes: 30, updateMinutes: 30 };
 
 export { ESCALATION_LABEL };
 export const PARKED_LABELS = ["agent:blocked", ESCALATION_LABEL] as const;

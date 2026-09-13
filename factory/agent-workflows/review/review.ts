@@ -13,7 +13,7 @@
  * - the target's test output in the prompt: story 5.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
  * - trusted authors over the PR comments, the review threads and the linked
- *   issue with its comments: story 27, ADR 0002 amendment.
+ *   issue with its comments: story 27, ADR 0008.
  * - `prompt.md` keeps his sections (TASK, LINKED ISSUE, DIFF TO MAIN, PR COMMENTS,
  *   REVIEW PROCESS, then the trailing rules) and gains two: ACCEPTANCE CRITERIA,
  *   one judgement per criterion (stories 5, 6), and TEST OUTPUT, the target's own
@@ -117,7 +117,7 @@ const writeReview = (review: ReviewFiles): void => {
 };
 
 try {
-  // Whose words this run reads (story 27, ADR 0002 amendment): built once here
+  // Whose words this run reads (story 27, ADR 0008): built once here
   // and passed down, so nothing between here and the prompt can widen it.
   const policy = trustPolicyFromEnv();
   console.log(`Trusted authors: ${policy.associations.join(", ")}.`);

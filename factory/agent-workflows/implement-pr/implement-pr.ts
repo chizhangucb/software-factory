@@ -17,7 +17,7 @@
  *   the other 24 are in the list and some of them describe work this run is not
  *   doing (story 11 of #46).
  * - trusted authors over the PR comments, the review threads, the linked issue
- *   with its comments, and the retry marker: story 27, ADR 0002 amendment.
+ *   with its comments, and the retry marker: story 27, ADR 0008.
  * - account rotation: stories 15, 16, 17, ADR 0004. Model as an input: story 20.
  * - the implementer model resolved from the linked ticket's labels, which the PR
  *   context above already carries, and the log line naming which subject they
@@ -93,7 +93,7 @@ const detectConflicts = (): readonly string[] => {
 };
 
 try {
-  // Whose words this run reads (story 27, ADR 0002 amendment): built once here
+  // Whose words this run reads (story 27, ADR 0008): built once here
   // and passed to the PR context and the retry marker alike, so both follow the
   // target's own policy rather than a default of their own.
   const policy = trustPolicyFromEnv();

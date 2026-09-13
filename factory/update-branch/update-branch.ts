@@ -1,6 +1,6 @@
 /**
- * Update-branch: the v0 stand-in for a merge queue (ADR 0003, fallback
- * amendment). Runs when main moves and when a factory/verdict passes.
+ * Update-branch: the stand-in for a merge queue (ADR 0006).
+ * Runs when main moves and when a factory/verdict passes.
  * Every open PR on main with auto-merge enabled and a stale head gets
  * GitHub's update-branch call with FACTORY_PAT, so the target's CI and the
  * merge gate re-run on the new head and auto-merge lands it on the latest main.
@@ -12,7 +12,7 @@
  * resolves it on the branch (planConflict in plan.ts, ADR 0003 as amended by
  * #19); on any other PR it is commented and labeled agent:blocked, because the
  * branch is its author's to resolve and no agent may rewrite it (#180, ADR
- * 0003's 2026-09-10 amendment). No agent runs here.
+ * 0007). No agent runs here.
  *
  * Env: GH_REPO (owner/repo), GH_TOKEN (FACTORY_PAT, for the update call,
  * comments, and labels), STATUS_TOKEN (GITHUB_TOKEN, for reading and

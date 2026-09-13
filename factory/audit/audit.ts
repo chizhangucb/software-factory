@@ -112,7 +112,7 @@ try {
 
   // The merged change is the commit's diff to its first parent: a squash has one.
   const diff = sh(`git diff ${MERGE_SHA}^ ${MERGE_SHA}`);
-  // Whose words this run reads (story 27, ADR 0002 amendment), built once here.
+  // Whose words this run reads (story 27, ADR 0008), built once here.
   const policy = trustPolicyFromEnv();
   console.log(`Trusted authors: ${policy.associations.join(", ")}.`);
   const context = fetchPullRequestContext(PR_NUMBER, policy, { diff });

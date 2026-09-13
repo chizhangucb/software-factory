@@ -1,91 +1,80 @@
 # tomte
 
-Reusable GitHub Actions workflows that turn a labeled ticket into a merged PR with no human in the path. A maintainer writes the ticket and reads what the factory escalates; everything in between is agents and required status checks.
+Reusable GitHub Actions workflows that turn a labeled ticket into a merged PR with no human in the path. You write the ticket and read what the factory escalates; everything in between is agents and required status checks.
+
+Two things make it work:
+
+- **The merge gate lives in CI, not at a human boundary.** An agent's "done" is a claim, so a read-only reviewer's verdict and a red-green proof are required checks GitHub gates the merge on. Nobody presses merge; auto-merge does, once every check is green.
+- **It runs on subscription billing, not API keys.** One or more `claude setup-token` accounts, rotated by the factory, is what makes the volume affordable.
 
 The factory lives in this repo. A target repo carries one workflow file that calls it.
 
 ## How a ticket becomes a merge
 
-1. A maintainer labels a ticket `ready-for-agent`.
+1. You label a ticket `ready-for-agent`.
 2. The **dispatcher** picks it up once every blocker is closed and adds `agent:implement`.
-3. The **implementer** builds it on `agent/issue-N-<slug>` and opens a PR with `Closes #N` and auto-merge already enabled.
-4. The **merge gate** runs no agent. It posts `factory/red-green` and `factory/test-integrity` on the PR head, alongside the target's own CI.
+3. The **implementer** builds it on `agent/issue-N-<slug>` and opens a PR with `Closes #N` and auto-merge enabled.
+4. The **merge gate** (no agent) posts `factory/red-green` and `factory/test-integrity` on the PR, alongside the target's own CI.
 5. The **reviewer** judges the head against the ticket's acceptance criteria and posts `factory/verdict`.
-6. **Auto-merge** squashes the PR once every required check is green. Nothing else touches the merge button.
-7. **update-branch** keeps auto-merge PRs current as main moves, and hands a real conflict back to the implementer.
+6. **Auto-merge** squashes the PR once every required check is green.
+7. **update-branch** keeps auto-merge PRs current as main moves, handing a real conflict back to the implementer.
 8. The **audit** re-reviews each of the first 20 merges and opens a revert PR on a miss.
 
-A failing implementer run or check in steps 3 to 5 earns one informed retry, then escalates to `needs-human`. `docs/pipeline.md` has every stage in full, including the failures that spend no retry.
+A failing run or check in steps 3–5 earns one informed retry, then escalates to `needs-human`.
+
+## Prerequisites
+
+A target repo on GitHub, plus:
+
+- **At least one Claude subscription account** — a `claude setup-token` per account (Pro, Max, Team, or Enterprise).
+- **A fine-grained PAT scoped to that one target** — contents, issues, pull requests, and workflows write.
+- **A host that runs the heartbeat every 30 minutes** — anything but a GitHub cron (it does not fire reliably).
 
 ## Onboard a target repo
 
-1. **Copy the caller.** `templates/factory.yml` goes to `.github/workflows/factory.yml` in the target. That file is the only factory file the target carries. Every job passes `factory_ref`, and it must equal the ref in that job's `uses:`, both `main` in the template. Change one without the other and they drift.
-
-   A target with two kinds of test needs one more thing here: a **routing test command**, so the merge gate runs each kind with the command that kind needs. Copy `templates/routing-test-command.sh` into the target, say as `scripts/factory-test-command.sh`, edit its one mapping, keep it executable, and name that path in the merge-gate job's `test_command`. Land it on the default branch with the caller: the merge gate runs the test command on a checkout of the base branch too, so until it is there the base side fails for want of the file rather than for want of the test. Without it both kinds get the default, the second kind dies on import, and the merge gate passes those files over with nothing proved. A target with one kind of test needs nothing.
-
-   Every target also needs one line, a line rather than a file: `templates/agents-md-judged-path.md` holds it, and it goes into the target's `AGENTS.md` (or `CLAUDE.md`) as it stands. Anything but the factory that opens a PR on the target, an interactive session or a cloud agent, has to branch in the target itself rather than a fork, since a fork PR is refused. On a branch in the target it has to put `Closes #N` in the body, `agent:review` on the PR and auto-merge on it, or the PR sits blocked on `factory/verdict` for good. That line is how it knows to do all three without being asked, and it is ADR 0003's judged path. Landing it is the target's own PR, and on a repo carrying a caller `scripts/onboard.sh` (step 3) prints the line again when it finishes.
+1. **Copy the caller.** `templates/factory.yml` → `.github/workflows/factory.yml` in the target. It is the only factory file the target carries.
 
 2. **Add the secrets.**
-   - `FACTORY_PAT`, a fine-grained PAT, one per target, so pushes trigger the target's CI. It needs contents, issues, pull requests and workflows write. Mint it fresh for this target: Repository access, Only select repositories, the target being onboarded and nothing else. A token is stored on every target that uses it, so one reaching two repos puts write on each inside the other's secret store. Never reuse the token from a target already onboarded. `docs/pipeline.md` has why this is per target rather than per visibility tier.
-   - One `CLAUDE_CODE_OAUTH_TOKEN_<n>` per subscription account, from `claude setup-token`. Adding an account later is adding one more secret. Optional: a `CLAUDE_ACCOUNT_<n>` variable naming each account for you. The factory never publishes it: not in the job log, the usage comment, an escalation comment, an attached log or an uploaded artifact, all of which are world-readable on a public target. Every one of those names the account by its `<n>` instead. The label appears only in `usage.json` on the runner.
+   - `FACTORY_PAT`: a fine-grained PAT, one per target, so pushes fire the target's CI. Scope it Repository access → Only select repositories → the target being onboarded and nothing else. Reuse no token from another target: one stored on two repos puts write on each inside the other's secret store.
+   - `CLAUDE_CODE_OAUTH_TOKEN_<n>`: one per subscription account. Adding an account later is one more secret.
 
-   Step 1 lands the caller before this step adds `FACTORY_PAT`, so expect that first push to fire the caller and fail one run. Nothing to fix: it clears itself once the steps below are done.
+   One token per target is one expiry per target, and nothing in the factory watches them — GitHub emails the owner before it lapses, so record the date. A lapsed token fails every factory job on that target at the first step that uses the token, and the dispatcher then labels nothing, so its tickets sit `ready-for-agent` looking held; one target red while every other target keeps working is a lapsed token, not a factory bug.
 
-   One token per target is one expiry date per target, and nothing in the factory watches them: the notice is GitHub's email to the token's owner before it lapses, so record the date too. Afterwards every factory job on that target fails at its first step that uses the token, before it does any work, and the dispatcher labels nothing, so its tickets sit `ready-for-agent` looking held rather than broken. One target red while every other target keeps working is a lapsed token, not a factory bug. Waive the factory's checks (below) if it will be down long enough to matter.
+3. **Run the onboarding script.** `scripts/onboard.sh owner/repo`. It creates the label vocabulary, allows auto-merge, and writes the `factory` ruleset on the default branch (PR required, squash only, the three factory checks plus the target's own CI required on an up-to-date head). Name the target's own checks as arguments (`scripts/onboard.sh owner/repo check lint`); the script guesses none. Re-run it any time to update the ruleset.
 
-3. **Run the onboarding script.** `scripts/onboard.sh owner/repo`, for example `scripts/onboard.sh chizhangucb/tomte-fixture`. It creates the label vocabulary, allows auto-merge on the repo, and puts a `factory` ruleset on the default branch: PR required, squash only, and `factory/verdict`, `factory/red-green`, `factory/test-integrity` plus the target's own checks, all required on a head up to date with main. The own checks are the ones you name, `scripts/onboard.sh owner/repo check lint`; the script guesses none, ever. A first run naming none reads the target. No workflow of its own runs on a pull request: it writes `.github/workflows/check.yml` from `templates/rollup-check.yml`, a roll-up check named `check` taking its install command, test command and Node version from the caller, and requires `check`, so the first test the factory writes is required the moment it exists. It has CI of its own: it refuses, printing the roll-up to add with that repo's own job names already in its `needs`, because onboarding never edits CI that exists. `--no-own-checks` writes no file and onboards it warning that the ruleset gates on the factory's checks alone and a PR breaking the target's build still merges. Re-run the script to update the ruleset: a re-run naming nothing keeps exactly the own checks the ruleset already requires, so picking up a new label never needs that list remembered. A run that would stop requiring one is refused, naming each check that would have been lost, unless you pass `--allow-drop`. Every refusal is before any write: no label, no repo edit, no ruleset.
+4. **Let this repo serve its workflows.** Settings → Actions → General → Access. A private factory repo will not serve them otherwise.
 
-   The script reads whether the repo carries a caller yet (step 1); it needs no flag for this. Run it on a repo with no caller -- before step 1 lands, or on this repo itself, which carries none -- and the factory's three checks drop out, since no caller means they are never posted: the ruleset requires only the own checks you listed. Name none either, and `--no-own-checks` onboards it with a warning that the ruleset requires nothing at all.
+5. **Add the target to the heartbeat.** One line in `factory/heartbeat/targets.ts`, then run `GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts` every 30 minutes from your host (not a GitHub cron). One sender covers any number of targets and only wakes a target with work due.
 
-4. **Check the caller's permissions.** It must grant `statuses: write`, `checks: read` and `actions: read`. They are in `templates/factory.yml`, so a fresh copy has them; a target onboarded before those lines existed needs them added.
+Then label a ticket `ready-for-agent` and the pipeline above runs. To hold a ready ticket back, add `hold`. Labeling `agent:implement` by hand also works.
 
-5. **Let this repo serve its workflows.** Settings, Actions, General, Access. A private factory repo will not serve them otherwise.
+**Two conditional extras**, both in `docs/pipeline.md`: a target with two kinds of test needs a **routing test command** (`templates/routing-test-command.sh`), and any producer opening its own PR (an interactive session, a cloud agent) needs the judged-path line (`templates/agents-md-judged-path.md`) in its `AGENTS.md` — its branch has to be in the target, not a fork, or the PR is refused.
 
-6. **Add a heartbeat.** The heartbeat drives the sweep, and it is the only thing that does: GitHub's own `schedule` cron was removed from the caller in #270 because it did not reliably fire, on one private target 6 times over 21 and a half hours against about 129 expected. The daily recheck (#267) retries a repair that changed nothing. Add the target to `factory/heartbeat/targets.ts`, one line, and run `GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts` every 30 minutes, from anything that is not a GitHub cron, with a token that has contents write and issues and pull requests read, plus Actions variables read for the pause (#256) and the waiver nag (#244), on every target on that list and nothing else. One sender covers any number of targets, and it exits non-zero when a target failed to wake. It keeps one file of its own, `~/.factory-heartbeat-passes` (`FACTORY_HEARTBEAT_PASS_LOG` moves it), and names it in the pass when a run of passes stops agreeing with the documented interval, since the host's schedule is the last copy of that number this repo cannot see (#265). It reads each target before waking it and wakes only a running target a sweep would act on now: never a paused one (#256), never one with nothing open (#212), and never one whose open work is all between deadlines (#264), so a paused or idle target costs nothing and one with work is woken on the passes something is due on it rather than on all of them. Without it the dispatcher and the reconciler run only on the target's own events, so a stranded run, a PR whose auto-merge failed, and a ticket whose blocker closed without firing an event on the target all wait.
+## Operate a target
 
-Then label a ticket `ready-for-agent` and the pipeline above runs. To hold a ready ticket back, add `hold`: the dispatcher never dispatches a ticket carrying it, and removing it releases the ticket on the next sweep (`docs/agents/triage-labels.md`). Labeling `agent:implement` by hand still works. `docs/pipeline.md` has the reasoning behind each step, what `FACTORY_PAT` cannot do, and the re-copy a target onboarded before #61 needs.
-
-## Pause the factory on a target
-
-One repository variable on the target, and its value is the reason:
+**Pause** — stop the factory starting or moving work, one repository variable whose value is the reason:
 
 ```
 gh variable set FACTORY_PAUSED --repo owner/repo --body "runaway sweep, see #123"
 gh variable delete FACTORY_PAUSED --repo owner/repo   # resume
 ```
 
-- **Paused**: dispatch (and the reconciler with it), the implementer, the reviewer, implement-pr, update-branch. Everything that starts work or moves it along.
-- **Still running**: `merge-gate` and `audit`. A PR opened while paused still gets `factory/red-green` and `factory/test-integrity`, so a pause never quietly takes the merge gate off a human's PR. `audit` still runs a model on merged factory PRs and still opens a revert PR on a miss, which is wanted.
-- **The heartbeat stops waking the target** (#256), so a pause costs nothing: no `factory-sweep`, no run, no billed minute. Before that the gate stopped the work and not the run, and a paused private target billed a minute an interval, about 144 a day, for the `paused` job to say nothing was happening. `merge-gate` and `audit` are unaffected because neither is heartbeat-driven: both fire on the target's own pull request events.
-- **Visible**: the variable sits in Settings, Secrets and variables, Actions, with the reason as its value; each heartbeat pass names the target as skipped for the pause, with the reason, distinct from a target skipped as idle; and any factory run an event of the target's own still starts carries a `paused` job saying the same thing.
-- **No event is queued**, because a gated job is skipped rather than held, so nothing fires retroactively when you lift it.
+`merge-gate` and `audit` keep running, so a pause never quietly takes the merge gate off a human's PR. The heartbeat stops waking a paused target (#256), so the pause costs no runs and no billed minutes. In an incident, **pause first, then cancel** — cancelling first buys a replacement run within a minute. Before you resume, fix what caused the pause: no event is replayed, but the first sweep dispatches everything still `ready-for-agent`.
 
-In an incident, **pause first, then cancel**. A pause does not stop a run already in flight, and cancelling one before the pause is on buys a replacement within a minute or two: the retry handler reads a cancel as the implementer's own failure and re-labels the ticket. With the pause on, that re-label lands and starts nothing.
-
-**Before you resume, fix what caused the pause.** No event is replayed, but the repo's state is still there, so the first sweep after a resume dispatches every ticket that is still `ready-for-agent` and repairs every stranding the reconciler finds. A resume with the cause still in place restarts it. `docs/pipeline.md` has the rest, including what a pause does not do.
-
-Do not reach for `gh workflow disable factory.yml` instead. That file is the caller for every factory role, so disabling it takes `merge-gate` and `audit` down too, and their checks do not fail on a PR opened while it is off, they never appear.
-
-The gate lives in the caller, so it drifts like the trigger set: a target that has not re-copied `templates/factory.yml` since this landed has no gate, and setting the variable there does nothing at all. Re-copy the caller.
-
-## Waive the factory's checks on a target
-
-The complement of a pause, for a factory that cannot run at all (PAT expired, Actions down): its checks stop being required on one target, and the target keeps merging on its own CI.
+**Waive** — for a factory that cannot run at all (PAT expired, Actions down), take its checks off one target so it keeps merging on its own CI:
 
 ```
 scripts/waive-factory-checks.sh owner/repo on "factory PAT expired, see #244"
 scripts/waive-factory-checks.sh owner/repo off   # put them back
 ```
 
-- `on` sets `FACTORY_CHECKS_WAIVED` to the reason, then takes `factory/verdict`, `factory/red-green` and `factory/test-integrity` out of the target's `factory` ruleset. The target's own check names are untouched.
-- The variable is written first on purpose: a failure between the two leaves a waiver visible and not yet in effect, never one in effect and invisible. `off` reverses the order for the same reason.
-- Only a human runs it. `FACTORY_PAT` cannot write repo variables, and nothing in the factory sets or clears this one: a broken factory restoring its own required checks is how a silent green happens.
-- Nothing closes a waiver automatically. The heartbeat names an open one, with its reason, every run until somebody runs `off`.
+Only a human runs the waiver (`FACTORY_PAT` cannot write repo variables), and nothing closes it automatically — the heartbeat names an open one every run.
+
+Don't use `gh workflow disable factory.yml` to pause: it takes `merge-gate` and `audit` down too, and their checks then never appear on a PR rather than failing.
 
 ## Where to read more
 
-- `docs/pipeline.md`: the reference. Every caller input, every pipeline stage, the engine, and the layout of the tree.
-- `CONTEXT.md`: the glossary. `docs/adr/`: the decisions. The spec is issue #9.
-- `docs/provenance/sandcastle.md`: the essay, why the engine was vendored rather than forked. `docs/provenance/sandcastle-files.md`: the reference, what is sandcastle's and what is ours file by file, for anyone changing a vendored file or checking a count.
-- `docs/research/`: the dated snapshots the ADRs rest on, never updated.
-- `docs/agents/`: the rules binding an agent working in this repo.
+- `docs/pipeline.md` — the reference: every caller input, every stage in full, the failure paths, the engine, and the onboarding caveats a target migrated across versions needs.
+- `CONTEXT.md` — the glossary. `docs/adr/` — the decisions. The spec is issue #9.
+- `docs/provenance/` — why the engine was vendored from sandcastle rather than forked, file by file.
+- `docs/agents/` — the rules binding an agent working in this repo.

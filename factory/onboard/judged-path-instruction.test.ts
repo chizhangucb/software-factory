@@ -1,7 +1,7 @@
 /**
  * The instruction every target's other producers read (#181): the line in
  * `templates/agents-md-judged-path.md` that tells anything but the factory opening a PR on a
- * target, an interactive session or a cloud agent, to do the three things ADR 0003's judged
+ * target, an interactive session or a cloud agent, to do the three things ADR 0007's judged
  * path needs, or its PR sits blocked on `factory/verdict` for good. The subject is text a
  * target copies and pages a reader meets, so the files are the fixture, in the style of
  * `lib/labels.test.ts` over the hold and `dispatch/triggers.test.ts` over the trigger set.
@@ -22,8 +22,8 @@ import { repoFiles } from "../lib/repo-files.ts";
 const JUDGED_PATH_INSTRUCTION =
   "- **Opening a pull request yourself**: your branch has to be in this repo, not a fork. Put `Closes #N` in the body, label it `agent:review`, and arm auto-merge. All three, or it stays blocked. The factory judges it and merges it.";
 const JUDGED_PATH_TEMPLATE = "templates/agents-md-judged-path.md";
-/** The decision the instruction comes from, amended in place with dated corrections. */
-const JUDGED_PATH_ADR = "docs/adr/0003-gate-in-ci-auto-merge-with-audit.md";
+/** The decision the instruction comes from. */
+const JUDGED_PATH_ADR = "docs/adr/0007-no-unjudged-merge-path.md";
 
 /** A file in this repo, by its path from the root. */
 const readRepo = (file: string): string => fs.readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
@@ -57,23 +57,20 @@ test("the instruction's keyword is one the reviewer reads, and its placeholder c
   assert.equal(linkedIssueNumber(JUDGED_PATH_INSTRUCTION.replace("#N", "#42")), "42");
 });
 
-test("README's onboarding names the instruction in the step that names the caller and the routing test command", () => {
-  // The step where a maintainer copies files into the target is where one more thing to copy
-  // gets seen. Read as that one step, not the whole page, so naming it anywhere else fails.
+test("README's onboarding names both templates and the fork precondition", () => {
+  // A maintainer following onboarding has to discover the caller and the two conditional extras,
+  // or they copy an incomplete set. Read as the whole onboarding section, since the extras are a
+  // note beside the numbered steps rather than crammed into one of them.
   const onboarding = readRepo("README.md")
     .split(/^## /m)
     .find((section) => section.startsWith("Onboard a target repo"));
   assert.ok(onboarding, "README still has its onboarding section");
-  // Found by the routing test command, which only the copying step names; the caller turns up
-  // in a later step too, where its permissions are checked.
-  const copying = onboarding.split(/^(?=\d+\. )/m).filter((step) => step.includes("templates/routing-test-command.sh"));
-  assert.equal(copying.length, 1, "one step names the routing test command");
-  assert.ok(copying[0]!.includes("templates/factory.yml"), "and it is the step that names the caller");
-  assert.ok(copying[0]!.includes(JUDGED_PATH_TEMPLATE), `the same step names ${JUDGED_PATH_TEMPLATE}`);
-  // The prose is a paraphrase, not a copy, so the literal above does not hold it and it would
-  // otherwise drift uncaught. It names the fork precondition beside the three steps, or a
-  // maintainer reading only the README under-describes the line they are about to copy.
-  assert.match(copying[0]!, /fork/, "and its prose names the fork precondition");
+  assert.ok(onboarding.includes("templates/factory.yml"), "onboarding names the caller");
+  assert.ok(onboarding.includes("templates/routing-test-command.sh"), "onboarding names the routing test command");
+  assert.ok(onboarding.includes(JUDGED_PATH_TEMPLATE), `onboarding names ${JUDGED_PATH_TEMPLATE}`);
+  // The prose is a paraphrase, not a copy, so the literal instruction does not hold it. It names
+  // the fork precondition, or a maintainer reading only the README under-describes the line.
+  assert.match(onboarding, /fork/, "and names the fork precondition");
 });
 
 test("CONTEXT.md defines the producer the instruction addresses", () => {
@@ -98,38 +95,14 @@ test("the Close convention is still one bullet of docs/agents/issue-tracker.md",
   assert.equal(close.length, 1, "the Close convention is still one bullet");
 });
 
-test("ADR 0003's bullet on the tracker page's ban carries its dated correction, since the ban is gone", () => {
-  // The bullet says the page forbids the keyword outright, which was true when it was written.
-  // ADRs are amended in place and dated rather than rewritten, so the sentence stays and the
-  // correction beside it is what stops the ADR contradicting the page it describes.
-  const bullet = readRepo(JUDGED_PATH_ADR)
-    .split("\n")
-    .filter((line) => line.startsWith("- **The convention against closing keywords narrows.**"));
-  assert.equal(bullet.length, 1, "the bullet is still there, once");
-  assert.match(bullet[0]!, /Corrected 2026-09-11 \(#181\): /, "and says the outright ban has lapsed");
-});
-
-test("ADR 0003's judged-path paragraph carries its dated correction, since the factory is not a producer", () => {
-  // The heading reads as if the factory were one producer among them, the one phrase in the file
-  // out of step with the glossary. ADRs are amended in place and dated rather than rewritten, so
-  // the sentence stays and the correction beside it is what stops the second reading.
-  const paragraph = readRepo(JUDGED_PATH_ADR)
-    .split("\n")
-    .filter((line) => line.startsWith("**What a producer other than the factory does.**"));
-  assert.equal(paragraph.length, 1, "the paragraph is still there, once, its sentence preserved");
-  assert.match(paragraph[0]!, /Corrected 2026-09-11 \(#233\): /, "and says the factory is not a producer");
-});
-
-test("no page reads the factory as a producer except the ADR line that carries the correction", () => {
-  // "a producer other than the factory" is the one phrasing that only parses if the factory is
-  // one, so a second copy of it anywhere is a second reading of the word. Test files are left
-  // out, since the pin above quotes the phrase.
+test("no page reads the factory as a producer", () => {
+  // The glossary defines a producer as anyone but the factory opening a PR, so "a producer other
+  // than the factory" is a phrasing that only parses if the factory is one of them. It appears
+  // nowhere in the tree. This file is left out, since the line above quotes the phrase itself.
+  const thisFile = "factory/onboard/judged-path-instruction.test.ts";
   const carrying = repoFiles()
+    .filter((file) => file !== thisFile)
     .flatMap((file) => readRepo(file).split("\n").map((line) => ({ file, line })))
     .filter(({ line }) => /producers? other than the factory/.test(line));
-  // Or the loop below asserts nothing the day the ADR's phrasing changes.
-  assert.ok(carrying.some(({ file }) => file === JUDGED_PATH_ADR), `${JUDGED_PATH_ADR} carries the phrase`);
-  for (const { file, line } of carrying) {
-    assert.ok(line.includes("Corrected 2026-09-11 (#233): "), `${file} reads the factory as a producer: ${line}`);
-  }
+  assert.deepEqual(carrying, [], "no page reads the factory as a producer");
 });

@@ -5,7 +5,7 @@ cited-by: docs/adr/0002-vendored-sandcastle-engine.md, docs/adr/0001-subscriptio
 ---
 
 > **Snapshot, 2026-09-06. Not maintained.**
-> This is research as it stood on the day it was written, kept in the repo only because ADR 0002 (vendor sandcastle's Actions pipeline) and ADR 0001's 2026-09-08 amendment rest on it. Do not update it: it is evidence for a decision, and rewriting it would erase what was known when the decision was made. If sandcastle moves, write a new dated snapshot and cite that instead. Its home is [issue #21](https://github.com/chizhangucb/software-factory/issues/21); the body below is the note from that ticket, unchanged.
+> This is research as it stood on the day it was written, kept in the repo only because ADR 0002 (vendor sandcastle's Actions pipeline) and ADR 0001 rest on it. Do not update it: it is evidence for a decision, and rewriting it would erase what was known when the decision was made. If sandcastle moves, write a new dated snapshot and cite that instead. Its home is [issue #21](https://github.com/chizhangucb/software-factory/issues/21); the body below is the note from that ticket, unchanged.
 > What the factory actually built from it is `docs/provenance/sandcastle.md`, which is current.
 
 # Sandcastle 0.12.0 inventory: what v0 uses, what v1 might, what to ignore

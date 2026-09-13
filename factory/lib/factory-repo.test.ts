@@ -47,10 +47,9 @@ const read = (file: string): string => fs.readFileSync(new URL(file, repoRoot), 
  * hunt something to look for.
  */
 const RECORDS = new Set([
-  // The two pages that tell the rename's own story, and cannot tell it without
-  // naming what the repo was called: the ADR amendment recording that a rename
-  // is an outage on every target, and the procedure that answers it.
-  "docs/adr/0003-gate-in-ci-auto-merge-with-audit.md",
+  // The page that tells the rename's own story, and cannot tell it without
+  // naming what the repo was called: the procedure that answers a rename being
+  // an outage on every target.
   "docs/pipeline.md",
   "docs/research/sandcastle-inventory-2026-09.md",
   "docs/research/sandcastle-peers-2026-09.md",

@@ -167,7 +167,7 @@ test("anything else GitHub answers with is not a refusal, and the caller keeps t
 });
 
 test("a stale PR the factory did not author is still brought up to date: the update half does not narrow", () => {
-  // ADR 0003's amendment: the update call is deterministic and applies to any PR with
+  // ADR 0006: the update call is deterministic and applies to any PR with
   // auto-merge armed, whoever opened it. Arming auto-merge on a hand-authored PR is the
   // normal thing to do under a strict ruleset, and that enrolment is the point.
   assert.deepEqual(actions([pr(7, NOT_OURS)]), ["7:update"]);

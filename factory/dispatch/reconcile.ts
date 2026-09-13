@@ -523,7 +523,7 @@ export const whyLeftAlone = (p: PrState, policy: TrustPolicy): LeftAlone | undef
 /**
  * A PR that is not a factory PR, neither opened nor worked on by the factory,
  * with no agent on it (#182): ask for a verdict at the deadline, and nothing
- * else. ADR 0003's judged path made that verdict available to any producer
+ * else. ADR 0007's judged path made that verdict available to any producer
  * who labels `agent:review`; this is the reconciler applying the label for a
  * producer that did not, so it is the one route onto the judged path nobody
  * opted into. That is why it waited on #174, #180 and #183, each of which
@@ -534,8 +534,8 @@ export const whyLeftAlone = (p: PrState, policy: TrustPolicy): LeftAlone | undef
  * Only the verdict: this decision never arms auto-merge (criterion 5). That
  * is not the end of it, though. The reviewer writes its verdict section into
  * the body, so from the next sweep on the PR is a factory PR and
- * `decidePrMerge` below owns it unchanged, re-arm included, which is ADR
- * 0003's "a judged PR the factory did not author becomes a factory PR".
+ * `decidePrMerge` below owns it unchanged, re-arm included: a judged PR the
+ * factory did not author becomes a factory PR (ADR 0007).
  *
  * A hold comes first (#185), ahead of every reason above: labelling starts
  * the reviewer, a held PR gets no agent, and a PR whose ticket is held counts

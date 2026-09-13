@@ -271,7 +271,8 @@ test("the daily recheck wakes a held pull request but never a held ticket, a par
   // parked subjects stay excluded, and a target with nothing open is untouched.
   // Placed at the pass's clock, the subjects changed just before it, so a whole
   // day has passed by `day` and the PR lands in the first daily window.
-  const day = new Date(NOW.getTime() + 1440 * 60_000);
+  const DAY = 1440;
+  const day = new Date(NOW.getTime() + DAY * 60_000);
   assert.equal(sweepNeed([pullRequest(...HOLD_LABELS)], day), "waiting", "a held PR is rechecked daily");
   for (const held of HOLD_LABELS) {
     for (const state of FACTORY_STATE_LABELS) {

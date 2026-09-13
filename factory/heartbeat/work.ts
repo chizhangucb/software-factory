@@ -122,6 +122,12 @@ const deadlinesFor = (pullRequest: boolean): readonly number[] => (pullRequest ?
  * - Changed since the last pass: due. Every deadline runs from the change, and
  *   a hold taken off is the release CONTEXT.md promises on the first sweep.
  * - A deadline fell during the last interval: due, that being the repair's pass.
+ * - At least a whole day past the last change: due in the one pass landing in
+ *   the interval after each whole day (#267). A repair can fail without changing
+ *   its subject, GitHub refusing to arm auto-merge or an update-branch that hit
+ *   a conflict, and a check the host missed leaves nothing to run it again. This
+ *   retries once a day off the same clock, adding no field to the read and no
+ *   persisted state.
  *
  * The clock is `updated_at`, the only one in the read the heartbeat already
  * makes. The reconciler's own run from a label event or a head commit, both
@@ -130,14 +136,19 @@ const deadlinesFor = (pullRequest: boolean): readonly number[] => (pullRequest ?
  *
  * The windows assume the passes are on the grid, so a deadline that fell during
  * passes the host never ran is reached by the caller's `schedule` rather than by
- * the next pass. That gap and what to do about it is #267.
+ * the next pass. The daily recheck rides the same grid: it is one pass per whole
+ * day and nothing between.
  */
+/** One whole day in minutes, the recheck's cadence (#267). */
+const DAY_MINUTES = 24 * 60;
+
 const due = (subject: OpenSubject, now: Date): boolean => {
   if (subject.changedAt === undefined) return true;
   if (!subject.pullRequest && subject.labels.includes(READY_LABEL) && !FACTORY_STATE_LABELS.some((label) => subject.labels.includes(label))) return true;
   const age = (now.getTime() - Date.parse(subject.changedAt)) / 60_000;
   if (Number.isNaN(age)) return true;
   if (age < HEARTBEAT_INTERVAL_MINUTES) return true;
+  if (age >= DAY_MINUTES && age % DAY_MINUTES < HEARTBEAT_INTERVAL_MINUTES) return true;
   return deadlinesFor(subject.pullRequest).some((deadline) => age >= deadline && age < deadline + HEARTBEAT_INTERVAL_MINUTES);
 };
 

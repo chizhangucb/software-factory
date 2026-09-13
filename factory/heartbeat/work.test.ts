@@ -245,6 +245,46 @@ test("a subject open and untouched for two hours is woken twice, not on every pa
   assert.equal(wakes(changed(0, pullRequest())), 2);
 });
 
+test("an untouched subject a sweep could act on is rechecked once a day, in the pass just after each whole day and in no pass between", () => {
+  // #267: a repair that failed without changing its subject (GitHub refusing to
+  // arm auto-merge, an update-branch that hit a conflict) leaves the subject
+  // settled, so `due` would sleep on it forever after its deadline windows. The
+  // daily clause wakes it one pass per whole day so the sweep retries.
+  const changedAt = NOW.toISOString();
+  const at = (minutes: number): Date => new Date(NOW.getTime() + minutes * 60_000);
+  // A ticket in a factory state, past its stuck window, is otherwise nothing-due.
+  const subject: OpenSubject = { pullRequest: false, labels: [IMPLEMENT_LABEL], changedAt };
+  const DAY = 1440;
+  for (const day of [1, 2, 3]) {
+    const start = day * DAY;
+    assert.equal(sweepNeed([subject], at(start)), "waiting", `day ${day} boundary is the recheck pass`);
+    assert.equal(sweepNeed([subject], at(start + HEARTBEAT_INTERVAL_MINUTES - 1)), "waiting", `the rest of day ${day}'s pass is still the recheck`);
+    assert.equal(sweepNeed([subject], at(start + HEARTBEAT_INTERVAL_MINUTES)), "nothing-due", `the pass after day ${day}'s window is not a recheck`);
+    assert.equal(sweepNeed([subject], at(start - HEARTBEAT_INTERVAL_MINUTES)), "nothing-due", `the pass before day ${day}'s boundary is not a recheck`);
+    assert.equal(sweepNeed([subject], at(start + DAY / 2)), "nothing-due", `mid-day ${day} is not a recheck`);
+  }
+});
+
+test("the daily recheck wakes a held pull request but never a held ticket, a parked subject, or an empty target", () => {
+  // #267: the recheck rides on the same `waiting` filter, so held PRs (whose
+  // merge path is never withheld, #210) are rechecked while held tickets and
+  // parked subjects stay excluded, and a target with nothing open is untouched.
+  // Placed at the pass's clock, the subjects changed just before it, so a whole
+  // day has passed by `day` and the PR lands in the first daily window.
+  const DAY = 1440;
+  const day = new Date(NOW.getTime() + DAY * 60_000);
+  assert.equal(sweepNeed([pullRequest(...HOLD_LABELS)], day), "waiting", "a held PR is rechecked daily");
+  for (const held of HOLD_LABELS) {
+    for (const state of FACTORY_STATE_LABELS) {
+      assert.equal(sweepNeed([ticket(state, held)], day), "nothing-waiting", `${held} beside ${state} is never rechecked`);
+    }
+  }
+  for (const parked of PARKED_LABELS) {
+    assert.equal(sweepNeed([ticket(parked)], day), "nothing-waiting", `${parked} is never rechecked`);
+  }
+  assert.equal(sweepNeed([], day), "nothing-waiting", "an empty target is never rechecked");
+});
+
 test("the deadlines are the reconciler's own, restated nowhere here", () => {
   // The tie `PARKED_LABELS` already travels, for the same reason: a heartbeat
   // carrying its own copy of a deadline would agree with itself forever while

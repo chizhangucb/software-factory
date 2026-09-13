@@ -34,7 +34,7 @@ const ticket = (number: number, overrides: Partial<TicketState> = {}): TicketSta
   number,
   title: `Ticket ${number}`,
   labels: ["ready-for-agent", "agent:in-progress"],
-  stateSince: minutesAgo(20),
+  stateSince: minutesAgo(40),
   marks: [],
   ...overrides,
 });
@@ -119,6 +119,11 @@ test("a healthy snapshot produces no repairs, and a second pass over it none eit
   assert.deepEqual(repairs(reconcile(healthy, DEFAULT_DEADLINES, POLICY)), []);
 });
 
+test("every reconciler deadline defaults to 30 minutes (#271)", () => {
+  // Stuck moved from 15 to 30; verdict and update were already 30 and stay 30.
+  assert.deepEqual(DEFAULT_DEADLINES, { stuckMinutes: 30, verdictMinutes: 30, updateMinutes: 30 });
+});
+
 test("a ticket in agent:in-progress with no run past the deadline is re-dispatched as miss 1", () => {
   const d = only(reconcile(snapshot({ issues: [ticket(1)] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.subject, { kind: "issue", number: 1 });
@@ -126,7 +131,7 @@ test("a ticket in agent:in-progress with no run past the deadline is re-dispatch
   assert.deepEqual(d.action.type === "relabel" && d.action.remove, ["agent:in-progress"]);
   assert.equal(d.action.type === "relabel" && d.action.add, "agent:implement");
   assert.equal(d.action.type === "relabel" && d.action.miss, 1);
-  assert.match(d.log, /#1 \(issue\) agent:in-progress since .*20 min ago, deadline 15 min, no implement run: re-add agent:implement \(miss 1, re-dispatch 1 of 2\)/);
+  assert.match(d.log, /#1 \(issue\) agent:in-progress since .*40 min ago, deadline 30 min, no implement run: re-add agent:implement \(miss 1, re-dispatch 1 of 2\)/);
   assert.match(d.comment ?? "", /^<!-- factory:sweep miss=1 tries=1 -->/);
 });
 
@@ -136,7 +141,7 @@ test("a ticket in agent:implement with no run past the deadline gets the label r
 });
 
 test("the second miss on the same stranding escalates to needs-human with a comment, and the ticket is left carrying it alone", () => {
-  const stranded = ticket(1, { stateSince: minutesAgo(20), marks: [{ miss: 1, tries: 1, at: minutesAgo(19) }] });
+  const stranded = ticket(1, { stateSince: minutesAgo(40), marks: [{ miss: 1, tries: 1, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ issues: [stranded] }), DEFAULT_DEADLINES, POLICY));
   assert.equal(d.action.type, "escalate");
   assert.equal(d.action.type === "escalate" && d.action.add, "needs-human");
@@ -148,7 +153,7 @@ test("the second miss on the same stranding escalates to needs-human with a comm
 });
 
 test("a mark from an older stranding does not count: the label was re-applied after it", () => {
-  const stranded = ticket(1, { stateSince: minutesAgo(20), marks: [{ miss: 1, tries: 1, at: minutesAgo(200) }] });
+  const stranded = ticket(1, { stateSince: minutesAgo(40), marks: [{ miss: 1, tries: 1, at: minutesAgo(200) }] });
   const d = only(reconcile(snapshot({ issues: [stranded] }), DEFAULT_DEADLINES, POLICY));
   assert.equal(d.action.type, "relabel");
   assert.equal(d.action.type === "relabel" && d.action.miss, 1);
@@ -157,7 +162,7 @@ test("a mark from an older stranding does not count: the label was re-applied af
 test("a ticket within its deadline is left alone", () => {
   const d = only(reconcile(snapshot({ issues: [ticket(1, { stateSince: minutesAgo(5) })] }), DEFAULT_DEADLINES, POLICY));
   assert.equal(d.action.type, "none");
-  assert.match(d.log, /5 min ago, deadline 15 min: within deadline/);
+  assert.match(d.log, /5 min ago, deadline 30 min: within deadline/);
 });
 
 test("deadlines are inputs: a shorter stuck deadline repairs sooner", () => {
@@ -220,7 +225,7 @@ const sweepUntilItStops = (limit = 6): Decision[] => {
   let since = Date.parse(NOW);
   let marks: readonly SweepMark[] = [];
   for (let i = 0; i < limit; i++) {
-    const now = since + 20 * 60_000;
+    const now = since + 40 * 60_000;
     const cancelled = run(100 + i, {
       conclusion: "cancelled",
       createdAt: new Date(since + 60_000).toISOString(),
@@ -274,7 +279,7 @@ test("a marker written before tries existed reads its miss value as the try coun
 });
 
 test("a completed run that left the label behind counts as a miss", () => {
-  const failed = run(100, { conclusion: "failure", createdAt: minutesAgo(19) });
+  const failed = run(100, { conclusion: "failure", createdAt: minutesAgo(40) });
   const d = only(reconcile(snapshot({ issues: [ticket(1, { labels: ["agent:implement"] })], runs: [failed] }), DEFAULT_DEADLINES, POLICY));
   assert.equal(d.action.type, "relabel");
   assert.equal(d.action.type === "relabel" && d.action.miss, 1);
@@ -309,7 +314,7 @@ test("a held ticket past its stuck deadline is left alone", () => {
     const held = ticket(1, { labels: ["ready-for-agent", state, "hold"], stateSince: minutesAgo(60) });
     const d = only(reconcile(snapshot({ issues: [held] }), DEFAULT_DEADLINES, POLICY));
     assert.equal(d.action.type, "none", state);
-    assert.match(d.log, new RegExp(`#1 \\(issue\\) ${state}, deadline 15 min: held: hold$`));
+    assert.match(d.log, new RegExp(`#1 \\(issue\\) ${state}, deadline 30 min: held: hold$`));
   }
 });
 
@@ -323,8 +328,8 @@ test("a held PR is left alone, and so is a PR whose ticket is held", () => {
   const heldTicket = ticket(2, { labels: ["ready-for-agent", "hold"] });
   const ds = reconcile(snapshot({ issues: [heldTicket], prs: [own, viaTicket] }), DEFAULT_DEADLINES, POLICY);
   assert.deepEqual(repairs(ds), []);
-  assert.match(ds.find((d) => d.subject.number === 11)!.log, /#11 \(pr\) agent:in-progress, deadline 15 min: held: hold$/);
-  assert.match(ds.find((d) => d.subject.number === 12)!.log, /#12 \(pr\) agent:in-progress, deadline 15 min: held: hold on #2$/);
+  assert.match(ds.find((d) => d.subject.number === 11)!.log, /#11 \(pr\) agent:in-progress, deadline 30 min: held: hold$/);
+  assert.match(ds.find((d) => d.subject.number === 12)!.log, /#12 \(pr\) agent:in-progress, deadline 30 min: held: hold on #2$/);
 });
 
 // #210: a hold stops the factory starting work, never a merge. Stopping a
@@ -393,7 +398,7 @@ test("parked stays the factory's own pair: a hold is left alone without becoming
 });
 
 test("a PR carrying agent:review with no review run past the deadline gets the label again", () => {
-  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(20) });
+  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(40) });
   const d = only(reconcile(snapshot({ prs: [stuck] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.subject, { kind: "pr", number: 11 });
   assert.deepEqual(d.action, { type: "relabel", remove: ["agent:review"], add: "agent:review", miss: 1 });
@@ -401,7 +406,7 @@ test("a PR carrying agent:review with no review run past the deadline gets the l
 });
 
 test("a live review run on the PR's head branch covers it; one on another branch does not", () => {
-  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(20) });
+  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(40) });
   const mine = run(100, { event: "pull_request_target", headBranch: stuck.headRef, role: "review", status: "in_progress", conclusion: null });
   const other = run(101, { event: "pull_request_target", headBranch: "agent/issue-9-x", role: "review", status: "in_progress", conclusion: null });
   assert.equal(only(reconcile(snapshot({ prs: [stuck], runs: [mine] }), DEFAULT_DEADLINES, POLICY)).action.type, "none");
@@ -409,7 +414,7 @@ test("a live review run on the PR's head branch covers it; one on another branch
 });
 
 test("a PR's second miss escalates the PR and names the ticket to park with it", () => {
-  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(20), marks: [{ miss: 1, tries: 1, at: minutesAgo(19) }] });
+  const stuck = pr(11, { labels: ["agent:review"], stateSince: minutesAgo(40), marks: [{ miss: 1, tries: 1, at: minutesAgo(19) }] });
   const d = only(reconcile(snapshot({ prs: [stuck] }), DEFAULT_DEADLINES, POLICY));
   assert.equal(d.action.type, "escalate");
   // The PR carries no ready-for-agent of its own, so only its agent:* labels go.
@@ -418,7 +423,7 @@ test("a PR's second miss escalates the PR and names the ticket to park with it",
 });
 
 test("a PR in agent:in-progress with no live run is sent back to review; a live implement-pr run covers it", () => {
-  const stale = pr(11, { labels: ["agent:in-progress"], stateSince: minutesAgo(20) });
+  const stale = pr(11, { labels: ["agent:in-progress"], stateSince: minutesAgo(40) });
   const d = only(reconcile(snapshot({ prs: [stale] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.action, { type: "relabel", remove: ["agent:in-progress"], add: "agent:review", miss: 1 });
   const live = run(100, { event: "pull_request_target", headBranch: stale.headRef, role: "implement-pr", status: "in_progress", conclusion: null });
@@ -426,7 +431,7 @@ test("a PR in agent:in-progress with no live run is sent back to review; a live 
 });
 
 test("a PR carrying agent:implement expects an implement-pr run", () => {
-  const stuck = pr(11, { labels: ["agent:implement"], stateSince: minutesAgo(20) });
+  const stuck = pr(11, { labels: ["agent:implement"], stateSince: minutesAgo(40) });
   const d = only(reconcile(snapshot({ prs: [stuck] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.action, { type: "relabel", remove: ["agent:implement"], add: "agent:implement", miss: 1 });
 });
@@ -640,7 +645,7 @@ test("a factory PR with auto-merge not enabled past the deadline is re-armed", (
   const unarmed = pr(11, { autoMerge: false, verdict: undefined, behindBy: undefined, headSince: minutesAgo(45) });
   const d = only(reconcile(snapshot({ prs: [unarmed] }), DEFAULT_DEADLINES, POLICY));
   assert.deepEqual(d.action, { type: "arm-auto-merge", pr: 11 });
-  assert.match(d.log, /#11 \(pr\) factory PR with auto-merge not enabled since .*45 min ago, deadline 15 min: re-arm auto-merge/);
+  assert.match(d.log, /#11 \(pr\) factory PR with auto-merge not enabled since .*45 min ago, deadline 30 min: re-arm auto-merge/);
   assert.equal(d.log.split("\n").length, 1);
 });
 
@@ -649,7 +654,7 @@ test("a factory PR whose auto-merge is still within the deadline is left alone, 
   const armed = pr(12, { verdict: "success", behindBy: 0 });
   const ds = reconcile(snapshot({ prs: [young, armed] }), DEFAULT_DEADLINES, POLICY);
   assert.deepEqual(repairs(ds), []);
-  assert.match(ds[0]!.log, /auto-merge not enabled since .*5 min ago, deadline 15 min: within deadline/);
+  assert.match(ds[0]!.log, /auto-merge not enabled since .*5 min ago, deadline 30 min: within deadline/);
 });
 
 test("a parked factory PR is not re-armed: needs-human means a maintainer owns it", () => {

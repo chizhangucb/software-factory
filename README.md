@@ -1,11 +1,11 @@
 # tomte
 
-Reusable GitHub Actions workflows that turn a labeled ticket into a merged PR with no human in the path. You write the ticket and read what the factory escalates; everything in between is agents and required status checks.
+An autonomous software factory: reusable GitHub Actions workflows that orchestrate coding agents to turn a labeled ticket into a merged PR, with no human in the path. You write the ticket and read what the factory escalates; everything in between is agents and required status checks.
 
 Two things make it work:
 
 - **The merge gate lives in CI, not at a human boundary.** An agent's "done" is a claim, so a read-only reviewer's verdict and a red-green proof are required checks GitHub gates the merge on. Nobody presses merge; auto-merge does, once every check is green.
-- **It runs on subscription billing, not API keys.** One or more `claude setup-token` accounts, rotated by the factory, is what makes the volume affordable.
+- **Any agent, any plan.** The engine's agent slot is vendor-agnostic and auth flows through one seam (ADR 0001), so a coding agent runs on a subscription or an API key without reshaping the pipeline. Today it is wired and tested on Claude.
 
 The factory lives in this repo. A target repo carries one workflow file that calls it.
 
@@ -26,7 +26,7 @@ A failing run or check in steps 3–5 earns one informed retry, then escalates t
 
 A target repo on GitHub, plus:
 
-- **At least one Claude subscription account** — a `claude setup-token` per account (Pro, Max, Team, or Enterprise).
+- **A coding-agent account** — today a Claude subscription (`claude setup-token`, any of Pro, Max, Team, or Enterprise); the auth seam is built to take an API key or another vendor too (ADR 0001).
 - **A fine-grained PAT scoped to that one target** — contents, issues, pull requests, and workflows write.
 - **A host that runs the heartbeat every 30 minutes** — anything but a GitHub cron (it does not fire reliably).
 

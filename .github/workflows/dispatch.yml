@@ -25,11 +25,11 @@
 # A heartbeat outside GitHub drives the sweep. GitHub's own cron was removed
 # from the caller in #270: measured on one private target it fired 6 times
 # against about 129 expected in 21 and a half hours, and a seven hour gap was
-# seen, so it was never a reliable fallback. The heartbeat runs on the interval
-# factory/heartbeat/interval.ts names, with a PAT that has contents: write on
-# the targets and nothing else, and the daily recheck (#267) retries a repair
-# that changed nothing. The sender and its one target list live in this repo
-# (#222):
+# seen, so it was never a reliable fallback. The daily recheck (#267) retries a
+# repair that changed nothing, so a deadline missed during an outage is caught
+# without the cron. The heartbeat runs on the interval factory/heartbeat/interval.ts
+# names, with a PAT that has contents: write on the targets and nothing else.
+# The sender and its one target list live in this repo (#222):
 # add the target to factory/heartbeat/targets.ts, then run
 # GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts
 name: factory dispatch

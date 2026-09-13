@@ -377,6 +377,19 @@ test("the caller subscribes to exactly the issue events its conditions answer", 
   assert.deepEqual([...new Set(ISSUE_EVENTS.map((event) => event.action))].sort(), subscribed);
 });
 
+test("the caller subscribes to no schedule event, and no job condition names it (#272)", () => {
+  // GitHub's own cron fired 6 times against about 129 expected on one private
+  // target over 21 and a half hours, so it was never a reliable fallback. The
+  // heartbeat drives the sweep, and the daily recheck (#267) retries a repair
+  // that changed nothing. A schedule trigger added back to the template would
+  // revive a cadence this factory does not rely on, so fail here if one returns.
+  assert.doesNotMatch(template, /\n {2}schedule:/, "the caller template subscribes to no schedule event");
+  assert.doesNotMatch(template, /\n {4}- cron:/, "the caller template carries no cron line");
+  for (const [job, condition] of conditions) {
+    assert.doesNotMatch(condition, /'schedule'/, `${job}'s condition names no schedule event`);
+  }
+});
+
 test("pull_request_target stays on labeled alone, because its jobs read a label with no action clause", () => {
   // `review` and `implement-pr` are guarded by `github.event.label.name` and
   // nothing else, so the narrow type list is their whole guard. Widen it to

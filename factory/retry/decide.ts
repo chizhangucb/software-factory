@@ -433,7 +433,7 @@ export const renderRequeueComment = (input: {
     "",
     input.onPr
       ? "This PR stays in `agent:in-progress` and nothing else is labeled. The reconciler re-adds `agent:review` at its stuck deadline, and the run starts again; the retry count is unchanged."
-      : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the schedule) once `agent:in-progress` is gone.",
+      : "No factory label is left on the ticket, so the dispatcher picks it up again on its next run (a label event or the next heartbeat sweep) once `agent:in-progress` is gone.",
   ].join("\n");
 
 /**

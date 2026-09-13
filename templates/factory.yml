@@ -29,12 +29,6 @@ on:
     # add this repo to factory/heartbeat/targets.ts and run
     #   GH_TOKEN=<token> node --experimental-strip-types factory/heartbeat/send.ts
     types: [factory-update-branch, factory-sweep]
-  schedule:
-    # The fallback, not the heartbeat: measured on one private target over 21 and a half hours this
-    # fired 6 times against about 129 expected, so run the heartbeat above and treat it as belt and
-    # braces. Each run bills a minute on a private repo. Off the :00 slots, since GitHub delays
-    # crons on busy minutes.
-    - cron: "4,14,24,34,44,54 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -124,8 +118,7 @@ jobs:
   dispatch:
     if: >-
       vars.FACTORY_PAUSED == '' &&
-      (github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'factory-sweep') ||
       (github.event_name == 'issues' && (github.event.action == 'closed' ||
         (github.event.action == 'unassigned' && github.event.issue.state != 'closed') ||

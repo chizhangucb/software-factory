@@ -113,7 +113,7 @@ test("a healthy snapshot produces no repairs, and a second pass over it none eit
   const healthy = snapshot({
     issues: [ticket(1, { labels: ["ready-for-agent"] }), ticket(2, { labels: [] })],
     prs: [pr(11, { autoMerge: false, factory: false }), pr(12, { verdict: "success", behindBy: 0 })],
-    runs: [run(100, { role: "dispatch", event: "schedule", title: "factory" })],
+    runs: [run(100, { role: "dispatch", event: "repository_dispatch", title: "factory" })],
   });
   assert.deepEqual(repairs(reconcile(healthy, DEFAULT_DEADLINES, POLICY)), []);
   assert.deepEqual(repairs(reconcile(healthy, DEFAULT_DEADLINES, POLICY)), []);
